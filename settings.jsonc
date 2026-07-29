@@ -1,0 +1,43 @@
+{
+  // Demo-video optimizer settings. Comments (// and /* */) are allowed. Keep it valid JSON:
+  // every value needs a comma except the last one. A broken file falls back to the defaults.
+
+  // Playback speed. 2 = twice as fast, 1.5 = 1.5x, 1 = original speed.
+  "speed": 2,
+
+  // Cap the frame rate. Screen recordings are often 60fps; 30 halves the frames and the size.
+  // 0 keeps the original frame rate.
+  "fps": 30,
+
+  // Quality/size, the main knob for file size. Lower = bigger and sharper, higher = smaller.
+  // 18 = high quality, 23 = good, 28 = small, 32 = tiny. Range 0-51.
+  "crf": 28,
+
+  // Video codec: "h264" (plays everywhere) or "hevc" (~30% smaller again, less compatible).
+  "codec": "h264",
+
+  // Remove the audio track? true, or false to keep it and speed it up to match.
+  "remove_audio": true,
+
+  // Downscale tall videos to this height (keeps aspect ratio). 0 = keep the original resolution.
+  "max_height": 0,
+
+  // Suffix added to the output name. "-2x" makes recording.mov -> recording-2x.mp4
+  "output_suffix": "-2x",
+
+  // Keep the original in a hidden .processed/ folder (true) or delete it (false).
+  "keep_original": true,
+
+  // Show a macOS banner when each file is done, and its title and sound.
+  // Sounds: Glass, Ping, Pop, Hero, Submarine, Tink, Funk, Basso, Frog, Sosumi, or "none".
+  "notify": true,
+  "notify_title": "Video optimized",
+  "notify_sound": "Glass",
+
+  // Put the finished file on the clipboard, ready to paste into Slack/Jira/Finder.
+  "copy_to_clipboard": false,
+
+  // Where results go. "" uses the output/ folder; or an absolute path, e.g.
+  // "/Users/you/Library/CloudStorage/Dropbox/demos"
+  "output_dir": ""
+}

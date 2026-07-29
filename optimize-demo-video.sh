@@ -11,7 +11,8 @@ BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
 IN_DIR="$BASE_DIR/input"          # drop raw recordings here (this is what the agent watches)
 DONE_DIR="$BASE_DIR/.processed"   # originals move here after a successful encode (hidden)
 LOG_DIR="$BASE_DIR/.logs"         # all logs live here (hidden)
-CONF="$BASE_DIR/settings.txt"
+CONF_JSON="$BASE_DIR/settings.jsonc"
+CONF_TXT="$BASE_DIR/settings.txt"   # legacy KEY=value config, still read if present
 LOG="$LOG_DIR/optimizer.log"
 LOCK_DIR="$BASE_DIR/.optimizer.lock"
 
@@ -31,7 +32,7 @@ MAX_HEIGHT=0
 OUTPUT_SUFFIX=-2x
 KEEP_ORIGINAL=true
 NOTIFY=true                   # post a macOS banner when a file is done
-NOTIFY_TITLE=Video optimized  # banner title text
+NOTIFY_TITLE="Video optimized"  # banner title text
 NOTIFY_SOUND=Glass            # banner sound (Glass, Ping, Pop, Hero, Submarine, Tink, ...) or none
 COPY_TO_CLIPBOARD=false # put the finished file on the clipboard, ready to paste into Slack/Jira/Finder
 OUTPUT_DIR=          # empty = <base>/output; or an absolute path to send results elsewhere
@@ -56,8 +57,8 @@ copy_to_clipboard() {
   osascript -l JavaScript -e 'function run(a){ObjC.import("AppKit");const p=$.NSPasteboard.generalPasteboard;p.clearContents;p.writeObjects($.NSArray.arrayWithObject($.NSURL.fileURLWithPath(a[0])));}' "$1" >/dev/null 2>&1 || true
 }
 
-# --- read settings.txt: KEY=value lines, comments and unknown keys ignored ---
-if [[ -f "$CONF" ]]; then
+# Ingest KEY=value lines (from JSON or the legacy txt) into the settings, ignoring unknown keys.
+apply_settings() {
   while IFS='=' read -r key val; do
     key="${key## }"; key="${key%% }"
     [[ -z "$key" || "$key" == \#* ]] && continue
@@ -65,7 +66,25 @@ if [[ -f "$CONF" ]]; then
     case "$key" in
       SPEED|FPS|CRF|CODEC|REMOVE_AUDIO|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL|NOTIFY|NOTIFY_TITLE|NOTIFY_SOUND|COPY_TO_CLIPBOARD|OUTPUT_DIR) eval "$key=\$val" ;;
     esac
-  done < "$CONF"
+  done
+}
+
+# Parse settings.jsonc (JSON with // and /* */ comments) into KEY=value using the built-in
+# JavaScriptCore, so there is no extra dependency. Prints PARSE_ERROR if the JSON is invalid.
+read_jsonc() {
+  osascript -l JavaScript -e 'function run(a){const d=$.NSString.stringWithContentsOfFileEncodingError(a[0],4,null);let s=ObjC.unwrap(d)||"";s=s.replace(/\/\*[\s\S]*?\*\//g,"").replace(/(^|[\s,{])\/\/.*$/gm,"$1");try{const o=JSON.parse(s);return Object.keys(o).map(function(k){return k.toUpperCase()+"="+o[k]}).join("\n");}catch(e){return "PARSE_ERROR";}}' "$1"
+}
+
+# --- read settings: prefer settings.jsonc, fall back to the legacy settings.txt ---
+if [[ -f "$CONF_JSON" ]]; then
+  kv="$(read_jsonc "$CONF_JSON")"
+  if [[ "$kv" == "PARSE_ERROR" ]]; then
+    log "settings.jsonc is not valid JSON, using defaults for this run"
+  else
+    print -r -- "$kv" | apply_settings
+  fi
+elif [[ -f "$CONF_TXT" ]]; then
+  apply_settings < "$CONF_TXT"
 fi
 
 # --- validate, falling back to defaults so a typo never breaks a run ---

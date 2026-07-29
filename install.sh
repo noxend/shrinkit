@@ -2,7 +2,7 @@
 # Installs the demo-video optimizer: copies the script into place, creates the watch folders,
 # installs the config, and registers a launchd agent that runs it whenever a recording is dropped
 # into the input folder. Re-running it is safe: it updates the script and reloads the agent, and it
-# never overwrites your settings.txt.
+# never overwrites your settings.
 #
 #   Optional: choose a different base folder before running:
 #       DEMO_OPTIMIZER_DIR="$HOME/Movies/my-clips" ./install.sh
@@ -53,12 +53,12 @@ echo "==> Installed script: $SCRIPT_DST"
 # 3. the folders (processed/ and logs/ are hidden so the folder shows only settings + input + output)
 mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/.processed" "$BASE_DIR/.logs"
 
-# 4. the config (never clobber an existing one)
-if [[ -f "$BASE_DIR/settings.txt" ]]; then
-  echo "==> Kept your existing settings.txt"
+# 4. the config (never clobber an existing one; keep a legacy settings.txt working too)
+if [[ -f "$BASE_DIR/settings.jsonc" || -f "$BASE_DIR/settings.txt" ]]; then
+  echo "==> Kept your existing settings"
 else
-  cp "$REPO_DIR/settings.txt" "$BASE_DIR/settings.txt"
-  echo "==> Installed default settings.txt"
+  cp "$REPO_DIR/settings.jsonc" "$BASE_DIR/settings.jsonc"
+  echo "==> Installed default settings.jsonc"
 fi
 
 # 5. the launchd agent (paths must be absolute; that is why we generate it here)
@@ -121,7 +121,7 @@ echo ""
 echo "Done. Open the 'demo-recordings' shortcut on your Desktop:"
 echo "  - drop recordings into  input/"
 echo "  - pick up results from  output/"
-echo "  - change behaviour by editing  settings.txt"
+echo "  - change behaviour by editing  settings.jsonc"
 echo "(The real folder is $BASE_DIR; the Desktop item is a shortcut to it.)"
 
 if [[ "$NEEDS_FDA" == 1 ]]; then

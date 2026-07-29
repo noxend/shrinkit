@@ -47,12 +47,13 @@ Access, then reload the agent). Anywhere else, for example the default `~/Movies
 3. Take the result from `output/` (named `clip-2x.mp4`).
 
 The original is moved to a hidden `.processed/` folder as a backup, so the base folder shows only
-`settings.txt`, `input/` and `output/`.
+`settings.jsonc`, `input/` and `output/`.
 
 ## Settings
 
-Edit `~/Movies/demo-recordings/settings.txt` (double-click opens it in TextEdit). Changes apply to
-the next recording. A bad value falls back to its default, so a typo cannot break it.
+Edit `~/Movies/demo-recordings/settings.jsonc` (JSON with `//` comments allowed). Changes apply to
+the next recording. A bad value falls back to its default, and if the whole file is not valid JSON
+the run uses the defaults, so nothing breaks.
 
 | Setting | What it does | Default |
 | --- | --- | --- |
@@ -88,10 +89,18 @@ an unidentified developer. That is expected: it is your own local script, not a 
 
 A [launchd](https://www.launchd.info) agent with a `WatchPaths` entry on the input folder runs the
 installed script (`~/.local/bin/demo-video-optimizer`) whenever the folder changes. It waits for the dropped file to
-finish writing, reads `settings.txt`, and calls ffmpeg with `setpts` for the speed change, an
+finish writing, reads `settings.jsonc`, and calls ffmpeg with `setpts` for the speed change, an
 optional `scale` filter, `h264_videotoolbox`/`hevc_videotoolbox` for hardware encoding, and
 `+faststart` so the file streams immediately. A `mkdir`-based lock keeps overlapping events from
 processing the same file twice.
+
+## Update
+
+```bash
+./update.sh
+```
+
+Pulls the latest version and re-installs it. Your settings and recordings are untouched.
 
 ## Uninstall
 
