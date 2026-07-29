@@ -68,11 +68,10 @@ the next recording. A bad value falls back to its default, so a typo cannot brea
 | `NOTIFY_TITLE` | Banner title text | `Video optimized` |
 | `NOTIFY_SOUND` | Banner sound (`Glass`, `Ping`, `Pop`, `Hero`, ...) or `none` for silent | `Glass` |
 | `COPY_TO_CLIPBOARD` | `true` puts the finished file on the clipboard, ready to paste | `false` |
-
-The banner icon is set by macOS to Script Editor's and cannot be changed or removed from a script;
-only the title and sound are adjustable. (Changing the icon would need `terminal-notifier`, which
-requires its own notification permission and can block a background run, so it is intentionally not used.)
 | `OUTPUT_DIR` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |
+
+The notification is the standard macOS banner (posted via `osascript`, no extra tools). Its icon is
+the Script Editor icon and can't be changed from a script; only the title and sound are adjustable.
 
 Encoding is quality-based (libx264/libx265 CRF), which is far smaller than a fixed bitrate for
 screen recordings. On a sample screen capture the old fixed-bitrate path produced a file *larger*
