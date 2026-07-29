@@ -6,13 +6,13 @@
 
 set -u
 
-# Base folder can be overridden at install time (DEMO_OPTIMIZER_DIR); defaults to ~/Movies.
+# Base folder is chosen at install time (DEMO_OPTIMIZER_DIR); defaults to ~/Movies.
 BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
 IN_DIR="$BASE_DIR/input"        # drop raw recordings here (this is what the agent watches)
-OUT_DIR="$BASE_DIR/output"      # optimized results land here
 DONE_DIR="$BASE_DIR/processed"  # originals move here after a successful encode
+LOG_DIR="$BASE_DIR/logs"        # all logs live here
 CONF="$BASE_DIR/settings.txt"
-LOG="$BASE_DIR/optimizer.log"
+LOG="$LOG_DIR/optimizer.log"
 LOCK_DIR="$BASE_DIR/.optimizer.lock"
 
 # Prefer whatever ffmpeg is on PATH; fall back to the common Homebrew locations.
@@ -29,8 +29,9 @@ BITRATE=auto
 MAX_HEIGHT=0
 OUTPUT_SUFFIX=-2x
 KEEP_ORIGINAL=true
+OUTPUT_DIR=          # empty = <base>/output; or an absolute path to send results elsewhere
 
-mkdir -p "$IN_DIR" "$OUT_DIR" "$DONE_DIR"
+mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
 log() { print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >>"$LOG"; }
 
 # --- read settings.txt: KEY=value lines, comments and unknown keys ignored ---
@@ -40,7 +41,7 @@ if [[ -f "$CONF" ]]; then
     [[ -z "$key" || "$key" == \#* ]] && continue
     val="${val%%\#*}"; val="${val## }"; val="${val%% }"; val="${val//\"/}"
     case "$key" in
-      SPEED|REMOVE_AUDIO|CODEC|BITRATE|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL) eval "$key=\$val" ;;
+      SPEED|REMOVE_AUDIO|CODEC|BITRATE|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL|OUTPUT_DIR) eval "$key=\$val" ;;
     esac
   done < "$CONF"
 fi
@@ -54,6 +55,14 @@ awk -v s="$SPEED" 'BEGIN{exit !(s>0)}' || { log "SPEED must be > 0, using 2"; SP
 [[ "$MAX_HEIGHT" == <-> ]] || MAX_HEIGHT=0
 [[ -n "$OUTPUT_SUFFIX" ]] || OUTPUT_SUFFIX=-2x
 [[ "$KEEP_ORIGINAL" == (true|false) ]] || KEEP_ORIGINAL=true
+
+# Where results go: a custom absolute path from settings, else <base>/output.
+OUT_DIR="$BASE_DIR/output"
+if [[ -n "$OUTPUT_DIR" ]]; then
+  if [[ "$OUTPUT_DIR" == /* ]]; then OUT_DIR="${OUTPUT_DIR/#\~/$HOME}"
+  else log "OUTPUT_DIR must be an absolute path (got '$OUTPUT_DIR'), using default"; fi
+fi
+mkdir -p "$OUT_DIR" 2>/dev/null || { log "cannot create OUTPUT_DIR '$OUT_DIR', using default"; OUT_DIR="$BASE_DIR/output"; mkdir -p "$OUT_DIR"; }
 
 # --- one run at a time: launchd can fire several events in a row. mkdir is atomic on macOS, so it
 # doubles as a lock; a lock left by a killed run is stolen once it is older than 30 min. ---

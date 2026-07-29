@@ -12,7 +12,9 @@ set -eu
 REPO_DIR="${0:A:h}"
 BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
 BIN_DIR="$HOME/.local/bin"
-SCRIPT_DST="$BIN_DIR/optimize-demo-video.sh"
+# Installed without a .sh extension so it reads as "demo-video-optimizer" (not "zsh") in the
+# System Settings > Login Items background list.
+SCRIPT_DST="$BIN_DIR/demo-video-optimizer"
 LABEL="com.demo-video-optimizer"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
@@ -44,12 +46,13 @@ echo "==> Using ffmpeg at $FFMPEG_BIN"
 
 # 2. the script
 mkdir -p "$BIN_DIR"
+rm -f "$BIN_DIR/optimize-demo-video.sh"   # drop the name used by older installs
 cp "$REPO_DIR/optimize-demo-video.sh" "$SCRIPT_DST"
 chmod +x "$SCRIPT_DST"
 echo "==> Installed script: $SCRIPT_DST"
 
 # 3. the folders
-mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/processed"
+mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/processed" "$BASE_DIR/logs"
 
 # 4. the config (never clobber an existing one)
 if [[ -f "$BASE_DIR/settings.txt" ]]; then
@@ -68,9 +71,10 @@ cat > "$PLIST" <<PLIST_EOF
 <dict>
     <key>Label</key>
     <string>$LABEL</string>
+    <!-- Run the script directly (it has a #!/bin/zsh shebang) so the background item shows as
+         "demo-video-optimizer" instead of "zsh". -->
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/zsh</string>
         <string>$SCRIPT_DST</string>
     </array>
     <key>WatchPaths</key>
@@ -89,9 +93,9 @@ cat > "$PLIST" <<PLIST_EOF
         <string>$BASE_DIR</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>$BASE_DIR/launchd.out.log</string>
+    <string>$BASE_DIR/logs/launchd.out.log</string>
     <key>StandardErrorPath</key>
-    <string>$BASE_DIR/launchd.err.log</string>
+    <string>$BASE_DIR/logs/launchd.err.log</string>
 </dict>
 </plist>
 PLIST_EOF

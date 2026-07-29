@@ -26,3 +26,9 @@ OUTPUT_SUFFIX=-2x
 # After a successful encode, keep the original (move it to processed/) or delete it?
 # true = keep in processed/, false = delete the original.
 KEEP_ORIGINAL=true
+
+# Where the optimized files go. Leave empty to use the output/ folder next to this file.
+# Or set a full path to send them elsewhere, e.g. a synced folder:
+#   OUTPUT_DIR=/Users/you/Library/CloudStorage/Dropbox/demos
+# (The input folder that gets watched is fixed when you install; only the output can move here.)
+OUTPUT_DIR=

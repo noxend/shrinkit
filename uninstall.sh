@@ -6,11 +6,12 @@ set -u
 
 LABEL="com.demo-video-optimizer"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-SCRIPT_DST="$HOME/.local/bin/optimize-demo-video.sh"
+BIN_DIR="$HOME/.local/bin"
 BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
 
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-rm -f "$PLIST" "$SCRIPT_DST"
+# remove the current name and the one older installs used
+rm -f "$PLIST" "$BIN_DIR/demo-video-optimizer" "$BIN_DIR/optimize-demo-video.sh"
 
 echo "Removed the agent and the script."
 echo "Left in place (delete by hand if you want): $BASE_DIR"

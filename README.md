@@ -55,6 +55,13 @@ the next recording. A bad value falls back to its default, so a typo cannot brea
 | `MAX_HEIGHT` | Downscale tall videos to this height; `0` keeps the original | `0` |
 | `OUTPUT_SUFFIX` | Text added to the output name | `-2x` |
 | `KEEP_ORIGINAL` | `true` keeps the original in `processed/`; `false` deletes it | `true` |
+| `OUTPUT_DIR` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |
+
+Logs are written to the `logs/` folder inside the base folder. The watched input folder is fixed at
+install time (a launchd limitation); to move it, re-run the installer with `DEMO_OPTIMIZER_DIR`.
+
+macOS lists the background item under System Settings > Login Items as **demo-video-optimizer** from
+an unidentified developer. That is expected: it is your own local script, not a signed app.
 
 ## How it works
 
