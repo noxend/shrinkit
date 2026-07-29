@@ -20,13 +20,12 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 echo "==> Base folder: $BASE_DIR"
 
-# macOS keeps Desktop, Documents and Downloads behind a privacy wall (TCC) that a background
-# launchd job cannot write to. Refuse those so the agent does not silently fail.
+# macOS keeps Desktop, Documents and Downloads behind a privacy wall (TCC). A background launchd
+# job is denied there (silently, with no prompt) until it is granted Full Disk Access by hand.
+NEEDS_FDA=0
 case "$BASE_DIR" in
   "$HOME/Desktop"/*|"$HOME/Documents"/*|"$HOME/Downloads"/*|"$HOME/Desktop"|"$HOME/Documents"|"$HOME/Downloads")
-    echo "!! $BASE_DIR is a macOS privacy-protected location; a background job cannot write there."
-    echo "!! Pick a folder under ~/Movies (the default) or elsewhere outside Desktop/Documents/Downloads."
-    exit 1 ;;
+    NEEDS_FDA=1 ;;
 esac
 
 # 1. ffmpeg
@@ -51,8 +50,8 @@ cp "$REPO_DIR/optimize-demo-video.sh" "$SCRIPT_DST"
 chmod +x "$SCRIPT_DST"
 echo "==> Installed script: $SCRIPT_DST"
 
-# 3. the folders
-mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/processed" "$BASE_DIR/logs"
+# 3. the folders (processed/ and logs/ are hidden so the folder shows only settings + input + output)
+mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/.processed" "$BASE_DIR/.logs"
 
 # 4. the config (never clobber an existing one)
 if [[ -f "$BASE_DIR/settings.txt" ]]; then
@@ -93,9 +92,9 @@ cat > "$PLIST" <<PLIST_EOF
         <string>$BASE_DIR</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>$BASE_DIR/logs/launchd.out.log</string>
+    <string>$BASE_DIR/.logs/launchd.out.log</string>
     <key>StandardErrorPath</key>
-    <string>$BASE_DIR/logs/launchd.err.log</string>
+    <string>$BASE_DIR/.logs/launchd.err.log</string>
 </dict>
 </plist>
 PLIST_EOF
@@ -109,3 +108,22 @@ echo ""
 echo "Done. Drop a recording into:  $BASE_DIR/input"
 echo "Pick up the optimized copy in: $BASE_DIR/output"
 echo "Change behaviour any time by editing: $BASE_DIR/settings.txt"
+
+if [[ "$NEEDS_FDA" == 1 ]]; then
+  cat <<FDA
+
+------------------------------------------------------------------------
+ONE-TIME STEP: $BASE_DIR is in a macOS privacy-protected location.
+A background job cannot write there until you grant it Full Disk Access:
+
+  1. Open  System Settings > Privacy & Security > Full Disk Access
+  2. Click the + button (authenticate if asked)
+  3. Press Cmd+Shift+G and paste:  $SCRIPT_DST
+  4. Add it, and make sure its switch is ON
+  5. Run this to restart the agent:
+       launchctl bootout gui/\$(id -u)/$LABEL 2>/dev/null; launchctl bootstrap gui/\$(id -u) "$PLIST"
+
+Until then, recordings dropped in input/ will not be processed.
+------------------------------------------------------------------------
+FDA
+fi

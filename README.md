@@ -27,11 +27,14 @@ input folder. Re-running `./install.sh` updates everything and never overwrites 
 To use a different base folder:
 
 ```bash
-DEMO_OPTIMIZER_DIR="$HOME/Movies/my-clips" ./install.sh
+DEMO_OPTIMIZER_DIR="$HOME/Desktop/demo-recordings" ./install.sh
 ```
 
-Keep it out of `~/Desktop`, `~/Documents` and `~/Downloads`: macOS privacy protection blocks a
-background job from writing there, and the installer refuses those folders for that reason.
+You can put it on the `~/Desktop` (or in `~/Documents` / `~/Downloads`), but those are
+macOS privacy-protected: a background job is denied there, with no automatic prompt, until you grant
+it **Full Disk Access** once by hand. When you install into one of them the script prints the exact
+steps (add `~/.local/bin/demo-video-optimizer` in System Settings > Privacy & Security > Full Disk
+Access, then reload the agent). Anywhere else, for example the default `~/Movies`, needs no such step.
 
 ## Use
 

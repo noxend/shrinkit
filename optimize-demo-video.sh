@@ -8,9 +8,9 @@ set -u
 
 # Base folder is chosen at install time (DEMO_OPTIMIZER_DIR); defaults to ~/Movies.
 BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
-IN_DIR="$BASE_DIR/input"        # drop raw recordings here (this is what the agent watches)
-DONE_DIR="$BASE_DIR/processed"  # originals move here after a successful encode
-LOG_DIR="$BASE_DIR/logs"        # all logs live here
+IN_DIR="$BASE_DIR/input"          # drop raw recordings here (this is what the agent watches)
+DONE_DIR="$BASE_DIR/.processed"   # originals move here after a successful encode (hidden)
+LOG_DIR="$BASE_DIR/.logs"         # all logs live here (hidden)
 CONF="$BASE_DIR/settings.txt"
 LOG="$LOG_DIR/optimizer.log"
 LOCK_DIR="$BASE_DIR/.optimizer.lock"
