@@ -57,13 +57,20 @@ the next recording. A bad value falls back to its default, so a typo cannot brea
 | Setting | What it does | Default |
 | --- | --- | --- |
 | `SPEED` | Speed multiplier. `2` = twice as fast, `1.5`, `1` = original | `2` |
+| `FPS` | Cap the frame rate (60fps recordings halve to 30); `0` keeps original | `30` |
+| `CRF` | Quality/size, the main size knob. Lower = bigger/sharper, higher = smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
+| `CODEC` | `h264` (plays everywhere) or `hevc` (~30% smaller again, less compatible) | `h264` |
 | `REMOVE_AUDIO` | `true` drops sound; `false` keeps it and speeds it up to match | `true` |
-| `CODEC` | `h264` (plays everywhere) or `hevc` (~40% smaller, less compatible) | `h264` |
-| `BITRATE` | `auto` picks from the video height, or set your own like `5000k` | `auto` |
 | `MAX_HEIGHT` | Downscale tall videos to this height; `0` keeps the original | `0` |
 | `OUTPUT_SUFFIX` | Text added to the output name | `-2x` |
 | `KEEP_ORIGINAL` | `true` keeps the original in `.processed/`; `false` deletes it | `true` |
+| `NOTIFY` | `true` posts a macOS banner when each file is done | `true` |
+| `COPY_TO_CLIPBOARD` | `true` puts the finished file on the clipboard, ready to paste | `false` |
 | `OUTPUT_DIR` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |
+
+Encoding is quality-based (libx264/libx265 CRF), which is far smaller than a fixed bitrate for
+screen recordings. On a sample screen capture the old fixed-bitrate path produced a file *larger*
+than the source; the CRF path made it several times smaller.
 
 Logs are written to a hidden `.logs/` folder inside the base folder. The watched input folder is
 fixed at install time (a launchd limitation); to move it, re-run the installer with

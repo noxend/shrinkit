@@ -23,16 +23,32 @@ FFPROBE="$(command -v ffprobe 2>/dev/null || echo /opt/homebrew/bin/ffprobe)"
 
 # --- defaults (used when settings.txt is missing or a value is invalid) ---
 SPEED=2
-REMOVE_AUDIO=true
+FPS=30              # cap the frame rate; 0 keeps the original
+CRF=28              # quality/size: lower = bigger and sharper, higher = smaller
 CODEC=h264
-BITRATE=auto
+REMOVE_AUDIO=true
 MAX_HEIGHT=0
 OUTPUT_SUFFIX=-2x
 KEEP_ORIGINAL=true
+NOTIFY=true             # post a macOS banner when a file is done
+COPY_TO_CLIPBOARD=false # put the finished file on the clipboard, ready to paste into Slack/Jira/Finder
 OUTPUT_DIR=          # empty = <base>/output; or an absolute path to send results elsewhere
 
 mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
 log() { print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >>"$LOG"; }
+
+# Post a Notification Center banner (best effort; never fails the run).
+notify() {
+  [[ "$NOTIFY" == true ]] || return 0
+  local title="${1//\"/}" msg="${2//\"/}"
+  osascript -e "display notification \"$msg\" with title \"$title\" sound name \"Glass\"" >/dev/null 2>&1 || true
+}
+
+# Put a file on the clipboard as a file reference (paste it into Finder, Slack, Mail, ...). Uses
+# NSPasteboard directly, so it needs no app-control permission. Path passed as argv to avoid quoting.
+copy_to_clipboard() {
+  osascript -l JavaScript -e 'function run(a){ObjC.import("AppKit");const p=$.NSPasteboard.generalPasteboard;p.clearContents;p.writeObjects($.NSArray.arrayWithObject($.NSURL.fileURLWithPath(a[0])));}' "$1" >/dev/null 2>&1 || true
+}
 
 # --- read settings.txt: KEY=value lines, comments and unknown keys ignored ---
 if [[ -f "$CONF" ]]; then
@@ -41,7 +57,7 @@ if [[ -f "$CONF" ]]; then
     [[ -z "$key" || "$key" == \#* ]] && continue
     val="${val%%\#*}"; val="${val## }"; val="${val%% }"; val="${val//\"/}"
     case "$key" in
-      SPEED|REMOVE_AUDIO|CODEC|BITRATE|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL|OUTPUT_DIR) eval "$key=\$val" ;;
+      SPEED|FPS|CRF|CODEC|REMOVE_AUDIO|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL|NOTIFY|COPY_TO_CLIPBOARD|OUTPUT_DIR) eval "$key=\$val" ;;
     esac
   done < "$CONF"
 fi
@@ -49,12 +65,15 @@ fi
 # --- validate, falling back to defaults so a typo never breaks a run ---
 [[ "$SPEED" == <->(.<->)# || "$SPEED" == <-> ]] || { log "bad SPEED '$SPEED', using 2"; SPEED=2; }
 awk -v s="$SPEED" 'BEGIN{exit !(s>0)}' || { log "SPEED must be > 0, using 2"; SPEED=2; }
-[[ "$REMOVE_AUDIO" == (true|false) ]] || REMOVE_AUDIO=true
+[[ "$FPS" == <-> ]] || { log "bad FPS '$FPS', using 30"; FPS=30; }
+[[ "$CRF" == <-> ]] && (( CRF <= 51 )) || { log "bad CRF '$CRF' (0-51), using 28"; CRF=28; }
 [[ "$CODEC" == (h264|hevc) ]] || { log "bad CODEC '$CODEC', using h264"; CODEC=h264; }
-[[ "$BITRATE" == auto || "$BITRATE" == <->k ]] || { log "bad BITRATE '$BITRATE', using auto"; BITRATE=auto; }
+[[ "$REMOVE_AUDIO" == (true|false) ]] || REMOVE_AUDIO=true
 [[ "$MAX_HEIGHT" == <-> ]] || MAX_HEIGHT=0
 [[ -n "$OUTPUT_SUFFIX" ]] || OUTPUT_SUFFIX=-2x
 [[ "$KEEP_ORIGINAL" == (true|false) ]] || KEEP_ORIGINAL=true
+[[ "$NOTIFY" == (true|false) ]] || NOTIFY=true
+[[ "$COPY_TO_CLIPBOARD" == (true|false) ]] || COPY_TO_CLIPBOARD=false
 
 # Where results go: a custom absolute path from settings, else <base>/output.
 OUT_DIR="$BASE_DIR/output"
@@ -84,16 +103,6 @@ is_settled() {
   sleep 2
   s2=$(stat -f%z "$f" 2>/dev/null) || return 1
   [[ "$s1" == "$s2" && "$s1" -gt 0 ]]
-}
-
-# Target bitrate by height when BITRATE=auto.
-target_bitrate() {
-  local h="$1"
-  if   (( h <= 720 ));  then echo 3000k
-  elif (( h <= 1080 )); then echo 5000k
-  elif (( h <= 1440 )); then echo 8000k
-  else echo 12000k
-  fi
 }
 
 # atempo only handles 0.5..2.0 per stage, so chain stages for larger factors.
@@ -126,17 +135,18 @@ while true; do
     height=$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$src" 2>/dev/null | head -1)
     [[ "$height" == <-> ]] || height=1080
 
-    # video filter: speed change, plus optional downscale
+    # video filters: speed change, optional downscale, optional frame-rate cap
     vf="setpts=PTS/${SPEED}"
     eff_height="$height"
     if (( MAX_HEIGHT > 0 && height > MAX_HEIGHT )); then
       vf="scale=-2:${MAX_HEIGHT},${vf}"
       eff_height="$MAX_HEIGHT"
     fi
+    (( FPS > 0 )) && vf="${vf},fps=${FPS}"
 
-    if [[ "$BITRATE" == auto ]]; then br=$(target_bitrate "$eff_height"); else br="$BITRATE"; fi
-
-    if [[ "$CODEC" == hevc ]]; then venc=(-c:v hevc_videotoolbox -tag:v hvc1); else venc=(-c:v h264_videotoolbox -tag:v avc1); fi
+    # Quality-based software encoding (CRF): far smaller than a fixed bitrate for screen recordings.
+    if [[ "$CODEC" == hevc ]]; then venc=(-c:v libx265 -crf "$CRF" -preset veryfast -tag:v hvc1)
+    else venc=(-c:v libx264 -crf "$CRF" -preset veryfast); fi
 
     # audio: drop it, or keep and match the new speed (only if the source actually has audio)
     if [[ "$REMOVE_AUDIO" == true ]]; then
@@ -146,14 +156,19 @@ while true; do
       if [[ -n "$has_audio" ]]; then aud=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "$SPEED")"); else aud=(-an); fi
     fi
 
-    log "encode $src  (${height}p${eff_height:+ -> ${eff_height}p}, ${SPEED}x, $CODEC $br, audio=$([[ $REMOVE_AUDIO == true ]] && echo off || echo on))"
-    if "$FFMPEG" -nostdin -y -i "$src" -filter:v "$vf" "${aud[@]}" "${venc[@]}" -b:v "$br" -movflags +faststart "$out" >>"$LOG" 2>&1; then
+    log "encode $src  (${height}p${eff_height:+ -> ${eff_height}p}, ${SPEED}x, ${FPS}fps, $CODEC crf${CRF}, audio=$([[ $REMOVE_AUDIO == true ]] && echo off || echo on))"
+    if "$FFMPEG" -nostdin -y -i "$src" -filter:v "$vf" "${aud[@]}" "${venc[@]}" -pix_fmt yuv420p -movflags +faststart "$out" >>"$LOG" 2>&1; then
+      newsize=$(du -h "$out" | cut -f1 | tr -d ' '); oldsize=$(du -h "$src" | cut -f1 | tr -d ' ')
       if [[ "$KEEP_ORIGINAL" == true ]]; then mv "$src" "$DONE_DIR/"; note="original moved to processed/"; else rm -f "$src"; note="original deleted"; fi
-      log "done   $out  ($(du -h "$out" | cut -f1)); $note"
+      clip=""
+      if [[ "$COPY_TO_CLIPBOARD" == true ]]; then copy_to_clipboard "$out"; clip=", copied to clipboard"; fi
+      log "done   $out  (${oldsize} -> ${newsize}); ${note}${clip}"
+      notify "Video optimized" "${base}   ${oldsize} -> ${newsize}${clip}"
       made_progress=1
     else
       rm -f "$out"
       log "FAILED $src (left in place, see ffmpeg output above)"
+      notify "Optimize failed" "$base"
     fi
   done
   (( made_progress )) || break

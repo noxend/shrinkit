@@ -5,16 +5,20 @@
 # Playback speed multiplier. 2 = twice as fast, 1.5 = 1.5x, 1 = original speed.
 SPEED=2
 
+# Cap the frame rate. Screen recordings are often 60fps; 30 halves the frames and the size.
+# 0 keeps the original frame rate.
+FPS=30
+
+# Quality/size knob (the main one for file size). Lower = bigger and sharper, higher = smaller.
+# 18 = high quality, 23 = good, 28 = small, 32 = tiny. Range 0-51.
+CRF=28
+
+# Video codec: h264 (plays everywhere, safest) or hevc (about 30% smaller again, less compatible).
+CODEC=h264
+
 # Remove the audio track entirely? true or false.
 # If false, audio is kept and sped up to match SPEED.
 REMOVE_AUDIO=true
-
-# Video codec: h264 (plays everywhere, safest for Jira and browsers) or hevc (about 40% smaller,
-# but some older players and web previews can't open it).
-CODEC=h264
-
-# Bitrate. "auto" picks a sensible value from the video height. Or set your own, e.g. 5000k, 8000k.
-BITRATE=auto
 
 # Downscale tall videos to this height (keeps aspect ratio). 0 = keep original resolution.
 # Example: 1080 turns a 4K recording into 1080p and shrinks the file a lot.
@@ -26,6 +30,13 @@ OUTPUT_SUFFIX=-2x
 # After a successful encode, keep the original (move it to a hidden .processed/ folder) or delete it?
 # true = keep in .processed/, false = delete the original.
 KEEP_ORIGINAL=true
+
+# Show a macOS notification banner when each file is done? true or false.
+NOTIFY=true
+
+# Put the finished file on the clipboard, ready to paste into Slack, Jira, Mail or Finder? true/false.
+# (With a batch, the last finished file is the one left on the clipboard.)
+COPY_TO_CLIPBOARD=false
 
 # Where the optimized files go. Leave empty to use the output/ folder next to this file.
 # Or set a full path to send them elsewhere, e.g. a synced folder:
