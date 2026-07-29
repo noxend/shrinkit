@@ -42,7 +42,8 @@ Access, then reload the agent). Anywhere else, for example the default `~/Movies
 2. Wait a few seconds. It is processed automatically.
 3. Take the result from `~/Movies/demo-recordings/output` (named `clip-2x.mp4`).
 
-The original is moved to `processed/` as a backup.
+The original is moved to a hidden `.processed/` folder as a backup, so the base folder shows only
+`settings.txt`, `input/` and `output/`.
 
 ## Settings
 
@@ -57,19 +58,20 @@ the next recording. A bad value falls back to its default, so a typo cannot brea
 | `BITRATE` | `auto` picks from the video height, or set your own like `5000k` | `auto` |
 | `MAX_HEIGHT` | Downscale tall videos to this height; `0` keeps the original | `0` |
 | `OUTPUT_SUFFIX` | Text added to the output name | `-2x` |
-| `KEEP_ORIGINAL` | `true` keeps the original in `processed/`; `false` deletes it | `true` |
+| `KEEP_ORIGINAL` | `true` keeps the original in `.processed/`; `false` deletes it | `true` |
 | `OUTPUT_DIR` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |
 
-Logs are written to the `logs/` folder inside the base folder. The watched input folder is fixed at
-install time (a launchd limitation); to move it, re-run the installer with `DEMO_OPTIMIZER_DIR`.
+Logs are written to a hidden `.logs/` folder inside the base folder. The watched input folder is
+fixed at install time (a launchd limitation); to move it, re-run the installer with
+`DEMO_OPTIMIZER_DIR`.
 
 macOS lists the background item under System Settings > Login Items as **demo-video-optimizer** from
 an unidentified developer. That is expected: it is your own local script, not a signed app.
 
 ## How it works
 
-A [launchd](https://www.launchd.info) agent with a `WatchPaths` entry on the input folder runs
-`optimize-demo-video.sh` whenever the folder changes. The script waits for the dropped file to
+A [launchd](https://www.launchd.info) agent with a `WatchPaths` entry on the input folder runs the
+installed script (`~/.local/bin/demo-video-optimizer`) whenever the folder changes. It waits for the dropped file to
 finish writing, reads `settings.txt`, and calls ffmpeg with `setpts` for the speed change, an
 optional `scale` filter, `h264_videotoolbox`/`hevc_videotoolbox` for hardware encoding, and
 `+faststart` so the file streams immediately. A `mkdir`-based lock keeps overlapping events from

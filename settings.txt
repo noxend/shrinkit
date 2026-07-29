@@ -23,8 +23,8 @@ MAX_HEIGHT=0
 # Suffix added to the output filename before .mp4. "-2x" makes recording.mov -> recording-2x.mp4
 OUTPUT_SUFFIX=-2x
 
-# After a successful encode, keep the original (move it to processed/) or delete it?
-# true = keep in processed/, false = delete the original.
+# After a successful encode, keep the original (move it to a hidden .processed/ folder) or delete it?
+# true = keep in .processed/, false = delete the original.
 KEEP_ORIGINAL=true
 
 # Where the optimized files go. Leave empty to use the output/ folder next to this file.
