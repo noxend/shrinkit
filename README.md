@@ -99,6 +99,17 @@ optional `scale` filter, `h264_videotoolbox`/`hevc_videotoolbox` for hardware en
 `+faststart` so the file streams immediately. A `mkdir`-based lock keeps overlapping events from
 processing the same file twice.
 
+## Tests
+
+```bash
+./tests/run-tests.sh          # everything
+./tests/run-tests.sh lock     # only the tests whose name contains "lock"
+```
+
+Each test runs the real script against a throwaway folder under `/tmp`, so your own recordings and
+the installed agent are left alone. Sample videos are generated with ffmpeg into `tests/fixtures`
+on the first run and reused afterwards; they are not committed.
+
 ## Update
 
 ```bash
