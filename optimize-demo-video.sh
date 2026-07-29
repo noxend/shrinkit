@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Optimizes screen recordings dropped into the input folder: speeds them up, strips (or speeds up)
-# audio, and re-encodes to a small, universally-playable mp4. All settings live in settings.txt in
+# audio, and re-encodes to a small, universally-playable mp4. All settings live in settings.jsonc in
 # the base folder, so there is no need to edit this script. Triggered by a launchd WatchPaths agent,
 # and safe to run by hand. Processes everything pending, then exits.
 
@@ -22,7 +22,7 @@ FFPROBE="$(command -v ffprobe 2>/dev/null || echo /opt/homebrew/bin/ffprobe)"
 [[ -x "$FFMPEG" ]] || FFMPEG=/usr/local/bin/ffmpeg
 [[ -x "$FFPROBE" ]] || FFPROBE=/usr/local/bin/ffprobe
 
-# --- defaults (used when settings.txt is missing or a value is invalid) ---
+# --- defaults (used when settings.jsonc is missing or a value is invalid) ---
 SPEED=2
 FPS=30              # cap the frame rate; 0 keeps the original
 CRF=28              # quality/size: lower = bigger and sharper, higher = smaller
@@ -104,7 +104,7 @@ awk -v s="$SPEED" 'BEGIN{exit !(s>0)}' || { log "SPEED must be > 0, using 2"; SP
 # Where results go: a custom absolute path from settings, else <base>/output.
 OUT_DIR="$BASE_DIR/output"
 if [[ -n "$OUTPUT_DIR" ]]; then
-  if [[ "$OUTPUT_DIR" == /* ]]; then OUT_DIR="${OUTPUT_DIR/#\~/$HOME}"
+  if [[ "$OUTPUT_DIR" == (/*|\~/*) ]]; then OUT_DIR="${OUTPUT_DIR/#\~/$HOME}"
   else log "OUTPUT_DIR must be an absolute path (got '$OUTPUT_DIR'), using default"; fi
 fi
 mkdir -p "$OUT_DIR" 2>/dev/null || { log "cannot create OUTPUT_DIR '$OUT_DIR', using default"; OUT_DIR="$BASE_DIR/output"; mkdir -p "$OUT_DIR"; }
