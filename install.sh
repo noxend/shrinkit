@@ -100,14 +100,29 @@ cat > "$PLIST" <<PLIST_EOF
 PLIST_EOF
 echo "==> Installed launchd agent: $PLIST"
 
-# 6. (re)load it
+# 6. a shortcut on the Desktop pointing at the working folder, so you reach input/ and output/
+#    from the Desktop while the real folder stays in a non-protected location (no permissions
+#    needed). Skipped when the base is already on the Desktop, or with DESKTOP_SHORTCUT=0.
+if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
+  LINK="$HOME/Desktop/${BASE_DIR:t}"
+  if [[ -e "$LINK" && ! -L "$LINK" ]]; then
+    echo "!! $LINK already exists as a real folder; skipping the Desktop shortcut."
+  else
+    ln -sfn "$BASE_DIR" "$LINK"
+    echo "==> Desktop shortcut: $LINK -> $BASE_DIR"
+  fi
+fi
+
+# 7. (re)load it
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 echo ""
-echo "Done. Drop a recording into:  $BASE_DIR/input"
-echo "Pick up the optimized copy in: $BASE_DIR/output"
-echo "Change behaviour any time by editing: $BASE_DIR/settings.txt"
+echo "Done. Open the 'demo-recordings' shortcut on your Desktop:"
+echo "  - drop recordings into  input/"
+echo "  - pick up results from  output/"
+echo "  - change behaviour by editing  settings.txt"
+echo "(The real folder is $BASE_DIR; the Desktop item is a shortcut to it.)"
 
 if [[ "$NEEDS_FDA" == 1 ]]; then
   cat <<FDA

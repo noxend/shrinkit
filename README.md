@@ -21,8 +21,11 @@ cd demo-video-optimizer
 ```
 
 That copies the script into `~/.local/bin`, creates the working folders under
-`~/Movies/demo-recordings`, installs the config, and registers a launchd agent that watches the
-input folder. Re-running `./install.sh` updates everything and never overwrites your settings.
+`~/Movies/demo-recordings`, installs the config, registers a launchd agent that watches the input
+folder, and puts a **`demo-recordings` shortcut on your Desktop** pointing at that folder. So the
+work happens in a non-protected location (no permissions needed) while you reach `input/` and
+`output/` from the Desktop. Re-running `./install.sh` updates everything and never overwrites your
+settings. Pass `DESKTOP_SHORTCUT=0` to skip the shortcut.
 
 To use a different base folder:
 
@@ -38,9 +41,10 @@ Access, then reload the agent). Anywhere else, for example the default `~/Movies
 
 ## Use
 
-1. Put a recording (`.mov`, `.mp4`, `.m4v`) into `~/Movies/demo-recordings/input`.
+1. Open the `demo-recordings` shortcut on your Desktop and drop a recording (`.mov`, `.mp4`,
+   `.m4v`) into `input/`.
 2. Wait a few seconds. It is processed automatically.
-3. Take the result from `~/Movies/demo-recordings/output` (named `clip-2x.mp4`).
+3. Take the result from `output/` (named `clip-2x.mp4`).
 
 The original is moved to a hidden `.processed/` folder as a backup, so the base folder shows only
 `settings.txt`, `input/` and `output/`.
