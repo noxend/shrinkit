@@ -106,48 +106,57 @@ atempo_chain() {
 }
 
 setopt local_options null_glob
-found_any=0
+saw_any=0
 
-for src in "$IN_DIR"/*.mov "$IN_DIR"/*.mp4 "$IN_DIR"/*.m4v "$IN_DIR"/*.MOV "$IN_DIR"/*.MP4 "$IN_DIR"/*.M4V; do
-  [[ -f "$src" ]] || continue
-  found_any=1
-  base="${src:t:r}"
-  out="$OUT_DIR/${base}${OUTPUT_SUFFIX}.mp4"
+# Drain the input folder to empty. Re-scanning after each success means a file dropped WHILE another
+# is encoding is picked up by this same run, instead of waiting for launchd to fire again (its
+# WatchPaths events get coalesced during a run). A pass that makes no progress ends the loop, so a
+# still-writing or failing file cannot spin forever.
+while true; do
+  made_progress=0
+  for src in "$IN_DIR"/*.mov "$IN_DIR"/*.mp4 "$IN_DIR"/*.m4v "$IN_DIR"/*.MOV "$IN_DIR"/*.MP4 "$IN_DIR"/*.M4V; do
+    [[ -f "$src" ]] || continue
+    saw_any=1
+    base="${src:t:r}"
+    out="$OUT_DIR/${base}${OUTPUT_SUFFIX}.mp4"
 
-  [[ -e "$out" ]] && { log "skip $src (output already exists)"; continue; }
-  is_settled "$src" || { log "skip $src (still being written, will retry on the next event)"; continue; }
+    [[ -e "$out" ]] && { log "skip $src (output already exists)"; continue; }
+    is_settled "$src" || { log "skip $src (still being written, will retry on the next event)"; continue; }
 
-  height=$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$src" 2>/dev/null | head -1)
-  [[ "$height" == <-> ]] || height=1080
+    height=$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$src" 2>/dev/null | head -1)
+    [[ "$height" == <-> ]] || height=1080
 
-  # video filter: speed change, plus optional downscale
-  vf="setpts=PTS/${SPEED}"
-  eff_height="$height"
-  if (( MAX_HEIGHT > 0 && height > MAX_HEIGHT )); then
-    vf="scale=-2:${MAX_HEIGHT},${vf}"
-    eff_height="$MAX_HEIGHT"
-  fi
+    # video filter: speed change, plus optional downscale
+    vf="setpts=PTS/${SPEED}"
+    eff_height="$height"
+    if (( MAX_HEIGHT > 0 && height > MAX_HEIGHT )); then
+      vf="scale=-2:${MAX_HEIGHT},${vf}"
+      eff_height="$MAX_HEIGHT"
+    fi
 
-  if [[ "$BITRATE" == auto ]]; then br=$(target_bitrate "$eff_height"); else br="$BITRATE"; fi
+    if [[ "$BITRATE" == auto ]]; then br=$(target_bitrate "$eff_height"); else br="$BITRATE"; fi
 
-  if [[ "$CODEC" == hevc ]]; then venc=(-c:v hevc_videotoolbox -tag:v hvc1); else venc=(-c:v h264_videotoolbox -tag:v avc1); fi
+    if [[ "$CODEC" == hevc ]]; then venc=(-c:v hevc_videotoolbox -tag:v hvc1); else venc=(-c:v h264_videotoolbox -tag:v avc1); fi
 
-  # audio: drop it, or keep and match the new speed (only if the source actually has audio)
-  if [[ "$REMOVE_AUDIO" == true ]]; then
-    aud=(-an)
-  else
-    has_audio=$("$FFPROBE" -v error -select_streams a -show_entries stream=index -of csv=p=0 "$src" 2>/dev/null | head -1)
-    if [[ -n "$has_audio" ]]; then aud=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "$SPEED")"); else aud=(-an); fi
-  fi
+    # audio: drop it, or keep and match the new speed (only if the source actually has audio)
+    if [[ "$REMOVE_AUDIO" == true ]]; then
+      aud=(-an)
+    else
+      has_audio=$("$FFPROBE" -v error -select_streams a -show_entries stream=index -of csv=p=0 "$src" 2>/dev/null | head -1)
+      if [[ -n "$has_audio" ]]; then aud=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "$SPEED")"); else aud=(-an); fi
+    fi
 
-  log "encode $src  (${height}p${eff_height:+ -> ${eff_height}p}, ${SPEED}x, $CODEC $br, audio=$([[ $REMOVE_AUDIO == true ]] && echo off || echo on))"
-  if "$FFMPEG" -nostdin -y -i "$src" -filter:v "$vf" "${aud[@]}" "${venc[@]}" -b:v "$br" -movflags +faststart "$out" >>"$LOG" 2>&1; then
-    if [[ "$KEEP_ORIGINAL" == true ]]; then mv "$src" "$DONE_DIR/"; note="original moved to processed/"; else rm -f "$src"; note="original deleted"; fi
-    log "done   $out  ($(du -h "$out" | cut -f1)); $note"
-  else
-    rm -f "$out"
-    log "FAILED $src (left in place, see ffmpeg output above)"
-  fi
+    log "encode $src  (${height}p${eff_height:+ -> ${eff_height}p}, ${SPEED}x, $CODEC $br, audio=$([[ $REMOVE_AUDIO == true ]] && echo off || echo on))"
+    if "$FFMPEG" -nostdin -y -i "$src" -filter:v "$vf" "${aud[@]}" "${venc[@]}" -b:v "$br" -movflags +faststart "$out" >>"$LOG" 2>&1; then
+      if [[ "$KEEP_ORIGINAL" == true ]]; then mv "$src" "$DONE_DIR/"; note="original moved to processed/"; else rm -f "$src"; note="original deleted"; fi
+      log "done   $out  ($(du -h "$out" | cut -f1)); $note"
+      made_progress=1
+    else
+      rm -f "$out"
+      log "FAILED $src (left in place, see ffmpeg output above)"
+    fi
+  done
+  (( made_progress )) || break
 done
 
-(( found_any )) || log "no new recordings"
+(( saw_any )) || log "no new recordings"
