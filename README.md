@@ -4,8 +4,12 @@ Drop a screen recording into a folder and get back a faster, smaller, easy-to-sh
 by itself in the background on macOS: no app to open, no buttons to press. Handy for trimming long
 demo recordings down before attaching them to a ticket or a chat.
 
-By default it plays the recording back at 2x, removes the audio, and re-encodes to a compact H.264
-mp4 using Apple's hardware encoder. Every part of that is configurable in a plain text file.
+By default it plays the recording back at 2x, drops the audio, caps the frame rate, and re-encodes
+with a quality-based codec (CRF), so the file comes out much smaller. Every part is configurable.
+
+## Demo
+
+https://github.com/user-attachments/assets/651900d7-0171-4793-b6fd-5d1d5097ee98
 
 ## Requirements
 
