@@ -15,7 +15,7 @@ mp4 using Apple's hardware encoder. Every part of that is configurable in a plai
 ## Install
 
 ```bash
-git clone https://github.com/<you>/demo-video-optimizer.git
+git clone git@github.com:noxend/demo-video-optimizer.git
 cd demo-video-optimizer
 ./install.sh
 ```
