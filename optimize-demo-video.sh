@@ -30,18 +30,24 @@ REMOVE_AUDIO=true
 MAX_HEIGHT=0
 OUTPUT_SUFFIX=-2x
 KEEP_ORIGINAL=true
-NOTIFY=true             # post a macOS banner when a file is done
+NOTIFY=true                   # post a macOS banner when a file is done
+NOTIFY_TITLE=Video optimized  # banner title text
+NOTIFY_SOUND=Glass            # banner sound (Glass, Ping, Pop, Hero, Submarine, Tink, ...) or none
 COPY_TO_CLIPBOARD=false # put the finished file on the clipboard, ready to paste into Slack/Jira/Finder
 OUTPUT_DIR=          # empty = <base>/output; or an absolute path to send results elsewhere
 
 mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
 log() { print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >>"$LOG"; }
 
-# Post a Notification Center banner (best effort; never fails the run).
+# Post a Notification Center banner (best effort; never fails the run). The icon is fixed by macOS
+# to Script Editor's and cannot be changed here; title and sound are configurable.
 notify() {
   [[ "$NOTIFY" == true ]] || return 0
-  local title="${1//\"/}" msg="${2//\"/}"
-  osascript -e "display notification \"$msg\" with title \"$title\" sound name \"Glass\"" >/dev/null 2>&1 || true
+  local msg="${1//\"/}" title="${2:-$NOTIFY_TITLE}"
+  title="${title//\"/}"
+  local snd=""
+  [[ -n "$NOTIFY_SOUND" && "$NOTIFY_SOUND" != (none|off|silent|no) ]] && snd=" sound name \"${NOTIFY_SOUND//\"/}\""
+  osascript -e "display notification \"$msg\" with title \"$title\"$snd" >/dev/null 2>&1 || true
 }
 
 # Put a file on the clipboard as a file reference (paste it into Finder, Slack, Mail, ...). Uses
@@ -57,7 +63,7 @@ if [[ -f "$CONF" ]]; then
     [[ -z "$key" || "$key" == \#* ]] && continue
     val="${val%%\#*}"; val="${val## }"; val="${val%% }"; val="${val//\"/}"
     case "$key" in
-      SPEED|FPS|CRF|CODEC|REMOVE_AUDIO|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL|NOTIFY|COPY_TO_CLIPBOARD|OUTPUT_DIR) eval "$key=\$val" ;;
+      SPEED|FPS|CRF|CODEC|REMOVE_AUDIO|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL|NOTIFY|NOTIFY_TITLE|NOTIFY_SOUND|COPY_TO_CLIPBOARD|OUTPUT_DIR) eval "$key=\$val" ;;
     esac
   done < "$CONF"
 fi
@@ -73,6 +79,7 @@ awk -v s="$SPEED" 'BEGIN{exit !(s>0)}' || { log "SPEED must be > 0, using 2"; SP
 [[ -n "$OUTPUT_SUFFIX" ]] || OUTPUT_SUFFIX=-2x
 [[ "$KEEP_ORIGINAL" == (true|false) ]] || KEEP_ORIGINAL=true
 [[ "$NOTIFY" == (true|false) ]] || NOTIFY=true
+[[ -n "$NOTIFY_TITLE" ]] || NOTIFY_TITLE="Video optimized"
 [[ "$COPY_TO_CLIPBOARD" == (true|false) ]] || COPY_TO_CLIPBOARD=false
 
 # Where results go: a custom absolute path from settings, else <base>/output.
@@ -163,12 +170,12 @@ while true; do
       clip=""
       if [[ "$COPY_TO_CLIPBOARD" == true ]]; then copy_to_clipboard "$out"; clip=", copied to clipboard"; fi
       log "done   $out  (${oldsize} -> ${newsize}); ${note}${clip}"
-      notify "Video optimized" "${base}   ${oldsize} -> ${newsize}${clip}"
+      notify "${base}   ${oldsize} -> ${newsize}${clip}"
       made_progress=1
     else
       rm -f "$out"
       log "FAILED $src (left in place, see ffmpeg output above)"
-      notify "Optimize failed" "$base"
+      notify "$base" "Optimize failed"
     fi
   done
   (( made_progress )) || break

@@ -65,7 +65,13 @@ the next recording. A bad value falls back to its default, so a typo cannot brea
 | `OUTPUT_SUFFIX` | Text added to the output name | `-2x` |
 | `KEEP_ORIGINAL` | `true` keeps the original in `.processed/`; `false` deletes it | `true` |
 | `NOTIFY` | `true` posts a macOS banner when each file is done | `true` |
+| `NOTIFY_TITLE` | Banner title text | `Video optimized` |
+| `NOTIFY_SOUND` | Banner sound (`Glass`, `Ping`, `Pop`, `Hero`, ...) or `none` for silent | `Glass` |
 | `COPY_TO_CLIPBOARD` | `true` puts the finished file on the clipboard, ready to paste | `false` |
+
+The banner icon is set by macOS to Script Editor's and cannot be changed or removed from a script;
+only the title and sound are adjustable. (Changing the icon would need `terminal-notifier`, which
+requires its own notification permission and can block a background run, so it is intentionally not used.)
 | `OUTPUT_DIR` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |
 
 Encoding is quality-based (libx264/libx265 CRF), which is far smaller than a fixed bitrate for

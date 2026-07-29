@@ -34,6 +34,12 @@ KEEP_ORIGINAL=true
 # Show a macOS notification banner when each file is done? true or false.
 NOTIFY=true
 
+# Banner title text, and the sound. Sounds: Glass, Ping, Pop, Hero, Submarine, Tink, Funk, Basso,
+# Frog, Sosumi (or "none" for silent). The banner icon is set by macOS to Script Editor's and
+# cannot be changed from a script.
+NOTIFY_TITLE=Video optimized
+NOTIFY_SOUND=Glass
+
 # Put the finished file on the clipboard, ready to paste into Slack, Jira, Mail or Finder? true/false.
 # (With a batch, the last finished file is the one left on the clipboard.)
 COPY_TO_CLIPBOARD=false
