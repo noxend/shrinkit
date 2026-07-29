@@ -1,0 +1,28 @@
+# Settings for the demo-video optimizer. Double-click this file to open it in TextEdit, change the
+# values, save, done. No need to touch the script. Lines starting with # are ignored, format is
+# KEY=value, and a bad value quietly falls back to its default so you cannot break it with a typo.
+
+# Playback speed multiplier. 2 = twice as fast, 1.5 = 1.5x, 1 = original speed.
+SPEED=2
+
+# Remove the audio track entirely? true or false.
+# If false, audio is kept and sped up to match SPEED.
+REMOVE_AUDIO=true
+
+# Video codec: h264 (plays everywhere, safest for Jira and browsers) or hevc (about 40% smaller,
+# but some older players and web previews can't open it).
+CODEC=h264
+
+# Bitrate. "auto" picks a sensible value from the video height. Or set your own, e.g. 5000k, 8000k.
+BITRATE=auto
+
+# Downscale tall videos to this height (keeps aspect ratio). 0 = keep original resolution.
+# Example: 1080 turns a 4K recording into 1080p and shrinks the file a lot.
+MAX_HEIGHT=0
+
+# Suffix added to the output filename before .mp4. "-2x" makes recording.mov -> recording-2x.mp4
+OUTPUT_SUFFIX=-2x
+
+# After a successful encode, keep the original (move it to processed/) or delete it?
+# true = keep in processed/, false = delete the original.
+KEEP_ORIGINAL=true
