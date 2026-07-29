@@ -35,6 +35,7 @@ NOTIFY=true                   # post a macOS banner when a file is done
 NOTIFY_TITLE="Video optimized"  # banner title text
 NOTIFY_SOUND=Glass            # banner sound (Glass, Ping, Pop, Hero, Submarine, Tink, ...) or none
 COPY_TO_CLIPBOARD=false # put the finished file on the clipboard, ready to paste into Slack/Jira/Finder
+CHECK_UPDATES=true      # once a day, notify if the repo has newer commits (run update.sh to get them)
 OUTPUT_DIR=          # empty = <base>/output; or an absolute path to send results elsewhere
 
 mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
@@ -64,7 +65,7 @@ apply_settings() {
     [[ -z "$key" || "$key" == \#* ]] && continue
     val="${val%%\#*}"; val="${val## }"; val="${val%% }"; val="${val//\"/}"
     case "$key" in
-      SPEED|FPS|CRF|CODEC|REMOVE_AUDIO|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL|NOTIFY|NOTIFY_TITLE|NOTIFY_SOUND|COPY_TO_CLIPBOARD|OUTPUT_DIR) eval "$key=\$val" ;;
+      SPEED|FPS|CRF|CODEC|REMOVE_AUDIO|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL|NOTIFY|NOTIFY_TITLE|NOTIFY_SOUND|COPY_TO_CLIPBOARD|CHECK_UPDATES|OUTPUT_DIR) eval "$key=\$val" ;;
     esac
   done
 }
@@ -100,6 +101,7 @@ awk -v s="$SPEED" 'BEGIN{exit !(s>0)}' || { log "SPEED must be > 0, using 2"; SP
 [[ "$NOTIFY" == (true|false) ]] || NOTIFY=true
 [[ -n "$NOTIFY_TITLE" ]] || NOTIFY_TITLE="Video optimized"
 [[ "$COPY_TO_CLIPBOARD" == (true|false) ]] || COPY_TO_CLIPBOARD=false
+[[ "$CHECK_UPDATES" == (true|false) ]] || CHECK_UPDATES=true
 
 # Where results go: a custom absolute path from settings, else <base>/output.
 OUT_DIR="$BASE_DIR/output"
@@ -201,3 +203,22 @@ while true; do
 done
 
 (( saw_any )) || log "no new recordings"
+
+# --- once a day, tell the user if the installed clone is behind origin (best effort, never blocks
+# the run: throttled, and the SSH connect is capped so a dead network cannot hang it). ---
+repo="${DEMO_OPTIMIZER_REPO:-}"
+if [[ "$CHECK_UPDATES" == true && -n "$repo" && -d "$repo/.git" ]]; then
+  stamp="$LOG_DIR/.last-update-check"
+  last=$(cat "$stamp" 2>/dev/null || echo 0)
+  now=$(date +%s)
+  if (( now - last >= 86400 )); then
+    echo "$now" > "$stamp"   # written before fetching, so a slow network cannot busy-loop the check
+    if git -C "$repo" -c core.sshCommand="ssh -o ConnectTimeout=8 -o BatchMode=yes" fetch --quiet origin main 2>/dev/null; then
+      behind=$(git -C "$repo" rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+      if [[ "$behind" == <-> && "$behind" -gt 0 ]]; then
+        log "update available: $behind new commit(s) on origin/main"
+        notify "$behind new commit(s) available, run update.sh" "Update available"
+      fi
+    fi
+  fi
+fi

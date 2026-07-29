@@ -69,6 +69,7 @@ the run uses the defaults, so nothing breaks.
 | `NOTIFY_TITLE` | Banner title text | `Video optimized` |
 | `NOTIFY_SOUND` | Banner sound (`Glass`, `Ping`, `Pop`, `Hero`, ...) or `none` for silent | `Glass` |
 | `COPY_TO_CLIPBOARD` | `true` puts the finished file on the clipboard, ready to paste | `false` |
+| `CHECK_UPDATES` | Once a day, notify if the repo has newer commits (then run `update.sh`) | `true` |
 | `OUTPUT_DIR` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |
 
 The notification is the standard macOS banner (posted via `osascript`, no extra tools). Its icon is

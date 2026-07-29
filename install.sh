@@ -90,6 +90,8 @@ cat > "$PLIST" <<PLIST_EOF
         <string>$FFMPEG_DIR:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>DEMO_OPTIMIZER_DIR</key>
         <string>$BASE_DIR</string>
+        <key>DEMO_OPTIMIZER_REPO</key>
+        <string>$REPO_DIR</string>
     </dict>
     <key>StandardOutPath</key>
     <string>$BASE_DIR/.logs/launchd.out.log</string>
