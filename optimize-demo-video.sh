@@ -1,224 +1,356 @@
 #!/bin/zsh
-# Optimizes screen recordings dropped into the input folder: speeds them up, strips (or speeds up)
-# audio, and re-encodes to a small, universally-playable mp4. All settings live in settings.jsonc in
-# the base folder, so there is no need to edit this script. Triggered by a launchd WatchPaths agent,
-# and safe to run by hand. Processes everything pending, then exits.
+#
+# Optimizes screen recordings dropped into the input folder: speeds them up, drops or stretches the
+# audio, and re-encodes them small. Settings live in settings.jsonc next to the folders, so this
+# script never needs editing. A launchd WatchPaths agent runs it whenever something lands in
+# input/, and running it by hand does exactly the same thing.
 
 set -u
+setopt extended_glob
 
-# Base folder is chosen at install time (DEMO_OPTIMIZER_DIR); defaults to ~/Movies.
+# --------------------------------------------------------------------- where things live
+
 BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
-IN_DIR="$BASE_DIR/input"          # drop raw recordings here (this is what the agent watches)
-DONE_DIR="$BASE_DIR/.processed"   # originals move here after a successful encode (hidden)
-LOG_DIR="$BASE_DIR/.logs"         # all logs live here (hidden)
-CONF_JSON="$BASE_DIR/settings.jsonc"
-CONF_TXT="$BASE_DIR/settings.txt"   # legacy KEY=value config, still read if present
+REPO_DIR="${DEMO_OPTIMIZER_REPO:-}"   # set by the installer, used for the update check
+
+IN_DIR="$BASE_DIR/input"          # the watched folder
+DONE_DIR="$BASE_DIR/.processed"   # originals end up here after a good encode
+LOG_DIR="$BASE_DIR/.logs"
 LOG="$LOG_DIR/optimizer.log"
 LOCK_DIR="$BASE_DIR/.optimizer.lock"
+UPDATE_STAMP="$LOG_DIR/.last-update-check"
 
-# Prefer whatever ffmpeg is on PATH; fall back to the common Homebrew locations.
-FFMPEG="$(command -v ffmpeg 2>/dev/null || echo /opt/homebrew/bin/ffmpeg)"
-FFPROBE="$(command -v ffprobe 2>/dev/null || echo /opt/homebrew/bin/ffprobe)"
-[[ -x "$FFMPEG" ]] || FFMPEG=/usr/local/bin/ffmpeg
-[[ -x "$FFPROBE" ]] || FFPROBE=/usr/local/bin/ffprobe
+CONFIG_JSON="$BASE_DIR/settings.jsonc"
+CONFIG_TEXT="$BASE_DIR/settings.txt"   # the older key=value format, still read if present
 
-# --- defaults (used when settings.jsonc is missing or a value is invalid) ---
-SPEED=2
-FPS=30              # cap the frame rate; 0 keeps the original
-CRF=28              # quality/size: lower = bigger and sharper, higher = smaller
-CODEC=h264
-REMOVE_AUDIO=true
-MAX_HEIGHT=0
-OUTPUT_SUFFIX=-2x
-KEEP_ORIGINAL=true
-NOTIFY=true                   # post a macOS banner when a file is done
-NOTIFY_TITLE="Video optimized"  # banner title text
-NOTIFY_SOUND=Glass            # banner sound (Glass, Ping, Pop, Hero, Submarine, Tink, ...) or none
-COPY_TO_CLIPBOARD=false # put the finished file on the clipboard, ready to paste into Slack/Jira/Finder
-CHECK_UPDATES=true      # once a day, notify if the repo has newer commits (run update.sh to get them)
-OUTPUT_DIR=          # empty = <base>/output; or an absolute path to send results elsewhere
+OUT_DIR="$BASE_DIR/output"        # settings.output_dir can point this somewhere else
 
-mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
-log() { print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >>"$LOG"; }
-
-# Post a Notification Center banner (best effort; never fails the run). The icon is fixed by macOS
-# to Script Editor's and cannot be changed here; title and sound are configurable.
-notify() {
-  [[ "$NOTIFY" == true ]] || return 0
-  local msg="${1//\"/}" title="${2:-$NOTIFY_TITLE}"
-  title="${title//\"/}"
-  local snd=""
-  [[ -n "$NOTIFY_SOUND" && "$NOTIFY_SOUND" != (none|off|silent|no) ]] && snd=" sound name \"${NOTIFY_SOUND//\"/}\""
-  osascript -e "display notification \"$msg\" with title \"$title\"$snd" >/dev/null 2>&1 || true
+# First hit wins: whatever is on PATH, then the two usual Homebrew prefixes.
+find_tool() {
+  local name="$1" candidate
+  for candidate in "$(command -v "$name" 2>/dev/null)" "/opt/homebrew/bin/$name" "/usr/local/bin/$name"; do
+    [[ -x "$candidate" ]] && { print -r -- "$candidate"; return }
+  done
 }
+FFMPEG="$(find_tool ffmpeg)"
+FFPROBE="$(find_tool ffprobe)"
 
-# Put a file on the clipboard as a file reference (paste it into Finder, Slack, Mail, ...). Uses
-# NSPasteboard directly, so it needs no app-control permission. Path passed as argv to avoid quoting.
-copy_to_clipboard() {
-  osascript -l JavaScript -e 'function run(a){ObjC.import("AppKit");const p=$.NSPasteboard.generalPasteboard;p.clearContents;p.writeObjects($.NSArray.arrayWithObject($.NSURL.fileURLWithPath(a[0])));}' "$1" >/dev/null 2>&1 || true
-}
+log() { print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >>"$LOG" }
 
-# Ingest KEY=value lines (from JSON or the legacy txt) into the settings, ignoring unknown keys.
+# --------------------------------------------------------------------- settings
+
+# These double as the whitelist: a key the config names that is not in here gets ignored, which is
+# what keeps a typo harmless.
+typeset -A DEFAULTS=(
+  speed             2                  # 2 = twice as fast
+  fps               30                 # frame-rate cap, 0 keeps the original
+  crf               28                 # the size knob, 0-51, higher is smaller
+  codec             h264               # h264 or hevc
+  remove_audio      true
+  max_height        0                  # downscale tall videos, 0 keeps the original size
+  output_suffix     -2x
+  keep_original     true               # move the source aside instead of deleting it
+  notify            true
+  notify_title      "Video optimized"
+  notify_sound      Glass              # any /System/Library/Sounds name, or none
+  copy_to_clipboard false
+  check_updates     true
+  output_dir        ""                 # empty means <base>/output
+)
+typeset -A CFG
+CFG=("${(@kv)DEFAULTS}")
+
+trim() { print -r -- "${${1##[[:space:]]#}%%[[:space:]]#}" }
+
+# Reads "key=value" lines and keeps the ones we know about.
 apply_settings() {
-  while IFS='=' read -r key val; do
-    key="${key## }"; key="${key%% }"
-    [[ -z "$key" || "$key" == \#* ]] && continue
-    val="${val%%\#*}"; val="${val## }"; val="${val%% }"; val="${val//\"/}"
-    case "$key" in
-      SPEED|FPS|CRF|CODEC|REMOVE_AUDIO|MAX_HEIGHT|OUTPUT_SUFFIX|KEEP_ORIGINAL|NOTIFY|NOTIFY_TITLE|NOTIFY_SOUND|COPY_TO_CLIPBOARD|CHECK_UPDATES|OUTPUT_DIR) eval "$key=\$val" ;;
-    esac
+  local key value
+  while IFS='=' read -r key value; do
+    key="${(L)${key//[[:space:]]/}}"
+    [[ -z "$key" || "$key" == '#'* ]] && continue
+    value="$(trim "${value%%\#*}")"
+    [[ -n "${DEFAULTS[$key]+known}" ]] && CFG[$key]="${value//\"/}"
   done
 }
 
-# Parse settings.jsonc (JSON with // and /* */ comments) into KEY=value using the built-in
-# JavaScriptCore, so there is no extra dependency. Prints PARSE_ERROR if the JSON is invalid.
-read_jsonc() {
-  osascript -l JavaScript -e 'function run(a){const d=$.NSString.stringWithContentsOfFileEncodingError(a[0],4,null);let s=ObjC.unwrap(d)||"";s=s.replace(/\/\*[\s\S]*?\*\//g,"").replace(/(^|[\s,{])\/\/.*$/gm,"$1");try{const o=JSON.parse(s);return Object.keys(o).map(function(k){return k.toUpperCase()+"="+o[k]}).join("\n");}catch(e){return "PARSE_ERROR";}}' "$1"
+# Flattens settings.jsonc (JSON, plus // and /* */ comments) into those key=value lines. Exits
+# non-zero when the file is not valid JSON, which is the caller's cue to stay on the defaults.
+parse_jsonc() {
+  osascript -l JavaScript - "$1" <<'JXA'
+function run(argv) {
+  const raw = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(argv[0], 4, null)) || '';
+  const json = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[\s,{])\/\/.*$/gm, '$1');
+  const settings = JSON.parse(json);
+  return Object.keys(settings).map(function (k) { return k + '=' + settings[k] }).join('\n');
+}
+JXA
 }
 
-# --- read settings: prefer settings.jsonc, fall back to the legacy settings.txt ---
-if [[ -f "$CONF_JSON" ]]; then
-  kv="$(read_jsonc "$CONF_JSON")"
-  if [[ "$kv" == "PARSE_ERROR" ]]; then
-    log "settings.jsonc is not valid JSON, using defaults for this run"
-  else
-    print -r -- "$kv" | apply_settings
+read_config() {
+  local parsed
+  if [[ -f "$CONFIG_JSON" ]]; then
+    if parsed="$(parse_jsonc "$CONFIG_JSON" 2>/dev/null)"; then
+      print -r -- "$parsed" | apply_settings
+    else
+      log "settings.jsonc is not valid JSON, using the defaults for this run"
+    fi
+  elif [[ -f "$CONFIG_TEXT" ]]; then
+    apply_settings < "$CONFIG_TEXT"
   fi
-elif [[ -f "$CONF_TXT" ]]; then
-  apply_settings < "$CONF_TXT"
-fi
+}
 
-# --- validate, falling back to defaults so a typo never breaks a run ---
-[[ "$SPEED" == <->(.<->)# || "$SPEED" == <-> ]] || { log "bad SPEED '$SPEED', using 2"; SPEED=2; }
-awk -v s="$SPEED" 'BEGIN{exit !(s>0)}' || { log "SPEED must be > 0, using 2"; SPEED=2; }
-[[ "$FPS" == <-> ]] || { log "bad FPS '$FPS', using 30"; FPS=30; }
-[[ "$CRF" == <-> ]] && (( CRF <= 51 )) || { log "bad CRF '$CRF' (0-51), using 28"; CRF=28; }
-[[ "$CODEC" == (h264|hevc) ]] || { log "bad CODEC '$CODEC', using h264"; CODEC=h264; }
-[[ "$REMOVE_AUDIO" == (true|false) ]] || REMOVE_AUDIO=true
-[[ "$MAX_HEIGHT" == <-> ]] || MAX_HEIGHT=0
-[[ -n "$OUTPUT_SUFFIX" ]] || OUTPUT_SUFFIX=-2x
-[[ "$KEEP_ORIGINAL" == (true|false) ]] || KEEP_ORIGINAL=true
-[[ "$NOTIFY" == (true|false) ]] || NOTIFY=true
-[[ -n "$NOTIFY_TITLE" ]] || NOTIFY_TITLE="Video optimized"
-[[ "$COPY_TO_CLIPBOARD" == (true|false) ]] || COPY_TO_CLIPBOARD=false
-[[ "$CHECK_UPDATES" == (true|false) ]] || CHECK_UPDATES=true
+is_int()  { [[ "$1" == <-> ]] }
+is_num()  { [[ "$1" == <->(.<->)# ]] }
+is_bool() { [[ "$1" == (true|false) ]] }
 
-# Where results go: a custom absolute path from settings, else <base>/output.
-OUT_DIR="$BASE_DIR/output"
-if [[ -n "$OUTPUT_DIR" ]]; then
-  if [[ "$OUTPUT_DIR" == (/*|\~/*) ]]; then OUT_DIR="${OUTPUT_DIR/#\~/$HOME}"
-  else log "OUTPUT_DIR must be an absolute path (got '$OUTPUT_DIR'), using default"; fi
-fi
-mkdir -p "$OUT_DIR" 2>/dev/null || { log "cannot create OUTPUT_DIR '$OUT_DIR', using default"; OUT_DIR="$BASE_DIR/output"; mkdir -p "$OUT_DIR"; }
+# Put one setting back to its default and say so, so a bad value never stops a run.
+reject() {
+  local key="$1" reason="$2"
+  log "ignoring $key='${CFG[$key]}' ($reason), using '${DEFAULTS[$key]}'"
+  CFG[$key]="${DEFAULTS[$key]}"
+}
 
-# --- one run at a time: launchd can fire several events in a row. mkdir is atomic on macOS, so it
-# doubles as a lock; a lock left by a killed run is stolen once it is older than 30 min. ---
-if [[ -d "$LOCK_DIR" ]]; then
-  if [[ -z "$(find "$LOCK_DIR" -maxdepth 0 -mmin +30 2>/dev/null)" ]]; then
-    log "another run holds the lock, exiting"; exit 0
+validate_config() {
+  is_num "${CFG[speed]}" && awk -v s="${CFG[speed]}" 'BEGIN { exit !(s > 0) }' \
+    || reject speed "want a number above 0"
+  is_int "${CFG[fps]}"                              || reject fps "want a whole number"
+  is_int "${CFG[crf]}" && (( CFG[crf] <= 51 ))      || reject crf "want 0-51"
+  is_int "${CFG[max_height]}"                       || reject max_height "want a whole number"
+  [[ "${CFG[codec]}" == (h264|hevc) ]]              || reject codec "want h264 or hevc"
+  is_bool "${CFG[remove_audio]}"                    || reject remove_audio "want true or false"
+  is_bool "${CFG[keep_original]}"                   || reject keep_original "want true or false"
+  is_bool "${CFG[notify]}"                          || reject notify "want true or false"
+  is_bool "${CFG[copy_to_clipboard]}"               || reject copy_to_clipboard "want true or false"
+  is_bool "${CFG[check_updates]}"                   || reject check_updates "want true or false"
+  [[ -n "${CFG[output_suffix]}" ]]                  || reject output_suffix "cannot be empty"
+  [[ -n "${CFG[notify_title]}" ]]                   || reject notify_title "cannot be empty"
+}
+
+# output_dir may point anywhere, as long as it is an absolute path we can actually create.
+resolve_output_dir() {
+  local wanted="${CFG[output_dir]}"
+  if [[ -n "$wanted" ]]; then
+    if [[ "$wanted" == (/*|\~/*) ]]; then
+      OUT_DIR="${wanted/#\~/$HOME}"
+    else
+      log "ignoring output_dir='$wanted' (want an absolute path)"
+    fi
   fi
-  rmdir "$LOCK_DIR" 2>/dev/null
-fi
-mkdir "$LOCK_DIR" 2>/dev/null || { log "lost the race for the lock, exiting"; exit 0; }
-trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT INT TERM
+  mkdir -p "$OUT_DIR" 2>/dev/null || {
+    log "cannot create '$OUT_DIR', falling back to the default output folder"
+    OUT_DIR="$BASE_DIR/output"
+    mkdir -p "$OUT_DIR"
+  }
+}
 
-[[ -x "$FFMPEG" ]] || { log "ffmpeg not found (looked on PATH and Homebrew paths)"; exit 1; }
+# --------------------------------------------------------------------- macOS niceties
 
-# A recorder writes the file gradually; only touch it once its size has stopped growing.
+# Banner text and sound are configurable; the icon is not, macOS pins it to Script Editor's.
+notify() {
+  [[ "${CFG[notify]}" == true ]] || return 0
+  local message="$1" title="${2:-${CFG[notify_title]}}" sound="${CFG[notify_sound]}"
+  [[ "$sound" == (none|off|silent|no) ]] && sound=""
+  osascript -l JavaScript - "$title" "$message" "$sound" <<'JXA' >/dev/null 2>&1 || true
+function run(argv) {
+  const [title, message, sound] = argv;
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  const options = { withTitle: title };
+  if (sound) options.soundName = sound;
+  app.displayNotification(message, options);
+}
+JXA
+}
+
+# Writes to NSPasteboard directly, so this needs no permission to control other apps.
+copy_to_clipboard() {
+  osascript -l JavaScript - "$1" <<'JXA' >/dev/null 2>&1 || true
+function run(argv) {
+  ObjC.import('AppKit');
+  const board = $.NSPasteboard.generalPasteboard;
+  board.clearContents;
+  board.writeObjects($.NSArray.arrayWithObject($.NSURL.fileURLWithPath(argv[0])));
+}
+JXA
+}
+
+# --------------------------------------------------------------------- encoding
+
+# A recorder writes its file gradually, so wait until the size stops moving before touching it.
 is_settled() {
-  local f="$1" s1 s2
-  s1=$(stat -f%z "$f" 2>/dev/null) || return 1
+  local file="$1" first second
+  first="$(stat -f%z "$file" 2>/dev/null)" || return 1
   sleep 2
-  s2=$(stat -f%z "$f" 2>/dev/null) || return 1
-  [[ "$s1" == "$s2" && "$s1" -gt 0 ]]
+  second="$(stat -f%z "$file" 2>/dev/null)" || return 1
+  [[ "$first" == "$second" && "$first" -gt 0 ]]
 }
 
-# atempo only handles 0.5..2.0 per stage, so chain stages for larger factors.
+video_height() {
+  local height
+  height="$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=height \
+            -of default=nw=1:nk=1 "$1" 2>/dev/null | head -1)"
+  is_int "$height" && print -r -- "$height" || print -r -- 1080
+}
+
+has_audio() {
+  [[ -n "$("$FFPROBE" -v error -select_streams a -show_entries stream=index \
+           -of csv=p=0 "$1" 2>/dev/null | head -1)" ]]
+}
+
+human_size() { du -h "$1" | cut -f1 | tr -d ' ' }
+
+# Speed first, then the optional downscale and frame-rate cap.
+video_filters() {
+  local height="$1" chain="setpts=PTS/${CFG[speed]}"
+  (( CFG[max_height] > 0 && height > CFG[max_height] )) && chain="scale=-2:${CFG[max_height]},$chain"
+  (( CFG[fps] > 0 )) && chain="$chain,fps=${CFG[fps]}"
+  print -r -- "$chain"
+}
+
+# atempo only stretches by 0.5x to 2x at a time, so chain stages for anything past that.
 atempo_chain() {
-  awk -v s="$1" 'BEGIN{
+  awk -v s="$1" 'BEGIN {
     while (s > 2.0) { printf "atempo=2.0,"; s /= 2.0 }
     while (s < 0.5) { printf "atempo=0.5,"; s /= 0.5 }
     printf "atempo=%.4f", s
   }'
 }
 
-setopt local_options null_glob
-saw_any=0
+# Encodes one file and prints where it landed. Non-zero means ffmpeg failed and the source is
+# untouched. Quality-based (CRF) rather than a fixed bitrate, which matters a lot for screen
+# recordings: a fixed bitrate can make them bigger than the original.
+encode() {
+  local src="$1"
+  local out="$OUT_DIR/${src:t:r}${CFG[output_suffix]}.mp4"
+  local height; height="$(video_height "$src")"
 
-# Drain the input folder to empty. Re-scanning after each success means a file dropped WHILE another
-# is encoding is picked up by this same run, instead of waiting for launchd to fire again (its
-# WatchPaths events get coalesced during a run). A pass that makes no progress ends the loop, so a
-# still-writing or failing file cannot spin forever.
-while true; do
-  made_progress=0
-  for src in "$IN_DIR"/*.mov "$IN_DIR"/*.mp4 "$IN_DIR"/*.m4v "$IN_DIR"/*.MOV "$IN_DIR"/*.MP4 "$IN_DIR"/*.M4V; do
-    [[ -f "$src" ]] || continue
-    saw_any=1
-    base="${src:t:r}"
-    out="$OUT_DIR/${base}${OUTPUT_SUFFIX}.mp4"
-
-    [[ -e "$out" ]] && { log "skip $src (output already exists)"; continue; }
-    is_settled "$src" || { log "skip $src (still being written, will retry on the next event)"; continue; }
-
-    height=$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$src" 2>/dev/null | head -1)
-    [[ "$height" == <-> ]] || height=1080
-
-    # video filters: speed change, optional downscale, optional frame-rate cap
-    vf="setpts=PTS/${SPEED}"
-    eff_height="$height"
-    if (( MAX_HEIGHT > 0 && height > MAX_HEIGHT )); then
-      vf="scale=-2:${MAX_HEIGHT},${vf}"
-      eff_height="$MAX_HEIGHT"
-    fi
-    (( FPS > 0 )) && vf="${vf},fps=${FPS}"
-
-    # Quality-based software encoding (CRF): far smaller than a fixed bitrate for screen recordings.
-    if [[ "$CODEC" == hevc ]]; then venc=(-c:v libx265 -crf "$CRF" -preset veryfast -tag:v hvc1)
-    else venc=(-c:v libx264 -crf "$CRF" -preset veryfast); fi
-
-    # audio: drop it, or keep and match the new speed (only if the source actually has audio)
-    if [[ "$REMOVE_AUDIO" == true ]]; then
-      aud=(-an)
-    else
-      has_audio=$("$FFPROBE" -v error -select_streams a -show_entries stream=index -of csv=p=0 "$src" 2>/dev/null | head -1)
-      if [[ -n "$has_audio" ]]; then aud=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "$SPEED")"); else aud=(-an); fi
-    fi
-
-    log "encode $src  (${height}p${eff_height:+ -> ${eff_height}p}, ${SPEED}x, ${FPS}fps, $CODEC crf${CRF}, audio=$([[ $REMOVE_AUDIO == true ]] && echo off || echo on))"
-    if "$FFMPEG" -nostdin -y -i "$src" -filter:v "$vf" "${aud[@]}" "${venc[@]}" -pix_fmt yuv420p -movflags +faststart "$out" >>"$LOG" 2>&1; then
-      newsize=$(du -h "$out" | cut -f1 | tr -d ' '); oldsize=$(du -h "$src" | cut -f1 | tr -d ' ')
-      if [[ "$KEEP_ORIGINAL" == true ]]; then mv "$src" "$DONE_DIR/"; note="original moved to processed/"; else rm -f "$src"; note="original deleted"; fi
-      clip=""
-      if [[ "$COPY_TO_CLIPBOARD" == true ]]; then copy_to_clipboard "$out"; clip=", copied to clipboard"; fi
-      log "done   $out  (${oldsize} -> ${newsize}); ${note}${clip}"
-      notify "${base}   ${oldsize} -> ${newsize}${clip}"
-      made_progress=1
-    else
-      rm -f "$out"
-      log "FAILED $src (left in place, see ffmpeg output above)"
-      notify "$base" "Optimize failed"
-    fi
-  done
-  (( made_progress )) || break
-done
-
-(( saw_any )) || log "no new recordings"
-
-# --- once a day, tell the user if the installed clone is behind origin (best effort, never blocks
-# the run: throttled, and the SSH connect is capped so a dead network cannot hang it). ---
-repo="${DEMO_OPTIMIZER_REPO:-}"
-if [[ "$CHECK_UPDATES" == true && -n "$repo" && -d "$repo/.git" ]]; then
-  stamp="$LOG_DIR/.last-update-check"
-  last=$(cat "$stamp" 2>/dev/null || echo 0)
-  now=$(date +%s)
-  if (( now - last >= 86400 )); then
-    echo "$now" > "$stamp"   # written before fetching, so a slow network cannot busy-loop the check
-    if git -C "$repo" -c core.sshCommand="ssh -o ConnectTimeout=8 -o BatchMode=yes" fetch --quiet origin main 2>/dev/null; then
-      behind=$(git -C "$repo" rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
-      if [[ "$behind" == <-> && "$behind" -gt 0 ]]; then
-        log "update available: $behind new commit(s) on origin/main"
-        notify "$behind new commit(s) available, run update.sh" "Update available"
-      fi
-    fi
+  local -a audio codec
+  if [[ "${CFG[remove_audio]}" == true ]] || ! has_audio "$src"; then
+    audio=(-an)
+  else
+    audio=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "${CFG[speed]}")")
   fi
-fi
+
+  if [[ "${CFG[codec]}" == hevc ]]; then
+    codec=(-c:v libx265 -tag:v hvc1)
+  else
+    codec=(-c:v libx264)
+  fi
+  codec+=(-crf "${CFG[crf]}" -preset veryfast)
+
+  log "encode ${src:t} (${height}p, ${CFG[speed]}x, ${CFG[fps]}fps, ${CFG[codec]} crf${CFG[crf]})"
+  "$FFMPEG" -nostdin -y -i "$src" -filter:v "$(video_filters "$height")" \
+            "${audio[@]}" "${codec[@]}" -pix_fmt yuv420p -movflags +faststart \
+            "$out" >>"$LOG" 2>&1 || { rm -f "$out"; return 1 }
+  print -r -- "$out"
+}
+
+# The whole job for one recording: encode it, file the original away, then say it is ready.
+handle() {
+  local src="$1" out before after extra=""
+  before="$(human_size "$src")"
+
+  out="$(encode "$src")" || {
+    log "FAILED ${src:t}, left in place (ffmpeg output is above)"
+    notify "${src:t}" "Optimize failed"
+    return 1
+  }
+  after="$(human_size "$out")"
+
+  if [[ "${CFG[keep_original]}" == true ]]; then
+    mv "$src" "$DONE_DIR/"
+  else
+    rm -f "$src"
+  fi
+
+  if [[ "${CFG[copy_to_clipboard]}" == true ]]; then
+    copy_to_clipboard "$out"
+    extra=", copied to clipboard"
+  fi
+
+  log "done   ${out:t} ($before -> $after)$extra"
+  notify "${src:t:r}   $before -> $after$extra"
+}
+
+# Keeps going until the folder is empty. Re-reading it after every file is what catches a
+# recording dropped mid-encode: launchd swallows those events while we are already running. A pass
+# that gets nowhere ends the loop, so a half-written or broken file cannot spin forever.
+process_queue() {
+  local -a pending
+  local src out progressed=1 seen=0
+
+  while (( progressed )); do
+    progressed=0
+    pending=("$IN_DIR"/(#i)*.(mov|mp4|m4v)(N.))
+    for src in "${pending[@]}"; do
+      seen=1
+      out="$OUT_DIR/${src:t:r}${CFG[output_suffix]}.mp4"
+      if [[ -e "$out" ]]; then
+        log "skip   ${src:t} (already has an optimized copy)"
+      elif ! is_settled "$src"; then
+        log "skip   ${src:t} (still being written)"
+      elif handle "$src"; then
+        progressed=1
+      fi
+    done
+  done
+
+  (( seen )) || log "nothing new to do"
+}
+
+# --------------------------------------------------------------------- update check
+
+# Once a day, mention that the clone is behind. The stamp is written before fetching so a hang
+# cannot turn into a retry loop, and ssh gets a timeout so a dead network cannot hold up the queue.
+check_for_updates() {
+  [[ "${CFG[check_updates]}" == true && -n "$REPO_DIR" && -d "$REPO_DIR/.git" ]] || return 0
+
+  local last behind
+  last="$(cat "$UPDATE_STAMP" 2>/dev/null)"
+  is_int "$last" || last=0
+  (( $(date +%s) - last >= 86400 )) || return 0
+  date +%s > "$UPDATE_STAMP"
+
+  git -C "$REPO_DIR" -c core.sshCommand='ssh -o ConnectTimeout=8 -o BatchMode=yes' \
+      fetch --quiet origin main 2>/dev/null || return 0
+
+  behind="$(git -C "$REPO_DIR" rev-list --count HEAD..origin/main 2>/dev/null)"
+  is_int "$behind" && (( behind > 0 )) || return 0
+
+  log "update available: $behind new commit(s) on origin/main"
+  notify "$behind new commit(s), run update.sh" "Update available"
+}
+
+# --------------------------------------------------------------------- run
+
+# mkdir is atomic, so it doubles as the lock. A lock left behind by a killed run is taken over
+# after half an hour. The release has to be armed at the top level: in zsh an EXIT trap set inside
+# a function fires when that function returns, which would drop the lock immediately.
+LOCK_HELD=0
+
+acquire_lock() {
+  if [[ -d "$LOCK_DIR" && -z "$(find "$LOCK_DIR" -maxdepth 0 -mmin +30 2>/dev/null)" ]]; then
+    return 1
+  fi
+  rmdir "$LOCK_DIR" 2>/dev/null
+  mkdir "$LOCK_DIR" 2>/dev/null || return 1
+  LOCK_HELD=1
+}
+
+release_lock() { (( LOCK_HELD )) && rmdir "$LOCK_DIR" 2>/dev/null }
+
+main() {
+  mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
+  read_config
+  validate_config
+  resolve_output_dir
+
+  acquire_lock || { log "another run has the lock, leaving this to it"; return 0 }
+  [[ -x "$FFMPEG" ]] || { log "ffmpeg is not on PATH or in the Homebrew folders"; return 1 }
+
+  process_queue
+  check_for_updates
+}
+
+trap release_lock EXIT INT TERM
+main "$@"
