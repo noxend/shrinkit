@@ -1,0 +1,19 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# shfmt reads these, so `shfmt -w .` formats every script the same way.
+[*.sh]
+indent_style = space
+indent_size = 2
+switch_case_indent = true
+binary_next_line = true
+space_redirects = true
+
+[*.{json,jsonc,md,yml}]
+indent_style = space
+indent_size = 2

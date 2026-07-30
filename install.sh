@@ -24,13 +24,14 @@ echo "==> Base folder: $BASE_DIR"
 # job is denied there (silently, with no prompt) until it is granted Full Disk Access by hand.
 NEEDS_FDA=0
 case "$BASE_DIR" in
-  "$HOME/Desktop"/*|"$HOME/Documents"/*|"$HOME/Downloads"/*|"$HOME/Desktop"|"$HOME/Documents"|"$HOME/Downloads")
-    NEEDS_FDA=1 ;;
+  "$HOME/Desktop"/* | "$HOME/Documents"/* | "$HOME/Downloads"/* | "$HOME/Desktop" | "$HOME/Documents" | "$HOME/Downloads")
+    NEEDS_FDA=1
+    ;;
 esac
 
 # 1. ffmpeg
-if ! command -v ffmpeg >/dev/null 2>&1; then
-  if command -v brew >/dev/null 2>&1; then
+if ! command -v ffmpeg > /dev/null 2>&1; then
+  if command -v brew > /dev/null 2>&1; then
     echo "==> Installing ffmpeg via Homebrew (this can take a few minutes)..."
     brew install ffmpeg
   else
@@ -45,7 +46,7 @@ echo "==> Using ffmpeg at $FFMPEG_BIN"
 
 # 2. the script
 mkdir -p "$BIN_DIR"
-rm -f "$BIN_DIR/optimize-demo-video.sh"   # drop the name used by older installs
+rm -f "$BIN_DIR/optimize-demo-video.sh" # drop the name used by older installs
 cp "$REPO_DIR/optimize-demo-video.sh" "$SCRIPT_DST"
 chmod +x "$SCRIPT_DST"
 echo "==> Installed script: $SCRIPT_DST"
@@ -63,7 +64,7 @@ fi
 
 # 5. the launchd agent (paths must be absolute; that is why we generate it here)
 mkdir -p "$HOME/Library/LaunchAgents"
-cat > "$PLIST" <<PLIST_EOF
+cat > "$PLIST" << PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -116,7 +117,7 @@ if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
 fi
 
 # 7. (re)load it
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 echo ""
@@ -127,7 +128,7 @@ echo "  - change behaviour by editing  settings.jsonc"
 echo "(The real folder is $BASE_DIR; the Desktop item is a shortcut to it.)"
 
 if [[ "$NEEDS_FDA" == 1 ]]; then
-  cat <<FDA
+  cat << FDA
 
 ------------------------------------------------------------------------
 ONE-TIME STEP: $BASE_DIR is in a macOS privacy-protected location.

@@ -19,51 +19,75 @@ FIXTURES="$TESTS_DIR/fixtures"
 
 find_tool() {
   local name="$1" candidate
-  for candidate in "$(command -v "$name" 2>/dev/null)" "/opt/homebrew/bin/$name" "/usr/local/bin/$name"; do
-    [[ -x "$candidate" ]] && { print -r -- "$candidate"; return }
+  for candidate in "$(command -v "$name" 2> /dev/null)" "/opt/homebrew/bin/$name" "/usr/local/bin/$name"; do
+    [[ -x "$candidate" ]] && {
+      print -r -- "$candidate"
+      return
+    }
   done
 }
 FFMPEG="$(find_tool ffmpeg)"
 FFPROBE="$(find_tool ffprobe)"
 
-[[ -f "$OPTIMIZER" ]] || { print "cannot find $OPTIMIZER"; exit 1 }
-[[ -x "$FFMPEG" ]]    || { print "ffmpeg is required to build the sample videos"; exit 1 }
+[[ -f "$OPTIMIZER" ]] || {
+  print "cannot find $OPTIMIZER"
+  exit 1
+}
+[[ -x "$FFMPEG" ]] || {
+  print "ffmpeg is required to build the sample videos"
+  exit 1
+}
 
 FILTER="${1:-}"
 typeset -i PASSED=0 FAILED=0
 typeset -a FAILURES SANDBOXES
 
-cleanup() { local box; for box in "${SANDBOXES[@]}"; do rm -rf "$box"; done }
+cleanup() {
+  local box
+  for box in "${SANDBOXES[@]}"; do rm -rf "$box"; done
+}
 trap cleanup EXIT INT TERM
 
 # --------------------------------------------------------------------- helpers
 
-ok()   { print "  ok    $1"; PASSED=PASSED+1 }
-fail() { print "  FAIL  $1"; FAILED=FAILED+1; FAILURES+=("$CURRENT_TEST: $1") }
+ok() {
+  print "  ok    $1"
+  PASSED=PASSED+1
+}
+fail() {
+  print "  FAIL  $1"
+  FAILED=FAILED+1
+  FAILURES+=("$CURRENT_TEST: $1")
+}
 
 # check "what we expect" <command...>
-check() { local what="$1"; shift; if "$@"; then ok "$what"; else fail "$what"; fi }
+check() {
+  local what="$1"
+  shift
+  if "$@"; then ok "$what"; else fail "$what"; fi
+}
 
-exists()     { [[ -f "$1" ]] }
-missing()    { [[ ! -e "$1" ]] }
-empty_dir()  { [[ -z "$(ls -A "$1" 2>/dev/null)" ]] }
-logged()     { grep -q -- "$2" "$1/.logs/optimizer.log" }
-log_count()  { grep -c -- "$2" "$1/.logs/optimizer.log" }
+exists() { [[ -f "$1" ]]; }
+missing() { [[ ! -e "$1" ]]; }
+empty_dir() { [[ -z "$(ls -A "$1" 2> /dev/null)" ]]; }
+logged() { grep -q -- "$2" "$1/.logs/optimizer.log"; }
+log_count() { grep -c -- "$2" "$1/.logs/optimizer.log"; }
 
-duration()   { "$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$1" 2>/dev/null }
-video_codec(){ "$FFPROBE" -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$1" 2>/dev/null }
-height_of()  { "$FFPROBE" -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$1" 2>/dev/null }
-has_audio()  { [[ -n "$("$FFPROBE" -v error -select_streams a -show_entries stream=index -of csv=p=0 "$1" 2>/dev/null)" ]] }
-no_audio()   { ! has_audio "$1" }
+duration() { "$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$1" 2> /dev/null; }
+video_codec() { "$FFPROBE" -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$1" 2> /dev/null; }
+height_of() { "$FFPROBE" -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$1" 2> /dev/null; }
+has_audio() { [[ -n "$("$FFPROBE" -v error -select_streams a -show_entries stream=index -of csv=p=0 "$1" 2> /dev/null)" ]]; }
+no_audio() { ! has_audio "$1"; }
 
 # roughly_equal 6.03 6 0.4
-roughly_equal() { awk -v a="$1" -v b="$2" -v tol="$3" 'BEGIN { exit !(a - b < tol && b - a < tol) }' }
-duration_near() { roughly_equal "$(duration "$1")" "$2" 0.4 }
-smaller_than()  { [[ "$(stat -f%z "$1")" -lt "$(stat -f%z "$2")" ]] }
+roughly_equal() { awk -v a="$1" -v b="$2" -v tol="$3" 'BEGIN { exit !(a - b < tol && b - a < tol) }'; }
+duration_near() { roughly_equal "$(duration "$1")" "$2" 0.4; }
+smaller_than() { [[ "$(stat -f%z "$1")" -lt "$(stat -f%z "$2")" ]]; }
 
 # A fresh working folder plus the settings the test wants. Everything lives under /tmp.
 sandbox() {
-  local box; box="$(mktemp -d)"
+  local box
+  box="$(mktemp -d)"
   SANDBOXES+=("$box")
   mkdir -p "$box/input" "$box/output" "$box/.processed" "$box/.logs"
   print -r -- "$box"
@@ -77,16 +101,17 @@ settings() {
 }
 
 # Runs the script under test. DEMO_OPTIMIZER_REPO is blank so the update check stays out of it.
-optimize() { DEMO_OPTIMIZER_DIR="$1" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" }
+optimize() { DEMO_OPTIMIZER_DIR="$1" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER"; }
 
 # --------------------------------------------------------------------- sample videos
 
 # make_fixture <name> <ffmpeg args...>
 make_fixture() {
-  local name="$1"; shift
+  local name="$1"
+  shift
   [[ -f "$FIXTURES/$name" ]] && return
   print "  building $name ..."
-  "$FFMPEG" -nostdin -y "$@" "$FIXTURES/$name" >/dev/null 2>&1
+  "$FFMPEG" -nostdin -y "$@" "$FIXTURES/$name" > /dev/null 2>&1
 }
 
 build_fixtures() {
@@ -110,38 +135,41 @@ build_fixtures() {
 # --------------------------------------------------------------------- the tests
 
 test_basic_encode() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"speed": 2'
   cp "$FIXTURES/withaudio.mov" "$box/input/clip.mov"
 
   optimize "$box"
   local out="$box/output/clip-2x.mp4"
 
-  check "produces an output file"            exists "$out"
-  check "halves a 12s clip at 2x"            duration_near "$out" 6
-  check "drops the audio track"              no_audio "$out"
-  check "encodes to h264"                    test "$(video_codec "$out")" = h264
-  check "comes out smaller than the source"  smaller_than "$out" "$FIXTURES/withaudio.mov"
-  check "files the original away"            exists "$box/.processed/clip.mov"
-  check "leaves the input folder empty"      empty_dir "$box/input"
-  check "encodes it exactly once"            test "$(log_count "$box" 'encode clip.mov')" = 1
+  check "produces an output file" exists "$out"
+  check "halves a 12s clip at 2x" duration_near "$out" 6
+  check "drops the audio track" no_audio "$out"
+  check "encodes to h264" test "$(video_codec "$out")" = h264
+  check "comes out smaller than the source" smaller_than "$out" "$FIXTURES/withaudio.mov"
+  check "files the original away" exists "$box/.processed/clip.mov"
+  check "leaves the input folder empty" empty_dir "$box/input"
+  check "encodes it exactly once" test "$(log_count "$box" 'encode clip.mov')" = 1
 }
 
 test_basic_settings_are_used() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"speed": 3, "remove_audio": false, "output_suffix": "-fast", "fps": 0'
   cp "$FIXTURES/withaudio.mov" "$box/input/clip.mov"
 
   optimize "$box"
   local out="$box/output/clip-fast.mp4"
 
-  check "honours output_suffix"          exists "$out"
-  check "honours speed 3 on a 12s clip"  duration_near "$out" 4
-  check "keeps the audio when asked"     has_audio "$out"
+  check "honours output_suffix" exists "$out"
+  check "honours speed 3 on a 12s clip" duration_near "$out" 4
+  check "keeps the audio when asked" has_audio "$out"
 }
 
 test_downscale() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"max_height": 720'
   cp "$FIXTURES/tall.mov" "$box/input/clip.mov"
 
@@ -150,61 +178,67 @@ test_downscale() {
 }
 
 test_keep_original_false_deletes_the_source() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"keep_original": false'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "still writes the output"     exists "$box/output/clip-2x.mp4"
-  check "deletes instead of filing"   empty_dir "$box/.processed"
+  check "still writes the output" exists "$box/output/clip-2x.mp4"
+  check "deletes instead of filing" empty_dir "$box/.processed"
 }
 
 test_output_dir_redirect() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" "\"output_dir\": \"$box/elsewhere\""
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "writes to the folder we named"  exists "$box/elsewhere/clip-2x.mp4"
-  check "leaves the default one empty"   empty_dir "$box/output"
+  check "writes to the folder we named" exists "$box/elsewhere/clip-2x.mp4"
+  check "leaves the default one empty" empty_dir "$box/output"
 }
 
 test_skips_work_already_done() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"speed": 2'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
   optimize "$box"
 
-  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"   # same name again
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov" # same name again
   optimize "$box"
 
-  check "says it already has one"  logged "$box" 'already has an optimized copy'
-  check "does not touch the file"  exists "$box/input/clip.mov"
+  check "says it already has one" logged "$box" 'already has an optimized copy'
+  check "does not touch the file" exists "$box/input/clip.mov"
 }
 
 test_ignores_things_that_are_not_videos() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"speed": 2'
   print "not a video" > "$box/input/notes.txt"
   mkdir -p "$box/input/a-folder.mov"
 
   optimize "$box"
-  check "reports an empty queue"     logged "$box" 'nothing new to do'
+  check "reports an empty queue" logged "$box" 'nothing new to do'
   check "leaves the text file alone" exists "$box/input/notes.txt"
 }
 
 test_broken_config_falls_back_to_defaults() {
-  local box; box="$(sandbox)"
-  print '{ "speed": 2,' > "$box/settings.jsonc"    # truncated on purpose
+  local box
+  box="$(sandbox)"
+  print '{ "speed": 2,' > "$box/settings.jsonc" # truncated on purpose
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "says the config is unreadable"  logged "$box" 'not valid JSON'
-  check "carries on with the defaults"   exists "$box/output/clip-2x.mp4"
+  check "says the config is unreadable" logged "$box" 'not valid JSON'
+  check "carries on with the defaults" exists "$box/output/clip-2x.mp4"
 }
 
 test_bad_values_are_rejected_one_by_one() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"speed": "abc", "fps": "x", "crf": 99, "codec": "vp9",
                    "remove_audio": "maybe", "output_suffix": ""'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
@@ -218,7 +252,8 @@ test_bad_values_are_rejected_one_by_one() {
 }
 
 test_unknown_settings_are_ignored() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"speed": 2, "there_is_no_such_setting": "hello"'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
@@ -227,7 +262,8 @@ test_unknown_settings_are_ignored() {
 }
 
 test_lock_keeps_two_runs_apart() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"speed": 2'
   cp "$FIXTURES/big.mov" "$box/input/clip.mov"
 
@@ -236,36 +272,38 @@ test_lock_keeps_two_runs_apart() {
   optimize "$box"
   wait
 
-  check "the second run stands down"  logged "$box" 'another run has the lock'
-  check "the file is encoded once"    test "$(log_count "$box" 'encode clip.mov')" = 1
-  check "the output survives"         exists "$box/output/clip-2x.mp4"
-  check "the lock is released"        missing "$box/.optimizer.lock"
+  check "the second run stands down" logged "$box" 'another run has the lock'
+  check "the file is encoded once" test "$(log_count "$box" 'encode clip.mov')" = 1
+  check "the output survives" exists "$box/output/clip-2x.mp4"
+  check "the lock is released" missing "$box/.optimizer.lock"
 }
 
 test_picks_up_a_file_dropped_mid_run() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"speed": 2'
   cp "$FIXTURES/big.mov" "$box/input/first.mov"
 
   optimize "$box" &
-  sleep 6                                          # while the 4K clip is still encoding
+  sleep 6 # while the 4K clip is still encoding
   cp "$FIXTURES/silent.mov" "$box/input/second.mov"
   wait
 
-  check "finishes the first"                exists "$box/output/first-2x.mp4"
-  check "catches the late arrival too"      exists "$box/output/second-2x.mp4"
-  check "and empties the queue"             empty_dir "$box/input"
+  check "finishes the first" exists "$box/output/first-2x.mp4"
+  check "catches the late arrival too" exists "$box/output/second-2x.mp4"
+  check "and empties the queue" empty_dir "$box/input"
 }
 
 test_a_broken_file_does_not_wedge_the_queue() {
-  local box; box="$(sandbox)"
+  local box
+  box="$(sandbox)"
   settings "$box" '"speed": 2'
   print "this is not really a video" > "$box/input/broken.mov"
   cp "$FIXTURES/silent.mov" "$box/input/good.mov"
 
   optimize "$box"
-  check "reports the failure"        logged "$box" 'FAILED broken.mov'
-  check "leaves the bad file put"    exists "$box/input/broken.mov"
+  check "reports the failure" logged "$box" 'FAILED broken.mov'
+  check "leaves the bad file put" exists "$box/input/broken.mov"
   check "still handles the good one" exists "$box/output/good-2x.mp4"
 }
 
@@ -299,10 +337,10 @@ for CURRENT_TEST in "${TESTS[@]}"; do
 done
 
 print ""
-if (( FAILED == 0 )); then
+if ((FAILED == 0)); then
   print "$PASSED checks passed"
 else
   print "$PASSED passed, $FAILED failed:"
   printf '  %s\n' "${FAILURES[@]}"
 fi
-exit $(( FAILED > 0 ))
+exit $((FAILED > 0))

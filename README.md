@@ -99,6 +99,17 @@ optional `scale` filter, `h264_videotoolbox`/`hevc_videotoolbox` for hardware en
 `+faststart` so the file streams immediately. A `mkdir`-based lock keeps overlapping events from
 processing the same file twice.
 
+## Formatting
+
+Every script is formatted with [shfmt](https://github.com/mvdan/sh), which picks its style up from
+`.editorconfig`, so the whole repo stays consistent without anyone arguing about it:
+
+```bash
+brew install shfmt
+shfmt -w .        # format everything
+shfmt -d .        # just show what would change
+```
+
 ## Tests
 
 ```bash

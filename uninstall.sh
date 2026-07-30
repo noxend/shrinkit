@@ -9,7 +9,7 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 BIN_DIR="$HOME/.local/bin"
 BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
 
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
 # remove the current name and the one older installs used
 rm -f "$PLIST" "$BIN_DIR/demo-video-optimizer" "$BIN_DIR/optimize-demo-video.sh"
 
