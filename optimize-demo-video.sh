@@ -38,7 +38,9 @@ find_tool() {
 FFMPEG="$(find_tool ffmpeg)"
 FFPROBE="$(find_tool ffprobe)"
 
-log() { print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"; }
+log() {
+  print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
+}
 
 # --------------------------------------------------------------------- settings
 
@@ -64,7 +66,9 @@ typeset -A DEFAULTS=(
 typeset -A CFG
 CFG=("${(@kv)DEFAULTS}")
 
-trim() { print -r -- "${${1##[[:space:]]#}%%[[:space:]]#}"; }
+trim() {
+  print -r -- "${${1##[[:space:]]#}%%[[:space:]]#}"
+}
 
 # Reads "key=value" lines and keeps the ones we know about.
 apply_settings() {
@@ -104,9 +108,15 @@ read_config() {
 }
 
 # Written as regexes rather than zsh's <-> globs so shell tooling can still parse this file.
-is_int() { [[ "$1" =~ ^[0-9]+$ ]]; }
-is_num() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
-is_bool() { [[ "$1" == true || "$1" == false ]]; }
+is_int() {
+  [[ "$1" =~ ^[0-9]+$ ]]
+}
+is_num() {
+  [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]
+}
+is_bool() {
+  [[ "$1" == true || "$1" == false ]]
+}
 
 # Put one setting back to its default and say so, so a bad value never stops a run.
 reject() {
@@ -209,7 +219,9 @@ has_audio() {
     -of csv=p=0 "$1" 2> /dev/null | head -1)" ]]
 }
 
-human_size() { du -h "$1" | cut -f1 | tr -d ' '; }
+human_size() {
+  du -h "$1" | cut -f1 | tr -d ' '
+}
 
 # Speed first, then the optional downscale and frame-rate cap.
 video_filters() {
@@ -379,7 +391,9 @@ acquire_lock() {
   LOCK_HELD=1
 }
 
-release_lock() { ((LOCK_HELD)) && rmdir "$LOCK_DIR" 2> /dev/null; }
+release_lock() {
+  ((LOCK_HELD)) && rmdir "$LOCK_DIR" 2> /dev/null
+}
 
 main() {
   mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"

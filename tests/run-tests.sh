@@ -67,22 +67,48 @@ check() {
   if "$@"; then ok "$what"; else fail "$what"; fi
 }
 
-exists() { [[ -f "$1" ]]; }
-missing() { [[ ! -e "$1" ]]; }
-empty_dir() { [[ -z "$(ls -A "$1" 2> /dev/null)" ]]; }
-logged() { grep -q -- "$2" "$1/.logs/optimizer.log"; }
-log_count() { grep -c -- "$2" "$1/.logs/optimizer.log"; }
+exists() {
+  [[ -f "$1" ]]
+}
+missing() {
+  [[ ! -e "$1" ]]
+}
+empty_dir() {
+  [[ -z "$(ls -A "$1" 2> /dev/null)" ]]
+}
+logged() {
+  grep -q -- "$2" "$1/.logs/optimizer.log"
+}
+log_count() {
+  grep -c -- "$2" "$1/.logs/optimizer.log"
+}
 
-duration() { "$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$1" 2> /dev/null; }
-video_codec() { "$FFPROBE" -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$1" 2> /dev/null; }
-height_of() { "$FFPROBE" -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$1" 2> /dev/null; }
-has_audio() { [[ -n "$("$FFPROBE" -v error -select_streams a -show_entries stream=index -of csv=p=0 "$1" 2> /dev/null)" ]]; }
-no_audio() { ! has_audio "$1"; }
+duration() {
+  "$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$1" 2> /dev/null
+}
+video_codec() {
+  "$FFPROBE" -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$1" 2> /dev/null
+}
+height_of() {
+  "$FFPROBE" -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$1" 2> /dev/null
+}
+has_audio() {
+  [[ -n "$("$FFPROBE" -v error -select_streams a -show_entries stream=index -of csv=p=0 "$1" 2> /dev/null)" ]]
+}
+no_audio() {
+  ! has_audio "$1"
+}
 
 # roughly_equal 6.03 6 0.4
-roughly_equal() { awk -v a="$1" -v b="$2" -v tol="$3" 'BEGIN { exit !(a - b < tol && b - a < tol) }'; }
-duration_near() { roughly_equal "$(duration "$1")" "$2" 0.4; }
-smaller_than() { [[ "$(stat -f%z "$1")" -lt "$(stat -f%z "$2")" ]]; }
+roughly_equal() {
+  awk -v a="$1" -v b="$2" -v tol="$3" 'BEGIN { exit !(a - b < tol && b - a < tol) }'
+}
+duration_near() {
+  roughly_equal "$(duration "$1")" "$2" 0.4
+}
+smaller_than() {
+  [[ "$(stat -f%z "$1")" -lt "$(stat -f%z "$2")" ]]
+}
 
 # A fresh working folder plus the settings the test wants. Everything lives under /tmp.
 sandbox() {
@@ -101,7 +127,9 @@ settings() {
 }
 
 # Runs the script under test. DEMO_OPTIMIZER_REPO is blank so the update check stays out of it.
-optimize() { DEMO_OPTIMIZER_DIR="$1" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER"; }
+optimize() {
+  DEMO_OPTIMIZER_DIR="$1" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER"
+}
 
 # --------------------------------------------------------------------- sample videos
 
