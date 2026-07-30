@@ -53,6 +53,14 @@ Access, then reload the agent). Anywhere else, for example the default `~/Movies
 The original is moved to a hidden `.processed/` folder as a backup, so the base folder shows only
 `settings.jsonc`, `input/` and `output/`.
 
+## Right-click a video
+
+The installer also adds a Finder Quick Action. Right-click any video, pick **Quick Actions >
+Optimize Video**, and the optimized copy lands next to it (`clip-2x.mp4`), using the same settings.
+Nothing is moved and the original is left as is, so this is handy for a one-off file you don't want
+to route through the watch folder. Select several files to do them in one go. Skip it at install
+time with `QUICK_ACTION=0`.
+
 ## Settings
 
 Edit `~/Movies/demo-recordings/settings.jsonc` (JSON with `//` comments allowed). Changes apply to
@@ -72,6 +80,7 @@ the run uses the defaults, so nothing breaks.
 | `NOTIFY` | `true` posts a macOS banner when each file is done | `true` |
 | `NOTIFY_TITLE` | Banner title text | `Video optimized` |
 | `NOTIFY_SOUND` | Banner sound (`Glass`, `Ping`, `Pop`, `Hero`, ...) or `none` for silent | `Glass` |
+| `NOTIFY_START` | `true` also posts a quiet banner when a file starts, so a long encode doesn't feel stuck | `true` |
 | `COPY_TO_CLIPBOARD` | `true` puts the finished file on the clipboard, ready to paste | `false` |
 | `CHECK_UPDATES` | Once a day, notify if the repo has newer commits (then run `update.sh`) | `true` |
 | `OUTPUT_DIR` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |

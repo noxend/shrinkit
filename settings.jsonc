@@ -34,6 +34,9 @@
   "notify_title": "Video optimized",
   "notify_sound": "Glass",
 
+  // Also post a quiet banner when a file starts, so a long encode does not feel stuck.
+  "notify_start": true,
+
   // Put the finished file on the clipboard, ready to paste into Slack/Jira/Finder.
   "copy_to_clipboard": false,
 

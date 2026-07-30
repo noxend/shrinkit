@@ -1,6 +1,7 @@
 #!/bin/zsh
-# Removes the launchd agent, the installed script, and the Desktop shortcut. Your media folders
-# (input/output/.processed) and settings.txt are left alone, so nothing you recorded is deleted.
+# Removes the launchd agent, the installed script, the Desktop shortcut, and the Finder Quick
+# Action. Your media folders (input/output/.processed) and settings are left alone, so nothing you
+# recorded is deleted.
 
 set -u
 
@@ -17,5 +18,9 @@ rm -f "$PLIST" "$BIN_DIR/demo-video-optimizer" "$BIN_DIR/optimize-demo-video.sh"
 LINK="$HOME/Desktop/${BASE_DIR:t}"
 [[ -L "$LINK" ]] && rm -f "$LINK"
 
-echo "Removed the agent, the script, and the Desktop shortcut."
+# remove the Finder Quick Action
+rm -rf "$HOME/Library/Services/Optimize Video.workflow"
+/System/Library/CoreServices/pbs -update 2> /dev/null || true
+
+echo "Removed the agent, the script, the Desktop shortcut, and the Quick Action."
 echo "Left in place (delete by hand if you want): $BASE_DIR"

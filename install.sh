@@ -116,7 +116,27 @@ if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
   fi
 fi
 
-# 7. (re)load it
+# 7. a Finder Quick Action, so you can right-click any video and pick "Optimize Video" without
+#    dropping it into the watch folder. It writes the result next to the source. Skip with
+#    QUICK_ACTION=0.
+if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
+  SERVICES_DIR="$HOME/Library/Services"
+  QA_SRC="$REPO_DIR/quick-action/Optimize Video.workflow"
+  QA_DST="$SERVICES_DIR/Optimize Video.workflow"
+  mkdir -p "$SERVICES_DIR"
+  rm -rf "$QA_DST"
+  cp -R "$QA_SRC" "$QA_DST"
+  # Fill in the command with the real paths. plutil writes the value verbatim, so there is no
+  # shell-quoting to fight with. "$@" forwards the file(s) Finder passes as arguments.
+  QA_CMD="DEMO_OPTIMIZER_DIR=\"$BASE_DIR\" \"$SCRIPT_DST\" \"\$@\""
+  plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$QA_CMD" \
+    "$QA_DST/Contents/document.wflow"
+  # Register it so it shows up in the right-click menu without a logout.
+  /System/Library/CoreServices/pbs -update 2> /dev/null || true
+  echo "==> Installed Finder Quick Action: right-click a video > Quick Actions > Optimize Video"
+fi
+
+# 8. (re)load it
 launchctl bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 

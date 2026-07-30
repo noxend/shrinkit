@@ -54,6 +54,7 @@ typeset -A DEFAULTS=(
   output_suffix -2x
   keep_original true # move the source aside instead of deleting it
   notify true
+  notify_start true # also show a quiet banner when a file starts, not just when it finishes
   notify_title "Video optimized"
   notify_sound Glass # any /System/Library/Sounds name, or none
   copy_to_clipboard false
@@ -124,6 +125,7 @@ validate_config() {
   is_bool "${CFG[remove_audio]}" || reject remove_audio "want true or false"
   is_bool "${CFG[keep_original]}" || reject keep_original "want true or false"
   is_bool "${CFG[notify]}" || reject notify "want true or false"
+  is_bool "${CFG[notify_start]}" || reject notify_start "want true or false"
   is_bool "${CFG[copy_to_clipboard]}" || reject copy_to_clipboard "want true or false"
   is_bool "${CFG[check_updates]}" || reject check_updates "want true or false"
   [[ -n "${CFG[output_suffix]}" ]] || reject output_suffix "cannot be empty"
@@ -152,7 +154,7 @@ resolve_output_dir() {
 # Banner text and sound are configurable; the icon is not, macOS pins it to Script Editor's.
 notify() {
   [[ "${CFG[notify]}" == true ]] || return 0
-  local message="$1" title="${2:-${CFG[notify_title]}}" sound="${CFG[notify_sound]}"
+  local message="$1" title="${2:-${CFG[notify_title]}}" sound="${3-${CFG[notify_sound]}}"
   [[ "$sound" == none || "$sound" == off || "$sound" == silent || "$sound" == no ]] && sound=""
   osascript -l JavaScript - "$title" "$message" "$sound" << 'JXA' > /dev/null 2>&1 || true
 function run(argv) {
@@ -164,6 +166,12 @@ function run(argv) {
   app.displayNotification(message, options);
 }
 JXA
+}
+
+# A quiet "started" banner, so a drop does not sit there with no sign it was noticed.
+notify_start() {
+  [[ "${CFG[notify_start]}" == true ]] || return 0
+  notify "$1" "Optimizing…" none
 }
 
 # Writes to NSPasteboard directly, so this needs no permission to control other apps.
@@ -220,13 +228,11 @@ atempo_chain() {
   }'
 }
 
-# Encodes one file and prints where it landed. Non-zero means ffmpeg failed and the source is
-# untouched. Quality-based (CRF) rather than a fixed bitrate, which matters a lot for screen
-# recordings: a fixed bitrate can make them bigger than the original.
+# Encodes one file to a given path. Non-zero means ffmpeg failed and nothing usable was written.
+# Quality-based (CRF) rather than a fixed bitrate, which matters a lot for screen recordings: a
+# fixed bitrate can make them bigger than the original.
 encode() {
-  local src="$1"
-  local out="$OUT_DIR/${src:t:r}${CFG[output_suffix]}.mp4"
-  local height
+  local src="$1" out="$2" height
   height="$(video_height "$src")"
 
   local -a audio codec
@@ -250,15 +256,26 @@ encode() {
     rm -f "$out"
     return 1
   }
-  print -r -- "$out"
 }
 
-# The whole job for one recording: encode it, file the original away, then say it is ready.
-handle() {
-  local src="$1" out before after extra=""
-  before="$(human_size "$src")"
+# The size line, clipboard copy and finished banner, shared by both modes.
+announce() {
+  local name="$1" out="$2" before="$3" after="$4" extra=""
+  if [[ "${CFG[copy_to_clipboard]}" == true ]]; then
+    copy_to_clipboard "$out"
+    extra=", copied to clipboard"
+  fi
+  log "done   ${out:t} ($before -> $after)$extra"
+  notify "$name   $before -> $after$extra"
+}
 
-  out="$(encode "$src")" || {
+# Folder mode: encode into the output folder and file the original away.
+handle() {
+  local src="$1" out="$2" before after
+  before="$(human_size "$src")"
+  notify_start "${src:t:r}"
+
+  encode "$src" "$out" || {
     log "FAILED ${src:t}, left in place (ffmpeg output is above)"
     notify "${src:t}" "Optimize failed"
     return 1
@@ -270,14 +287,31 @@ handle() {
   else
     rm -f "$src"
   fi
+  announce "${src:t:r}" "$out" "$before" "$after"
+}
 
-  if [[ "${CFG[copy_to_clipboard]}" == true ]]; then
-    copy_to_clipboard "$out"
-    extra=", copied to clipboard"
-  fi
+# One-shot mode (the Finder Quick Action): optimize the given files in place, writing the result
+# next to each source and leaving the originals alone.
+optimize_files() {
+  local src out before after
+  for src in "$@"; do
+    [[ -f "$src" ]] || {
+      log "skip   $src (not a file)"
+      continue
+    }
+    out="${src:h}/${src:t:r}${CFG[output_suffix]}.mp4"
+    [[ -e "$out" ]] && out="${src:h}/${src:t:r}${CFG[output_suffix]}-$(date +%s).mp4"
 
-  log "done   ${out:t} ($before -> $after)$extra"
-  notify "${src:t:r}   $before -> $after$extra"
+    before="$(human_size "$src")"
+    notify_start "${src:t:r}"
+    if encode "$src" "$out"; then
+      after="$(human_size "$out")"
+      announce "${src:t:r}" "$out" "$before" "$after"
+    else
+      log "FAILED $src (one-shot, ffmpeg output is above)"
+      notify "${src:t}" "Optimize failed"
+    fi
+  done
 }
 
 # Keeps going until the folder is empty. Re-reading it after every file is what catches a
@@ -297,7 +331,7 @@ process_queue() {
         log "skip   ${src:t} (already has an optimized copy)"
       elif ! is_settled "$src"; then
         log "skip   ${src:t} (still being written)"
-      elif handle "$src"; then
+      elif handle "$src" "$out"; then
         progressed=1
       fi
     done
@@ -351,17 +385,23 @@ main() {
   mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
   read_config
   validate_config
-  resolve_output_dir
-
-  acquire_lock || {
-    log "another run has the lock, leaving this to it"
-    return 0
-  }
   [[ -x "$FFMPEG" ]] || {
     log "ffmpeg is not on PATH or in the Homebrew folders"
     return 1
   }
 
+  # Given file arguments (the Finder Quick Action), just optimize those and stop. No arguments
+  # means the folder-watching mode the launchd agent uses.
+  if (($# > 0)); then
+    optimize_files "$@"
+    return
+  fi
+
+  resolve_output_dir
+  acquire_lock || {
+    log "another run has the lock, leaving this to it"
+    return 0
+  }
   process_queue
   check_for_updates
 }

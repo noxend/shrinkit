@@ -307,6 +307,49 @@ test_a_broken_file_does_not_wedge_the_queue() {
   check "still handles the good one" exists "$box/output/good-2x.mp4"
 }
 
+test_one_shot_optimizes_a_file_in_place() {
+  local box work
+  box="$(sandbox)"
+  settings "$box" '"speed": 2'
+  # a file living outside the input folder, like something you right-click in Finder
+  work="$(mktemp -d)"
+  SANDBOXES+=("$work")
+  cp "$FIXTURES/silent.mov" "$work/recording.mov"
+
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" "$work/recording.mov"
+
+  check "writes the result next to the source" exists "$work/recording-2x.mp4"
+  check "leaves the original in place" exists "$work/recording.mov"
+  check "halves the duration" duration_near "$work/recording-2x.mp4" 6
+  check "does not use the watch folder" empty_dir "$box/output"
+}
+
+test_one_shot_handles_several_files() {
+  local box work
+  box="$(sandbox)"
+  settings "$box" '"speed": 2'
+  work="$(mktemp -d)"
+  SANDBOXES+=("$work")
+  cp "$FIXTURES/silent.mov" "$work/a.mov"
+  cp "$FIXTURES/withaudio.mov" "$work/b.mov"
+
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" "$work/a.mov" "$work/b.mov"
+  check "optimizes the first" exists "$work/a-2x.mp4"
+  check "optimizes the second" exists "$work/b-2x.mp4"
+}
+
+test_start_banner_is_logged() {
+  # notifications are off in tests, but the start path still runs; make sure it does not error and
+  # the finish line is present, which proves notify_start did not abort the run.
+  local box
+  box="$(sandbox)"
+  settings "$box" '"speed": 2, "notify_start": true'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+
+  optimize "$box"
+  check "the run still completes with notify_start on" exists "$box/output/clip-2x.mp4"
+}
+
 # --------------------------------------------------------------------- run them
 
 TESTS=(
@@ -323,6 +366,9 @@ TESTS=(
   test_lock_keeps_two_runs_apart
   test_picks_up_a_file_dropped_mid_run
   test_a_broken_file_does_not_wedge_the_queue
+  test_one_shot_optimizes_a_file_in_place
+  test_one_shot_handles_several_files
+  test_start_banner_is_logged
 )
 
 print "building sample videos in tests/fixtures (first run only)"
