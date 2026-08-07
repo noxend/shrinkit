@@ -443,7 +443,29 @@ release_lock() {
   rmdir "$LOCK_DIR" 2> /dev/null
 }
 
+usage() {
+  print -r -- "usage: ${ZSH_ARGZERO:t} [file ...]
+
+  no arguments   optimize everything waiting in $IN_DIR
+  file ...       optimize those files where they are, next to each source
+
+  settings       $CONFIG_JSON
+  log            $LOG"
+}
+
 main() {
+  case "${1-}" in
+    -h | --help)
+      usage
+      return 0
+      ;;
+    -*)
+      print -u2 -r -- "unknown option: $1"
+      usage >&2
+      return 2
+      ;;
+  esac
+
   mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
   read_config
   validate_config

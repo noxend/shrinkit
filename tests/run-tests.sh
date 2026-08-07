@@ -419,6 +419,20 @@ test_one_shot_handles_several_files() {
   check "optimizes the second" exists "$work/b-2x.mp4"
 }
 
+test_flags_are_answered_not_swallowed() {
+  local box out code=0
+  box="$(mktemp -d)"
+  SANDBOXES+=("$box")
+  rmdir "$box" # so we can tell whether --help went on to build the working folders
+
+  out="$(DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" --help)"
+  check "prints usage" test -n "$out"
+  check "and does nothing else" missing "$box"
+
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" --nope > /dev/null 2>&1 || code=$?
+  check "rejects an unknown flag" test "$code" = 2
+}
+
 test_start_banner_is_logged() {
   # notifications are off in tests, but the start path still runs; make sure it does not error and
   # the finish line is present, which proves notify_start did not abort the run.
@@ -452,6 +466,7 @@ TESTS=(
   test_a_broken_file_does_not_wedge_the_queue
   test_one_shot_optimizes_a_file_in_place
   test_one_shot_handles_several_files
+  test_flags_are_answered_not_swallowed
   test_start_banner_is_logged
 )
 
