@@ -69,21 +69,21 @@ the run uses the defaults, so nothing breaks.
 
 | Setting | What it does | Default |
 | --- | --- | --- |
-| `SPEED` | Speed multiplier. `2` = twice as fast, `1.5`, `1` = original | `2` |
-| `FPS` | Cap the frame rate (60fps recordings halve to 30); `0` keeps original | `30` |
-| `CRF` | Quality/size, the main size knob. Lower = bigger/sharper, higher = smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
-| `CODEC` | `h264` (plays everywhere) or `hevc` (~30% smaller again, less compatible) | `h264` |
-| `REMOVE_AUDIO` | `true` drops sound; `false` keeps it and speeds it up to match | `true` |
-| `MAX_HEIGHT` | Downscale tall videos to this height; `0` keeps the original | `0` |
-| `OUTPUT_SUFFIX` | Text added to the output name | `-2x` |
-| `KEEP_ORIGINAL` | `true` keeps the original in `.processed/`; `false` deletes it | `true` |
-| `NOTIFY` | `true` posts a macOS banner when each file is done | `true` |
-| `NOTIFY_TITLE` | Banner title text | `Video optimized` |
-| `NOTIFY_SOUND` | Banner sound (`Glass`, `Ping`, `Pop`, `Hero`, ...) or `none` for silent | `Glass` |
-| `NOTIFY_START` | `true` also posts a quiet banner when a file starts, so a long encode doesn't feel stuck | `true` |
-| `COPY_TO_CLIPBOARD` | `true` puts the finished file on the clipboard, ready to paste | `false` |
-| `CHECK_UPDATES` | Once a day, notify if the repo has newer commits (then run `update.sh`) | `true` |
-| `OUTPUT_DIR` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |
+| `speed` | Speed multiplier. `2` = twice as fast, `1.5`, `1` = original | `2` |
+| `fps` | Cap the frame rate (60fps recordings halve to 30); `0` keeps original | `30` |
+| `crf` | Quality/size, the main size knob. Lower = bigger/sharper, higher = smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
+| `codec` | `h264` (plays everywhere) or `hevc` (~30% smaller again, less compatible) | `h264` |
+| `remove_audio` | `true` drops sound; `false` keeps it and speeds it up to match | `true` |
+| `max_height` | Downscale tall videos to this height; `0` keeps the original | `0` |
+| `output_suffix` | Text added to the output name | `-2x` |
+| `keep_original` | `true` keeps the original in `.processed/`; `false` deletes it | `true` |
+| `notify` | `true` posts a macOS banner when each file is done | `true` |
+| `notify_title` | Banner title text | `Video optimized` |
+| `notify_sound` | Banner sound (`Glass`, `Ping`, `Pop`, `Hero`, ...) or `none` for silent | `Glass` |
+| `notify_start` | `true` also posts a quiet banner when a file starts, so a long encode doesn't feel stuck | `true` |
+| `copy_to_clipboard` | `true` puts the finished file on the clipboard, ready to paste | `false` |
+| `check_updates` | Once a day, notify if the repo has newer commits (then run `update.sh`) | `true` |
+| `output_dir` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |
 
 The notification is the standard macOS banner (posted via `osascript`, no extra tools). Its icon is
 the Script Editor icon and can't be changed from a script; only the title and sound are adjustable.
