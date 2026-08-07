@@ -104,9 +104,13 @@ an unidentified developer. That is expected: it is your own local script, not a 
 A [launchd](https://www.launchd.info) agent with a `WatchPaths` entry on the input folder runs the
 installed script (`~/.local/bin/demo-video-optimizer`) whenever the folder changes. It waits for the dropped file to
 finish writing, reads `settings.jsonc`, and calls ffmpeg with `setpts` for the speed change, an
-optional `scale` filter, `h264_videotoolbox`/`hevc_videotoolbox` for hardware encoding, and
-`+faststart` so the file streams immediately. A `mkdir`-based lock keeps overlapping events from
-processing the same file twice.
+optional `scale` filter, `libx264`/`libx265` at the configured CRF, and `+faststart` so the file
+streams immediately. A `mkdir`-based lock keeps overlapping events from processing the same file
+twice.
+
+Software encoding is deliberate. The hardware encoders (`h264_videotoolbox`) are rate-based rather
+than quality-based, and on a sample screen recording produced a file three times larger than
+`libx264 -crf 28` without being any faster.
 
 ## Formatting
 
