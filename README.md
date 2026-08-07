@@ -1,5 +1,7 @@
 # Demo Video Optimizer
 
+[![tests](https://github.com/noxend/demo-video-optimizer/actions/workflows/tests.yml/badge.svg)](https://github.com/noxend/demo-video-optimizer/actions/workflows/tests.yml)
+
 Drop a screen recording into a folder and get back a faster, smaller, easy-to-share copy. It runs
 by itself in the background on macOS: no app to open, no buttons to press. Handy for trimming long
 demo recordings down before attaching them to a ticket or a chat.
@@ -133,6 +135,8 @@ shfmt -d .        # just show what would change
 Each test runs the real script against a throwaway folder under `/tmp`, so your own recordings and
 the installed agent are left alone. Sample videos are generated with ffmpeg into `tests/fixtures`
 on the first run and reused afterwards; they are not committed.
+
+GitHub Actions runs the same suite, plus `shfmt -d`, on a macOS runner for every push.
 
 ## Update
 

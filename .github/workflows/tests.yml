@@ -1,0 +1,22 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ffmpeg does the encoding and also builds the sample videos the suite runs against.
+      # shellcheck is no use here: it refuses to parse a zsh script.
+      - name: Install ffmpeg and shfmt
+        run: brew install ffmpeg shfmt
+
+      - name: Check formatting
+        run: shfmt -d .
+
+      - name: Run the test suite
+        run: ./tests/run-tests.sh
