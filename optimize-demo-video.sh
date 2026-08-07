@@ -76,19 +76,52 @@ apply_settings() {
   while IFS='=' read -r key value; do
     key="${(L)${key//[[:space:]]/}}"
     [[ -z "$key" || "$key" == '#'* ]] && continue
-    value="$(trim "${value%%\#*}")"
+    value="$(trim "$value")"
     [[ -n "${DEFAULTS[$key]+known}" ]] && CFG[$key]="${value//\"/}"
   done
 }
 
+# The older settings.txt format allows a trailing "# comment" after a value.
+apply_text_settings() {
+  local line
+  while IFS= read -r line; do
+    print -r -- "${line%%\#*}"
+  done | apply_settings
+}
+
 # Flattens settings.jsonc (JSON, plus // and /* */ comments) into those key=value lines. Exits
 # non-zero when the file is not valid JSON, which is the caller's cue to stay on the defaults.
+# Comments are stripped by scanning rather than by regex, so a // that sits inside a value such as
+# a URL or a banner title survives.
 parse_jsonc() {
   osascript -l JavaScript - "$1" << 'JXA'
+function strip(src) {
+  let out = '';
+  for (let i = 0, inString = false; i < src.length; i++) {
+    const c = src[i];
+    if (inString) {
+      out += c;
+      if (c === '\\') out += src[++i] || '';
+      else if (c === '"') inString = false;
+    } else if (c === '"') {
+      out += c;
+      inString = true;
+    } else if (c === '/' && src[i + 1] === '/') {
+      while (i < src.length && src[i] !== '\n') i++;
+      out += '\n';
+    } else if (c === '/' && src[i + 1] === '*') {
+      for (i += 2; i < src.length && !(src[i] === '*' && src[i + 1] === '/'); i++);
+      i++;
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
 function run(argv) {
   const raw = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(argv[0], 4, null)) || '';
-  const json = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[\s,{])\/\/.*$/gm, '$1');
-  const settings = JSON.parse(json);
+  const settings = JSON.parse(strip(raw));
   return Object.keys(settings).map(function (k) { return k + '=' + settings[k] }).join('\n');
 }
 JXA
@@ -103,7 +136,7 @@ read_config() {
       log "settings.jsonc is not valid JSON, using the defaults for this run"
     fi
   elif [[ -f "$CONFIG_TEXT" ]]; then
-    apply_settings < "$CONFIG_TEXT"
+    apply_text_settings < "$CONFIG_TEXT"
   fi
 }
 

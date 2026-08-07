@@ -289,6 +289,19 @@ test_unknown_settings_are_ignored() {
   check "a stray key does no harm" exists "$box/output/clip-2x.mp4"
 }
 
+test_comment_characters_inside_values() {
+  local box
+  box="$(sandbox)"
+  settings "$box" '"speed": 3, "notify_title": "done // ready", "output_suffix": "-2x#a"'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+
+  optimize "$box"
+  local out="$box/output/clip-2x#a.mp4"
+
+  check "a // in a value does not break the parse" exists "$out"
+  check "and the rest of the config still lands" duration_near "$out" 4
+}
+
 test_lock_keeps_two_runs_apart() {
   local box
   box="$(sandbox)"
@@ -391,6 +404,7 @@ TESTS=(
   test_broken_config_falls_back_to_defaults
   test_bad_values_are_rejected_one_by_one
   test_unknown_settings_are_ignored
+  test_comment_characters_inside_values
   test_lock_keeps_two_runs_apart
   test_picks_up_a_file_dropped_mid_run
   test_a_broken_file_does_not_wedge_the_queue
