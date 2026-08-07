@@ -75,7 +75,7 @@ the run uses the defaults, so nothing breaks.
 | `codec` | `h264` (plays everywhere) or `hevc` (~30% smaller again, less compatible) | `h264` |
 | `remove_audio` | `true` drops sound; `false` keeps it and speeds it up to match | `true` |
 | `max_height` | Downscale tall videos to this height; `0` keeps the original | `0` |
-| `output_suffix` | Text added to the output name | `-2x` |
+| `output_suffix` | Text added to the output name. `{speed}` is replaced with the speed, so the name follows a speed change | `-{speed}x` |
 | `keep_original` | `true` keeps the original in `.processed/`; `false` deletes it | `true` |
 | `notify` | `true` posts a macOS banner when each file is done | `true` |
 | `notify_title` | Banner title text | `Video optimized` |

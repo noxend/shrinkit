@@ -52,9 +52,9 @@ typeset -A DEFAULTS=(
   crf 28     # the size knob, 0-51, higher is smaller
   codec h264 # h264 or hevc
   remove_audio true
-  max_height 0 # downscale tall videos, 0 keeps the original size
-  output_suffix -2x
-  keep_original true # move the source aside instead of deleting it
+  max_height 0              # downscale tall videos, 0 keeps the original size
+  output_suffix '-{speed}x' # {speed} is filled in, so the name follows a speed change
+  keep_original true        # move the source aside instead of deleting it
   notify true
   notify_start true # also show a quiet banner when a file starts, not just when it finishes
   notify_title "Video optimized"
@@ -173,6 +173,10 @@ validate_config() {
   is_bool "${CFG[check_updates]}" || reject check_updates "want true or false"
   [[ -n "${CFG[output_suffix]}" ]] || reject output_suffix "cannot be empty"
   [[ -n "${CFG[notify_title]}" ]] || reject notify_title "cannot be empty"
+}
+
+resolve_output_suffix() {
+  CFG[output_suffix]="${CFG[output_suffix]//\{speed\}/${CFG[speed]}}"
 }
 
 # output_dir may point anywhere, as long as it is an absolute path we can actually create.
@@ -469,6 +473,7 @@ main() {
   mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
   read_config
   validate_config
+  resolve_output_suffix
   [[ -x "$FFMPEG" ]] || {
     log "ffmpeg is not on PATH or in the Homebrew folders"
     return 1

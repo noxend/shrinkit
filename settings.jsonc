@@ -22,8 +22,9 @@
   // Downscale tall videos to this height (keeps aspect ratio). 0 = keep the original resolution.
   "max_height": 0,
 
-  // Suffix added to the output name. "-2x" makes recording.mov -> recording-2x.mp4
-  "output_suffix": "-2x",
+  // Suffix added to the output name. {speed} is replaced with the speed above, so
+  // "-{speed}x" makes recording.mov -> recording-2x.mp4 and follows along if you change it.
+  "output_suffix": "-{speed}x",
 
   // Keep the original in a hidden .processed/ folder (true) or delete it (false).
   "keep_original": true,

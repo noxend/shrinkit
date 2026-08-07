@@ -195,6 +195,16 @@ test_basic_settings_are_used() {
   check "keeps the audio when asked" has_audio "$out"
 }
 
+test_basic_suffix_follows_the_speed() {
+  local box
+  box="$(sandbox)"
+  settings "$box" '"speed": 3'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+
+  optimize "$box"
+  check "names the file after the speed it used" exists "$box/output/clip-3x.mp4"
+}
+
 test_downscale() {
   local box
   box="$(sandbox)"
@@ -450,6 +460,7 @@ test_start_banner_is_logged() {
 TESTS=(
   test_basic_encode
   test_basic_settings_are_used
+  test_basic_suffix_follows_the_speed
   test_downscale
   test_keep_original_false_deletes_the_source
   test_output_dir_redirect
