@@ -8,7 +8,7 @@ jobs:
   tests:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # ffmpeg does the encoding and also builds the sample videos the suite runs against.
       # shellcheck is no use here: it refuses to parse a zsh script.
