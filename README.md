@@ -19,7 +19,7 @@ https://github.com/user-attachments/assets/651900d7-0171-4793-b6fd-5d1d5097ee98
 ## Install
 
 ```bash
-git clone git@github.com:noxend/demo-video-optimizer.git
+git clone https://github.com/noxend/demo-video-optimizer.git
 cd demo-video-optimizer
 ./install.sh
 ```
