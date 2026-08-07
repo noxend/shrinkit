@@ -319,6 +319,46 @@ test_lock_keeps_two_runs_apart() {
   check "the lock is released" missing "$box/.optimizer.lock"
 }
 
+# plant_lock <sandbox> <pid>
+plant_lock() {
+  mkdir -p "$1/.optimizer.lock"
+  print -r -- "$2" > "$1/.optimizer.lock/pid"
+}
+
+# A pid that has just exited, so nothing is listening on it any more.
+dead_pid() {
+  local pid
+  (exit 0) &
+  pid=$!
+  wait $pid 2> /dev/null
+  print -r -- "$pid"
+}
+
+test_a_lock_from_a_dead_run_is_taken_over() {
+  local box
+  box="$(sandbox)"
+  settings "$box" '"speed": 2'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  plant_lock "$box" "$(dead_pid)"
+
+  optimize "$box"
+  check "takes the abandoned lock over" exists "$box/output/clip-2x.mp4"
+  check "and leaves none behind" missing "$box/.optimizer.lock"
+}
+
+test_a_lock_from_a_live_run_is_left_alone() {
+  local box
+  box="$(sandbox)"
+  settings "$box" '"speed": 2'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  plant_lock "$box" $$ # this shell is very much alive
+
+  optimize "$box"
+  check "stands down" logged "$box" 'another run has the lock'
+  check "leaves the file where it is" exists "$box/input/clip.mov"
+  check "does not delete the other run's lock" exists "$box/.optimizer.lock/pid"
+}
+
 test_picks_up_a_file_dropped_mid_run() {
   local box
   box="$(sandbox)"
@@ -406,6 +446,8 @@ TESTS=(
   test_unknown_settings_are_ignored
   test_comment_characters_inside_values
   test_lock_keeps_two_runs_apart
+  test_a_lock_from_a_dead_run_is_taken_over
+  test_a_lock_from_a_live_run_is_left_alone
   test_picks_up_a_file_dropped_mid_run
   test_a_broken_file_does_not_wedge_the_queue
   test_one_shot_optimizes_a_file_in_place

@@ -410,22 +410,37 @@ check_for_updates() {
 
 # --------------------------------------------------------------------- run
 
-# mkdir is atomic, so it doubles as the lock. A lock left behind by a killed run is taken over
-# after half an hour. The release has to be armed at the top level: in zsh an EXIT trap set inside
-# a function fires when that function returns, which would drop the lock immediately.
+# mkdir is atomic, so it doubles as the lock, and the pid inside says who holds it. Liveness is
+# what decides whether a lock may be taken over: a signal test cannot mistake a long encode for an
+# abandoned run the way a timeout can, and it frees a killed run's lock at once instead of after a
+# wait. The release has to be armed at the top level: in zsh an EXIT trap set inside a function
+# fires when that function returns, which would drop the lock immediately.
 LOCK_HELD=0
+LOCK_PID_FILE="$LOCK_DIR/pid"
+
+lock_owner_alive() {
+  local owner
+  owner="$(cat "$LOCK_PID_FILE" 2> /dev/null)"
+  is_int "$owner" && kill -0 "$owner" 2> /dev/null
+}
 
 acquire_lock() {
-  if [[ -d "$LOCK_DIR" && -z "$(find "$LOCK_DIR" -maxdepth 0 -mmin +30 2> /dev/null)" ]]; then
-    return 1
+  if [[ -d "$LOCK_DIR" ]]; then
+    lock_owner_alive && return 1
+    rm -f "$LOCK_PID_FILE" 2> /dev/null
+    rmdir "$LOCK_DIR" 2> /dev/null
   fi
-  rmdir "$LOCK_DIR" 2> /dev/null
   mkdir "$LOCK_DIR" 2> /dev/null || return 1
+  print -r -- $$ > "$LOCK_PID_FILE"
   LOCK_HELD=1
 }
 
+# Only drop a lock we still own, so a run that was taken over cannot delete its successor's.
 release_lock() {
-  ((LOCK_HELD)) && rmdir "$LOCK_DIR" 2> /dev/null
+  ((LOCK_HELD)) || return 0
+  [[ "$(cat "$LOCK_PID_FILE" 2> /dev/null)" == "$$" ]] || return 0
+  rm -f "$LOCK_PID_FILE" 2> /dev/null
+  rmdir "$LOCK_DIR" 2> /dev/null
 }
 
 main() {
