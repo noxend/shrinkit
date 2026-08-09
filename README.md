@@ -1,6 +1,6 @@
-# Demo Video Optimizer
+# shrinkit
 
-[![tests](https://github.com/noxend/demo-video-optimizer/actions/workflows/tests.yml/badge.svg)](https://github.com/noxend/demo-video-optimizer/actions/workflows/tests.yml)
+[![tests](https://github.com/noxend/shrinkit/actions/workflows/tests.yml/badge.svg)](https://github.com/noxend/shrinkit/actions/workflows/tests.yml)
 
 Drop a screen recording into a folder and get back a faster, smaller, easy-to-share copy. It runs
 by itself in the background on macOS: no app to open, no buttons to press. Handy for trimming long
@@ -21,14 +21,14 @@ https://github.com/user-attachments/assets/651900d7-0171-4793-b6fd-5d1d5097ee98
 ## Install
 
 ```bash
-git clone https://github.com/noxend/demo-video-optimizer.git
-cd demo-video-optimizer
+git clone https://github.com/noxend/shrinkit.git
+cd shrinkit
 ./install.sh
 ```
 
 That copies the script into `~/.local/bin`, creates the working folders under
-`~/Movies/demo-recordings`, installs the config, registers a launchd agent that watches the input
-folder, and puts a **`demo-recordings` shortcut on your Desktop** pointing at that folder. So the
+`~/Movies/shrinkit`, installs the config, registers a launchd agent that watches the input
+folder, and puts a **`shrinkit` shortcut on your Desktop** pointing at that folder. So the
 work happens in a non-protected location (no permissions needed) while you reach `input/` and
 `output/` from the Desktop. Re-running `./install.sh` updates everything and never overwrites your
 settings. Pass `DESKTOP_SHORTCUT=0` to skip the shortcut.
@@ -36,18 +36,18 @@ settings. Pass `DESKTOP_SHORTCUT=0` to skip the shortcut.
 To use a different base folder:
 
 ```bash
-DEMO_OPTIMIZER_DIR="$HOME/Desktop/demo-recordings" ./install.sh
+SHRINKIT_DIR="$HOME/Desktop/shrinkit" ./install.sh
 ```
 
 You can put it on the `~/Desktop` (or in `~/Documents` / `~/Downloads`), but those are
 macOS privacy-protected: a background job is denied there, with no automatic prompt, until you grant
 it **Full Disk Access** once by hand. When you install into one of them the script prints the exact
-steps (add `~/.local/bin/demo-video-optimizer` in System Settings > Privacy & Security > Full Disk
+steps (add `~/.local/bin/shrinkit` in System Settings > Privacy & Security > Full Disk
 Access, then reload the agent). Anywhere else, for example the default `~/Movies`, needs no such step.
 
 ## Use
 
-1. Open the `demo-recordings` shortcut on your Desktop and drop a recording (`.mov`, `.mp4`,
+1. Open the `shrinkit` shortcut on your Desktop and drop a recording (`.mov`, `.mp4`,
    `.m4v`) into `input/`.
 2. Wait a few seconds. It is processed automatically.
 3. Take the result from `output/` (named `clip-2x.mp4`).
@@ -69,8 +69,8 @@ Every setting is also a flag, so a single file can be handled differently withou
 config:
 
 ```bash
-demo-video-optimizer --speed 4 --crf 32 recording.mov
-demo-video-optimizer --trim-idle --no-remove-audio recording.mov
+shrinkit --speed 4 --crf 32 recording.mov
+shrinkit --trim-idle --no-remove-audio recording.mov
 ```
 
 A `true`/`false` setting takes no value: `--trim-idle` turns it on, `--no-trim-idle` turns it off.
@@ -84,16 +84,16 @@ leaves out keeps whatever the config says. One comes with the installer, `preset
 something going into a chat or a ticket:
 
 ```bash
-demo-video-optimizer --preset chat recording.mov
+shrinkit --preset chat recording.mov
 ```
 
 Copy that file to make your own. A preset can also become its own entry in the right-click menu,
 which is the point of them: write the file, then
 
 ```bash
-demo-video-optimizer preset install chat     # adds "Optimize chat" to Quick Actions
-demo-video-optimizer preset list             # what presets exist
-demo-video-optimizer preset remove chat      # takes the entry back out
+shrinkit preset install chat     # adds "Optimize chat" to Quick Actions
+shrinkit preset list             # what presets exist
+shrinkit preset remove chat      # takes the entry back out
 ```
 
 So the menu only grows as far as you ask it to. Flags still win over a preset, and a preset wins
@@ -104,12 +104,12 @@ over the config file.
 Either from the command line:
 
 ```bash
-demo-video-optimizer config              # what is in effect right now
-demo-video-optimizer config crf 32       # change one
-demo-video-optimizer config edit         # open it in $EDITOR
+shrinkit config              # what is in effect right now
+shrinkit config crf 32       # change one
+shrinkit config edit         # open it in $EDITOR
 ```
 
-or by editing `~/Movies/demo-recordings/settings.conf` yourself. It is one `key = value` per line, and a line
+or by editing `~/Movies/shrinkit/settings.conf` yourself. It is one `key = value` per line, and a line
 starting with `#` is a comment. Changes apply to the next recording. A value you get wrong is put
 back to its default and noted in the log, and a line that makes no sense is skipped, so nothing
 here can stop a recording from being processed.
@@ -145,15 +145,15 @@ than the source; the CRF path made it several times smaller.
 
 Logs are written to a hidden `.logs/` folder inside the base folder. The watched input folder is
 fixed at install time (a launchd limitation); to move it, re-run the installer with
-`DEMO_OPTIMIZER_DIR`.
+`SHRINKIT_DIR`.
 
-macOS lists the background item under System Settings > Login Items as **demo-video-optimizer** from
+macOS lists the background item under System Settings > Login Items as **shrinkit** from
 an unidentified developer. That is expected: it is your own local script, not a signed app.
 
 ## How it works
 
 A [launchd](https://www.launchd.info) agent with a `WatchPaths` entry on the input folder runs the
-installed script (`~/.local/bin/demo-video-optimizer`) whenever the folder changes. It waits for the dropped file to
+installed script (`~/.local/bin/shrinkit`) whenever the folder changes. It waits for the dropped file to
 finish writing, reads `settings.conf`, and calls ffmpeg with `setpts` for the speed change, an
 optional `scale` filter, `libx264`/`libx265` at the configured CRF, and `+faststart` so the file
 streams immediately. A `mkdir`-based lock keeps overlapping events from processing the same file

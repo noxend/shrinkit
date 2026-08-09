@@ -14,7 +14,7 @@ setopt extended_glob
 
 TESTS_DIR="${0:A:h}"
 REPO_DIR="${TESTS_DIR:h}"
-OPTIMIZER="$REPO_DIR/optimize-demo-video.sh"
+OPTIMIZER="$REPO_DIR/shrinkit.sh"
 FIXTURES="$TESTS_DIR/fixtures"
 
 find_tool() {
@@ -127,9 +127,9 @@ settings() {
   print -rl -- "notify = false" "$@" > "$box/settings.conf"
 }
 
-# Runs the script under test. DEMO_OPTIMIZER_REPO is blank so the update check stays out of it.
+# Runs the script under test. SHRINKIT_REPO is blank so the update check stays out of it.
 optimize() {
-  DEMO_OPTIMIZER_DIR="$1" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER"
+  SHRINKIT_DIR="$1" SHRINKIT_REPO="" zsh "$OPTIMIZER"
 }
 
 # --------------------------------------------------------------------- sample videos
@@ -462,7 +462,7 @@ test_one_shot_optimizes_a_file_in_place() {
   SANDBOXES+=("$work")
   cp "$FIXTURES/silent.mov" "$work/recording.mov"
 
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" "$work/recording.mov"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/recording.mov"
 
   check "writes the result next to the source" exists "$work/recording-2x.mp4"
   check "leaves the original in place" exists "$work/recording.mov"
@@ -479,7 +479,7 @@ test_one_shot_handles_several_files() {
   cp "$FIXTURES/silent.mov" "$work/a.mov"
   cp "$FIXTURES/withaudio.mov" "$work/b.mov"
 
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" "$work/a.mov" "$work/b.mov"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/a.mov" "$work/b.mov"
   check "optimizes the first" exists "$work/a-2x.mp4"
   check "optimizes the second" exists "$work/b-2x.mp4"
 }
@@ -490,11 +490,11 @@ test_flags_are_answered_not_swallowed() {
   SANDBOXES+=("$box")
   rmdir "$box" # so we can tell whether --help went on to build the working folders
 
-  out="$(DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" --help)"
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --help)"
   check "prints usage" test -n "$out"
   check "and does nothing else" missing "$box"
 
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" --nope > /dev/null 2>&1 || code=$?
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --nope > /dev/null 2>&1 || code=$?
   check "rejects an unknown flag" test "$code" = 2
 }
 
@@ -507,7 +507,7 @@ test_flags_beat_the_config_file() {
   cp "$FIXTURES/withaudio.mov" "$work/clip.mov"
   out="$work/clip-4x.mp4"
 
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" --speed 4 --no-remove-audio "$work/clip.mov"
 
   check "takes the speed from the flag" duration_near "$out" 3
@@ -522,7 +522,7 @@ test_flags_that_make_no_sense_are_refused() {
 
   for flag in --crf --nope --no-speed; do
     code=0
-    DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+    SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
       zsh "$OPTIMIZER" "$flag" > /dev/null 2>&1 || code=$?
     check "refuses $flag" test "$code" = 2
   done
@@ -533,7 +533,7 @@ test_config_show_lists_what_is_in_effect() {
   box="$(sandbox)"
   settings "$box" 'crf = 31'
 
-  out="$(DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" config)"
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" config)"
   check "reports the value from the file" grep -q '^crf = 31$' <<< "$out"
   check "and a setting the file never named" grep -q '^codec = h264$' <<< "$out"
 }
@@ -543,7 +543,7 @@ test_config_set_edits_the_line_in_place() {
   box="$(sandbox)"
   print -rl -- '# how sharp' 'crf = 28' '' 'speed = 2' > "$box/settings.conf"
 
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" config crf 33 > /dev/null
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" config crf 33 > /dev/null
 
   check "writes the new value" grep -q '^crf = 33$' "$box/settings.conf"
   check "keeps the comment above it" grep -q '^# how sharp$' "$box/settings.conf"
@@ -556,7 +556,7 @@ test_config_set_appends_a_setting_that_was_missing() {
   box="$(sandbox)"
   print -r -- 'speed = 2' > "$box/settings.conf"
 
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" config trim-idle true > /dev/null
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" config trim-idle true > /dev/null
   check "adds it under its real name" grep -q '^trim_idle = true$' "$box/settings.conf"
 }
 
@@ -565,7 +565,7 @@ test_config_set_refuses_a_setting_that_does_not_exist() {
   box="$(sandbox)"
   settings "$box" 'speed = 2'
 
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" config nope 1 > /dev/null 2>&1 || code=$?
   check "stops with a usage error" test "$code" = 2
   check "and writes nothing" test "$(grep -c nope "$box/settings.conf")" = 0
@@ -588,7 +588,7 @@ test_preset_is_read_on_top_of_the_config() {
   SANDBOXES+=("$work")
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
 
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" --preset chat "$work/clip.mov"
 
   check "takes the settings from the preset" exists "$work/clip-3x.mp4"
@@ -604,7 +604,7 @@ test_preset_loses_to_a_flag() {
   SANDBOXES+=("$work")
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
 
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" --preset chat --speed 4 "$work/clip.mov"
 
   check "the flag wins" exists "$work/clip-4x.mp4"
@@ -617,7 +617,7 @@ test_preset_list_names_what_is_there() {
   preset "$box" chat 'speed = 3'
   preset "$box" tiny 'crf = 34'
 
-  out="$(DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" preset list)"
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" preset list)"
   check "lists both" test "$out" = "chat
 tiny"
 }
@@ -629,14 +629,14 @@ test_preset_that_does_not_exist_is_refused() {
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   code=0
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" --preset nope > /dev/null 2>&1 || code=$?
   check "stops rather than guessing" test "$code" = 2
   check "leaves the file alone" exists "$box/input/clip.mov"
 
   # the same for the Quick Action side, which must not write into ~/Library/Services
   code=0
-  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" preset install nope > /dev/null 2>&1 || code=$?
   check "refuses to build an action for it" test "$code" = 2
   check "and builds nothing" missing "$HOME/Library/Services/Optimize nope.workflow"

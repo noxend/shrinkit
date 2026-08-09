@@ -5,21 +5,30 @@
 
 set -u
 
-LABEL="com.demo-video-optimizer"
+LABEL="com.shrinkit"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 BIN_DIR="$HOME/.local/bin"
-BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
+BASE_DIR="${SHRINKIT_DIR:-$HOME/Movies/shrinkit}"
 
-launchctl bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
-# remove the current name and the one older installs used
-rm -f "$PLIST" "$BIN_DIR/demo-video-optimizer" "$BIN_DIR/optimize-demo-video.sh"
+# the current name, plus the ones this tool went by before it was called shrinkit
+for label in "$LABEL" com.demo-video-optimizer; do
+  launchctl bootout "gui/$(id -u)/$label" 2> /dev/null || true
+  rm -f "$HOME/Library/LaunchAgents/$label.plist"
+done
+rm -f "$BIN_DIR/shrinkit" "$BIN_DIR/demo-video-optimizer" "$BIN_DIR/optimize-demo-video.sh"
 
-# remove the Desktop shortcut if it points at this base folder (never touch a real folder)
-LINK="$HOME/Desktop/${BASE_DIR:t}"
-[[ -L "$LINK" ]] && rm -f "$LINK"
+# remove the Desktop shortcuts if they are shortcuts (never touch a real folder)
+for link in "$HOME/Desktop/${BASE_DIR:t}" "$HOME/Desktop/demo-recordings"; do
+  [[ -L "$link" ]] && rm -f "$link"
+done
 
-# remove the Finder Quick Action
-rm -rf "$HOME/Library/Services/Optimize Video.workflow"
+# remove the Finder Quick Actions, including any built from a preset. Matching on the command
+# inside rather than on the name, so a Quick Action of your own is never caught by it.
+setopt extended_glob
+for action in "$HOME/Library/Services"/*.workflow(N); do
+  grep -q 'shrinkit\|demo-video-optimizer' "$action/Contents/document.wflow" 2> /dev/null \
+    && rm -rf "$action"
+done
 /System/Library/CoreServices/pbs -update 2> /dev/null || true
 
 echo "Removed the agent, the script, the Desktop shortcut, and the Quick Action."

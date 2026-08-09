@@ -1,22 +1,37 @@
 #!/bin/zsh
-# Installs the demo-video optimizer: copies the script into place, creates the watch folders,
+# Installs the shrinkit: copies the script into place, creates the watch folders,
 # installs the config, and registers a launchd agent that runs it whenever a recording is dropped
 # into the input folder. Re-running it is safe: it updates the script and reloads the agent, and it
 # never overwrites your settings.
 #
 #   Optional: choose a different base folder before running:
-#       DEMO_OPTIMIZER_DIR="$HOME/Movies/my-clips" ./install.sh
+#       SHRINKIT_DIR="$HOME/Movies/my-clips" ./install.sh
 
 set -eu
 
 REPO_DIR="${0:A:h}"
-BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
+BASE_DIR="${SHRINKIT_DIR:-$HOME/Movies/shrinkit}"
 BIN_DIR="$HOME/.local/bin"
-# Installed without a .sh extension so it reads as "demo-video-optimizer" (not "zsh") in the
+# Installed without a .sh extension so it reads as "shrinkit" (not "zsh") in the
 # System Settings > Login Items background list.
-SCRIPT_DST="$BIN_DIR/demo-video-optimizer"
-LABEL="com.demo-video-optimizer"
+SCRIPT_DST="$BIN_DIR/shrinkit"
+LABEL="com.shrinkit"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+
+# The tool used to be called demo-video-optimizer. Take the old install apart before building the
+# new one, or the machine ends up with two agents watching two folders.
+OLD_LABEL="com.demo-video-optimizer"
+OLD_BASE="$HOME/Movies/demo-recordings"
+launchctl bootout "gui/$(id -u)/$OLD_LABEL" 2> /dev/null || true
+rm -f "$HOME/Library/LaunchAgents/$OLD_LABEL.plist"
+rm -f "$BIN_DIR/demo-video-optimizer" "$BIN_DIR/optimize-demo-video.sh"
+[[ -L "$HOME/Desktop/demo-recordings" ]] && rm -f "$HOME/Desktop/demo-recordings"
+# Recordings and settings move across with it, but only into a folder that is not already there,
+# and only when you have not named one yourself.
+if [[ -z "${SHRINKIT_DIR+set}" && -d "$OLD_BASE" && ! -d "$BASE_DIR" ]]; then
+  mv "$OLD_BASE" "$BASE_DIR"
+  echo "==> Moved $OLD_BASE to $BASE_DIR"
+fi
 
 echo "==> Base folder: $BASE_DIR"
 
@@ -46,8 +61,7 @@ echo "==> Using ffmpeg at $FFMPEG_BIN"
 
 # 2. the script
 mkdir -p "$BIN_DIR"
-rm -f "$BIN_DIR/optimize-demo-video.sh" # drop the name used by older installs
-cp "$REPO_DIR/optimize-demo-video.sh" "$SCRIPT_DST"
+cp "$REPO_DIR/shrinkit.sh" "$SCRIPT_DST"
 chmod +x "$SCRIPT_DST"
 echo "==> Installed script: $SCRIPT_DST"
 
@@ -106,7 +120,7 @@ cat > "$PLIST" << PLIST_EOF
     <key>Label</key>
     <string>$LABEL</string>
     <!-- Run the script directly (it has a #!/bin/zsh shebang) so the background item shows as
-         "demo-video-optimizer" instead of "zsh". -->
+         "shrinkit" instead of "zsh". -->
     <key>ProgramArguments</key>
     <array>
         <string>$SCRIPT_DST</string>
@@ -123,9 +137,9 @@ cat > "$PLIST" << PLIST_EOF
     <dict>
         <key>PATH</key>
         <string>$FFMPEG_DIR:/usr/bin:/bin:/usr/sbin:/sbin</string>
-        <key>DEMO_OPTIMIZER_DIR</key>
+        <key>SHRINKIT_DIR</key>
         <string>$BASE_DIR</string>
-        <key>DEMO_OPTIMIZER_REPO</key>
+        <key>SHRINKIT_REPO</key>
         <string>$REPO_DIR</string>
     </dict>
     <key>StandardOutPath</key>
@@ -162,7 +176,7 @@ if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
   cp -R "$QA_SRC" "$QA_DST"
   # Fill in the command with the real paths. plutil writes the value verbatim, so there is no
   # shell-quoting to fight with. "$@" forwards the file(s) Finder passes as arguments.
-  QA_CMD="DEMO_OPTIMIZER_DIR=\"$BASE_DIR\" \"$SCRIPT_DST\" \"\$@\""
+  QA_CMD="SHRINKIT_DIR=\"$BASE_DIR\" \"$SCRIPT_DST\" \"\$@\""
   plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$QA_CMD" \
     "$QA_DST/Contents/document.wflow"
   # Register it so it shows up in the right-click menu without a logout.
@@ -175,7 +189,7 @@ launchctl bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 echo ""
-echo "Done. Open the 'demo-recordings' shortcut on your Desktop:"
+echo "Done. Open the 'shrinkit' shortcut on your Desktop:"
 echo "  - drop recordings into  input/"
 echo "  - pick up results from  output/"
 echo "  - change behaviour by editing  settings.conf"

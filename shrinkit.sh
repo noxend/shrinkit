@@ -10,8 +10,8 @@ setopt extended_glob
 
 # --------------------------------------------------------------------- where things live
 
-BASE_DIR="${DEMO_OPTIMIZER_DIR:-$HOME/Movies/demo-recordings}"
-REPO_DIR="${DEMO_OPTIMIZER_REPO:-}" # set by the installer, used for the update check
+BASE_DIR="${SHRINKIT_DIR:-$HOME/Movies/shrinkit}"
+REPO_DIR="${SHRINKIT_REPO:-}" # set by the installer, used for the update check
 
 IN_DIR="$BASE_DIR/input"        # the watched folder
 DONE_DIR="$BASE_DIR/.processed" # originals end up here after a good encode
@@ -537,7 +537,7 @@ install_preset_action() {
   rm -rf "$action"
   cp -R "$template" "$action"
 
-  command="DEMO_OPTIMIZER_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" --preset \"$name\" \"\$@\""
+  command="SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" --preset \"$name\" \"\$@\""
   plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$command" \
     "$action/Contents/document.wflow"
   plutil -replace CFBundleName -string "Optimize $name" "$action/Contents/Info.plist"
