@@ -135,28 +135,6 @@ If you used the tool before it was called shrinkit, `./install.sh` takes the old
 moves `~/Movies/demo-recordings` across, and converts `settings.jsonc` to the current format,
 keeping the old file as `settings.jsonc.bak`.
 
-## How it works
-
-A [launchd](https://www.launchd.info) agent watches `input/` and runs the script whenever the
-folder changes. The script waits for the dropped file to stop growing, reads the settings, and
-hands the work to ffmpeg. A lock made with `mkdir` stops two runs from taking the same file, and
-the run that holds it is identified by pid, so a long encode is never mistaken for a dead one.
-
-Some of the choices behind this are written up in [NOTES.md](NOTES.md).
-
-## Development
-
-```bash
-./tests/run-tests.sh          # everything
-./tests/run-tests.sh lock     # only tests whose name contains "lock"
-shfmt -w .                    # format
-```
-
-Each test runs the real script against a throwaway folder under `/tmp`, so your own recordings and
-the installed agent stay untouched. Sample videos are built with ffmpeg into `tests/fixtures` on
-the first run and reused after that; they are not committed. GitHub Actions runs the same suite
-plus `shfmt -d` on a macOS runner for every push.
-
 ## Update and uninstall
 
 ```bash
