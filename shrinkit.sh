@@ -1,6 +1,6 @@
 #!/bin/zsh
 #
-# Optimizes screen recordings dropped into the input folder: speeds them up, drops or stretches the
+# Shrinks screen recordings dropped into the input folder: speeds them up, drops or stretches the
 # audio, and re-encodes them small. Settings live in settings.conf next to the folders, so this
 # script never needs editing. A launchd WatchPaths agent runs it whenever something lands in
 # input/, and running it by hand does exactly the same thing.
@@ -315,7 +315,7 @@ handle() {
 
   encode "$src" "$out" || {
     log "FAILED ${src:t}, left in place (ffmpeg output is above)"
-    notify "${src:t}" "Optimize failed"
+    notify "${src:t}" "Could not shrink"
     return 1
   }
   after="$(human_size "$out")"
@@ -347,7 +347,7 @@ optimize_files() {
       announce "${src:t:r}" "$out" "$before" "$after"
     else
       log "FAILED $src (one-shot, ffmpeg output is above)"
-      notify "${src:t}" "Optimize failed"
+      notify "${src:t}" "Could not shrink"
     fi
   done
 }
@@ -506,8 +506,8 @@ SERVICES_DIR="$HOME/Library/Services"
 # repo is not around.
 quick_action_template() {
   local candidate
-  for candidate in "$REPO_DIR/quick-action/Optimize Video.workflow" \
-    "$SERVICES_DIR/Optimize Video.workflow"; do
+  for candidate in "$REPO_DIR/quick-action/Shrink Video.workflow" \
+    "$SERVICES_DIR/Shrink Video.workflow"; do
     [[ -d "$candidate" ]] && {
       print -r -- "$candidate"
       return
@@ -532,7 +532,7 @@ install_preset_action() {
     return 1
   }
 
-  action="$SERVICES_DIR/Optimize $name.workflow"
+  action="$SERVICES_DIR/Shrink: $name.workflow"
   mkdir -p "$SERVICES_DIR"
   rm -rf "$action"
   cp -R "$template" "$action"
@@ -540,16 +540,16 @@ install_preset_action() {
   command="SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" --preset \"$name\" \"\$@\""
   plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$command" \
     "$action/Contents/document.wflow"
-  plutil -replace CFBundleName -string "Optimize $name" "$action/Contents/Info.plist"
-  plutil -replace NSServices.0.NSMenuItem.default -string "Optimize $name" \
+  plutil -replace CFBundleName -string "Shrink: $name" "$action/Contents/Info.plist"
+  plutil -replace NSServices.0.NSMenuItem.default -string "Shrink: $name" \
     "$action/Contents/Info.plist"
   /System/Library/CoreServices/pbs -update 2> /dev/null || true
 
-  print -r -- "right-click a video > Quick Actions > Optimize $name"
+  print -r -- "right-click a video > Quick Actions > Shrink: $name"
 }
 
 remove_preset_action() {
-  rm -rf "$SERVICES_DIR/Optimize $1.workflow"
+  rm -rf "$SERVICES_DIR/Shrink: $1.workflow"
   /System/Library/CoreServices/pbs -update 2> /dev/null || true
   print -r -- "removed the Quick Action for '$1'"
 }

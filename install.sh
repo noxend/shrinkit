@@ -164,13 +164,13 @@ if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
   fi
 fi
 
-# 7. a Finder Quick Action, so you can right-click any video and pick "Optimize Video" without
+# 7. a Finder Quick Action, so you can right-click any video and pick "Shrink Video" without
 #    dropping it into the watch folder. It writes the result next to the source. Skip with
 #    QUICK_ACTION=0.
 if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
   SERVICES_DIR="$HOME/Library/Services"
-  QA_SRC="$REPO_DIR/quick-action/Optimize Video.workflow"
-  QA_DST="$SERVICES_DIR/Optimize Video.workflow"
+  QA_SRC="$REPO_DIR/quick-action/Shrink Video.workflow"
+  QA_DST="$SERVICES_DIR/Shrink Video.workflow"
   mkdir -p "$SERVICES_DIR"
   rm -rf "$QA_DST"
   cp -R "$QA_SRC" "$QA_DST"
@@ -181,7 +181,7 @@ if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
     "$QA_DST/Contents/document.wflow"
   # Register it so it shows up in the right-click menu without a logout.
   /System/Library/CoreServices/pbs -update 2> /dev/null || true
-  echo "==> Installed Finder Quick Action: right-click a video > Quick Actions > Optimize Video"
+  echo "==> Installed Finder Quick Action: right-click a video > Quick Actions > Shrink Video"
 fi
 
 # 8. (re)load it

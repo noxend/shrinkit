@@ -2,12 +2,13 @@
 
 [![tests](https://github.com/noxend/shrinkit/actions/workflows/tests.yml/badge.svg)](https://github.com/noxend/shrinkit/actions/workflows/tests.yml)
 
-Drop a screen recording into a folder and get back a faster, smaller, easy-to-share copy. It runs
-by itself in the background on macOS: no app to open, no buttons to press. Handy for trimming long
-demo recordings down before attaching them to a ticket or a chat.
+Drop a screen recording into a folder and get a faster, smaller copy back. It runs in the
+background on macOS, so there is nothing to open and nothing to click. Useful when a demo recording
+is too long or too heavy to attach to a ticket or paste into a chat.
 
-By default it plays the recording back at 2x, drops the audio, caps the frame rate, and re-encodes
-with a quality-based codec (CRF), so the file comes out much smaller. Every part is configurable.
+Out of the box it plays the recording at 2x, drops the audio, caps the frame rate at 30 and
+re-encodes at a fixed quality, which usually takes a few hundred megabytes down to a few. All of
+that is configurable.
 
 ## Demo
 
@@ -16,7 +17,8 @@ https://github.com/user-attachments/assets/651900d7-0171-4793-b6fd-5d1d5097ee98
 ## Requirements
 
 - macOS
-- [ffmpeg](https://ffmpeg.org) (the installer offers to install it via [Homebrew](https://brew.sh) if it is missing)
+- [ffmpeg](https://ffmpeg.org). The installer offers to fetch it with [Homebrew](https://brew.sh)
+  if you do not have it.
 
 ## Install
 
@@ -26,82 +28,72 @@ cd shrinkit
 ./install.sh
 ```
 
-That copies the script into `~/.local/bin`, creates the working folders under
-`~/Movies/shrinkit`, installs the config, registers a launchd agent that watches the input
-folder, and puts a **`shrinkit` shortcut on your Desktop** pointing at that folder. So the
-work happens in a non-protected location (no permissions needed) while you reach `input/` and
-`output/` from the Desktop. Re-running `./install.sh` updates everything and never overwrites your
-settings. Pass `DESKTOP_SHORTCUT=0` to skip the shortcut.
+The installer copies the script to `~/.local/bin/shrinkit`, creates the working folders under
+`~/Movies/shrinkit`, registers a launchd agent that watches `input/`, and puts a `shrinkit`
+shortcut on your Desktop. Run it again any time to update; it never overwrites your settings. Set
+`DESKTOP_SHORTCUT=0` to skip the shortcut and `QUICK_ACTION=0` to skip the right-click menu entry.
 
-To use a different base folder:
+For a different working folder:
 
 ```bash
-SHRINKIT_DIR="$HOME/Desktop/shrinkit" ./install.sh
+SHRINKIT_DIR="$HOME/Movies/clips" ./install.sh
 ```
 
-You can put it on the `~/Desktop` (or in `~/Documents` / `~/Downloads`), but those are
-macOS privacy-protected: a background job is denied there, with no automatic prompt, until you grant
-it **Full Disk Access** once by hand. When you install into one of them the script prints the exact
-steps (add `~/.local/bin/shrinkit` in System Settings > Privacy & Security > Full Disk
-Access, then reload the agent). Anywhere else, for example the default `~/Movies`, needs no such step.
+`~/Desktop`, `~/Documents` and `~/Downloads` are guarded by macOS privacy protection, and a
+background job is refused there until you grant it Full Disk Access by hand. If you install into
+one of them the script prints the steps. Anywhere else, `~/Movies` included, needs nothing.
 
 ## Use
 
-1. Open the `shrinkit` shortcut on your Desktop and drop a recording (`.mov`, `.mp4`,
-   `.m4v`) into `input/`.
-2. Wait a few seconds. It is processed automatically.
-3. Take the result from `output/` (named `clip-2x.mp4`).
+1. Open the `shrinkit` shortcut on your Desktop and drop a recording into `input/`.
+2. Give it a few seconds.
+3. Collect the result from `output/`, named `clip-2x.mp4`.
 
-The original is moved to a hidden `.processed/` folder as a backup, so the base folder shows only
-`settings.conf`, `input/` and `output/`.
+The original goes to a hidden `.processed/` folder, so the working folder holds only
+`settings.conf`, `presets/`, `input/` and `output/`.
 
 ## Right-click a video
 
-The installer also adds a Finder Quick Action. Right-click any video, pick **Quick Actions >
-Optimize Video**, and the optimized copy lands next to it (`clip-2x.mp4`), using the same settings.
-Nothing is moved and the original is left as is, so this is handy for a one-off file you don't want
-to route through the watch folder. Select several files to do them in one go. Skip it at install
-time with `QUICK_ACTION=0`.
+The installer also adds a Finder Quick Action. Right-click any video, choose **Quick Actions >
+Shrink Video**, and the smaller copy appears beside it. The original stays where it is, which makes
+this the quicker route for a one-off file. Select several files to do them together.
 
 ## One-off changes on the command line
 
-Every setting is also a flag, so a single file can be handled differently without touching the
-config:
+Every setting doubles as a flag, so one file can be handled differently without editing anything:
 
 ```bash
 shrinkit --speed 4 --crf 32 recording.mov
 shrinkit --trim-idle --no-remove-audio recording.mov
 ```
 
-A `true`/`false` setting takes no value: `--trim-idle` turns it on, `--no-trim-idle` turns it off.
-With no files named, the flags apply to whatever is waiting in `input/`. Flags win over the config
-file.
+A true/false setting takes no value: `--trim-idle` turns it on and `--no-trim-idle` turns it off.
+Name no files and the flags apply to whatever is sitting in `input/`. Flags beat the config file.
 
-## Presets, and your own right-click entries
+## Presets
 
-A preset is a file of the same settings in `presets/`, read on top of `settings.conf`. Anything it
-leaves out keeps whatever the config says. One comes with the installer, `presets/chat.conf`, for
+A preset is a file of the same settings in `presets/`, read on top of `settings.conf`. Whatever it
+leaves out stays as the config has it. The installer ships one, `presets/chat.conf`, tuned for
 something going into a chat or a ticket:
 
 ```bash
 shrinkit --preset chat recording.mov
 ```
 
-Copy that file to make your own. A preset can also become its own entry in the right-click menu,
-which is the point of them: write the file, then
+Copy that file to make your own. Any preset can also become its own right-click entry:
 
 ```bash
-shrinkit preset install chat     # adds "Optimize chat" to Quick Actions
-shrinkit preset list             # what presets exist
-shrinkit preset remove chat      # takes the entry back out
+shrinkit preset install chat     # adds "Shrink: chat" to Quick Actions
+shrinkit preset list
+shrinkit preset remove chat
 ```
 
-So the menu only grows as far as you ask it to. Flags still win over a preset, and a preset wins
-over the config file.
+The menu grows only as far as you ask it to. Flags still beat a preset, and a preset beats the
+config file.
 
 ## Settings
 
-Either from the command line:
+From the command line:
 
 ```bash
 shrinkit config              # what is in effect right now
@@ -109,99 +101,70 @@ shrinkit config crf 32       # change one
 shrinkit config edit         # open it in $EDITOR
 ```
 
-or by editing `~/Movies/shrinkit/settings.conf` yourself. It is one `key = value` per line, and a line
-starting with `#` is a comment. Changes apply to the next recording. A value you get wrong is put
-back to its default and noted in the log, and a line that makes no sense is skipped, so nothing
-here can stop a recording from being processed.
-
-Settings used to live in `settings.jsonc`. Re-running `./install.sh` converts an older config
-across and keeps the original as `settings.jsonc.bak`.
+Or edit `~/Movies/shrinkit/settings.conf` yourself. It is one `key = value` per line, and a line
+starting with `#` is a comment. Changes take effect on the next recording. A value you get wrong
+goes back to its default and the log says so, and a line that makes no sense is skipped, so a typo
+here will never leave a recording unprocessed.
 
 | Setting | What it does | Default |
 | --- | --- | --- |
-| `speed` | Speed multiplier. `2` = twice as fast, `1.5`, `1` = original | `2` |
-| `fps` | Cap the frame rate (60fps recordings halve to 30); `0` keeps original | `30` |
-| `crf` | Quality/size, the main size knob. Lower = bigger/sharper, higher = smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
-| `codec` | `h264` (plays everywhere) or `hevc` (~30% smaller again, less compatible) | `h264` |
-| `remove_audio` | `true` drops sound; `false` keeps it and speeds it up to match | `true` |
-| `trim_idle` | Cut out the stretches where nothing on screen changes. Ignored when the audio is kept | `false` |
+| `speed` | Speed multiplier. `2` is twice as fast, `1` leaves it alone | `2` |
+| `fps` | Cap the frame rate; `0` keeps the original | `30` |
+| `crf` | Quality against size, the main knob. Lower is sharper and bigger, higher is smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
+| `codec` | `h264` plays everywhere, `hevc` is about 30% smaller and less compatible | `h264` |
+| `remove_audio` | `true` drops the sound, `false` keeps it and speeds it up to match | `true` |
+| `trim_idle` | Cut out the stretches where nothing on screen changes. Skipped when the audio is kept | `false` |
 | `max_height` | Downscale tall videos to this height; `0` keeps the original | `0` |
-| `output_suffix` | Text added to the output name. `{speed}` is replaced with the speed, so the name follows a speed change | `-{speed}x` |
-| `keep_original` | `true` keeps the original in `.processed/`; `false` deletes it | `true` |
-| `notify` | `true` posts a macOS banner when each file is done | `true` |
-| `notify_title` | Banner title text | `Video optimized` |
-| `notify_sound` | Banner sound (`Glass`, `Ping`, `Pop`, `Hero`, ...) or `none` for silent | `Glass` |
-| `notify_start` | `true` also posts a quiet banner when a file starts, so a long encode doesn't feel stuck | `true` |
-| `copy_to_clipboard` | `true` puts the finished file on the clipboard, ready to paste | `false` |
-| `check_updates` | Once a day, notify if the repo has newer commits (then run `update.sh`) | `true` |
-| `output_dir` | Full path to send results elsewhere (e.g. a synced folder); empty = `output/` | empty |
+| `output_suffix` | Added to the output name. `{speed}` becomes the speed, so the name follows it | `-{speed}x` |
+| `keep_original` | `true` files the original in `.processed/`, `false` deletes it | `true` |
+| `notify` | Post a macOS banner when a file is done | `true` |
+| `notify_title` | Banner title | `Video optimized` |
+| `notify_sound` | `Glass`, `Ping`, `Pop`, `Hero` and the rest, or `none` | `Glass` |
+| `notify_start` | Also post a quiet banner when a file starts | `true` |
+| `copy_to_clipboard` | Put the finished file on the clipboard, ready to paste | `false` |
+| `check_updates` | Once a day, say if the repo has newer commits | `true` |
+| `output_dir` | Absolute path to send results somewhere else, a synced folder for instance | empty |
 
-The notification is the standard macOS banner (posted via `osascript`, no extra tools). Its icon is
-the Script Editor icon and can't be changed from a script; only the title and sound are adjustable.
+Logs go to a hidden `.logs/` folder. The watched folder is fixed when you install, because launchd
+wants an absolute path; to move it, run the installer again with `SHRINKIT_DIR`.
 
-Encoding is quality-based (libx264/libx265 CRF), which is far smaller than a fixed bitrate for
-screen recordings. On a sample screen capture the old fixed-bitrate path produced a file *larger*
-than the source; the CRF path made it several times smaller.
+System Settings > Login Items will list `shrinkit` from an unidentified developer. That is your own
+script rather than a signed application, so there is nothing to sign.
 
-Logs are written to a hidden `.logs/` folder inside the base folder. The watched input folder is
-fixed at install time (a launchd limitation); to move it, re-run the installer with
-`SHRINKIT_DIR`.
-
-macOS lists the background item under System Settings > Login Items as **shrinkit** from
-an unidentified developer. That is expected: it is your own local script, not a signed app.
+If you used the tool before it was called shrinkit, `./install.sh` takes the old install apart,
+moves `~/Movies/demo-recordings` across, and converts `settings.jsonc` to the current format,
+keeping the old file as `settings.jsonc.bak`.
 
 ## How it works
 
-A [launchd](https://www.launchd.info) agent with a `WatchPaths` entry on the input folder runs the
-installed script (`~/.local/bin/shrinkit`) whenever the folder changes. It waits for the dropped file to
-finish writing, reads `settings.conf`, and calls ffmpeg with `setpts` for the speed change, an
-optional `scale` filter, `libx264`/`libx265` at the configured CRF, and `+faststart` so the file
-streams immediately. A `mkdir`-based lock keeps overlapping events from processing the same file
-twice.
+A [launchd](https://www.launchd.info) agent watches `input/` and runs the script whenever the
+folder changes. The script waits for the dropped file to stop growing, reads the settings, and
+hands the work to ffmpeg. A lock made with `mkdir` stops two runs from taking the same file, and
+the run that holds it is identified by pid, so a long encode is never mistaken for a dead one.
 
-Software encoding is deliberate. The hardware encoders (`h264_videotoolbox`) are rate-based rather
-than quality-based, and on a sample screen recording produced a file three times larger than
-`libx264 -crf 28` without being any faster.
+Some of the choices behind this are written up in [NOTES.md](NOTES.md).
 
-## Formatting
-
-Every script is formatted with [shfmt](https://github.com/mvdan/sh), which picks its style up from
-`.editorconfig`, so the whole repo stays consistent without anyone arguing about it:
-
-```bash
-brew install shfmt
-shfmt -w .        # format everything
-shfmt -d .        # just show what would change
-```
-
-## Tests
+## Development
 
 ```bash
 ./tests/run-tests.sh          # everything
-./tests/run-tests.sh lock     # only the tests whose name contains "lock"
+./tests/run-tests.sh lock     # only tests whose name contains "lock"
+shfmt -w .                    # format
 ```
 
 Each test runs the real script against a throwaway folder under `/tmp`, so your own recordings and
-the installed agent are left alone. Sample videos are generated with ffmpeg into `tests/fixtures`
-on the first run and reused afterwards; they are not committed.
+the installed agent stay untouched. Sample videos are built with ffmpeg into `tests/fixtures` on
+the first run and reused after that; they are not committed. GitHub Actions runs the same suite
+plus `shfmt -d` on a macOS runner for every push.
 
-GitHub Actions runs the same suite, plus `shfmt -d`, on a macOS runner for every push.
-
-## Update
-
-```bash
-./update.sh
-```
-
-Pulls the latest version and re-installs it. Your settings and recordings are untouched.
-
-## Uninstall
+## Update and uninstall
 
 ```bash
-./uninstall.sh
+./update.sh      # pull and reinstall; settings and recordings are untouched
+./uninstall.sh   # remove the agent, the script and the menu entries
 ```
 
-Removes the agent and the script. Your recordings and settings are left in place.
+Uninstalling leaves your recordings and settings where they are.
 
 ## License
 
