@@ -26,6 +26,12 @@ launchctl bootout "gui/$(id -u)/$OLD_LABEL" 2> /dev/null || true
 rm -f "$HOME/Library/LaunchAgents/$OLD_LABEL.plist"
 rm -f "$BIN_DIR/demo-video-optimizer" "$BIN_DIR/optimize-demo-video.sh"
 [[ -L "$HOME/Desktop/demo-recordings" ]] && rm -f "$HOME/Desktop/demo-recordings"
+# Menu entries from an older install point at a command that has just been removed, so they would
+# sit there doing nothing. Matched on the command inside, not the name, to leave your own alone.
+setopt extended_glob
+for action in "$HOME/Library/Services"/*.workflow(N); do
+  grep -q 'demo-video-optimizer' "$action/Contents/document.wflow" 2> /dev/null && rm -rf "$action"
+done
 # Recordings and settings move across with it, but only into a folder that is not already there,
 # and only when you have not named one yourself.
 if [[ -z "${SHRINKIT_DIR+set}" && -d "$OLD_BASE" && ! -d "$BASE_DIR" ]]; then
