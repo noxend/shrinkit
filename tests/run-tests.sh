@@ -498,6 +498,36 @@ test_flags_are_answered_not_swallowed() {
   check "rejects an unknown flag" test "$code" = 2
 }
 
+test_flags_beat_the_config_file() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'crf = 28'
+  work="$(mktemp -d)"
+  SANDBOXES+=("$work")
+  cp "$FIXTURES/withaudio.mov" "$work/clip.mov"
+  out="$work/clip-4x.mp4"
+
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+    zsh "$OPTIMIZER" --speed 4 --no-remove-audio "$work/clip.mov"
+
+  check "takes the speed from the flag" duration_near "$out" 3
+  check "names the file after it" exists "$out"
+  check "takes the boolean from the flag too" has_audio "$out"
+}
+
+test_flags_that_make_no_sense_are_refused() {
+  local box code
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+
+  for flag in --crf --nope --no-speed; do
+    code=0
+    DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+      zsh "$OPTIMIZER" "$flag" > /dev/null 2>&1 || code=$?
+    check "refuses $flag" test "$code" = 2
+  done
+}
+
 test_start_banner_is_logged() {
   # notifications are off in tests, but the start path still runs; make sure it does not error and
   # the finish line is present, which proves notify_start did not abort the run.
@@ -537,6 +567,8 @@ TESTS=(
   test_one_shot_optimizes_a_file_in_place
   test_one_shot_handles_several_files
   test_flags_are_answered_not_swallowed
+  test_flags_beat_the_config_file
+  test_flags_that_make_no_sense_are_refused
   test_start_banner_is_logged
 )
 

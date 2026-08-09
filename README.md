@@ -63,6 +63,20 @@ Nothing is moved and the original is left as is, so this is handy for a one-off 
 to route through the watch folder. Select several files to do them in one go. Skip it at install
 time with `QUICK_ACTION=0`.
 
+## One-off changes on the command line
+
+Every setting is also a flag, so a single file can be handled differently without touching the
+config:
+
+```bash
+demo-video-optimizer --speed 4 --crf 32 recording.mov
+demo-video-optimizer --trim-idle --no-remove-audio recording.mov
+```
+
+A `true`/`false` setting takes no value: `--trim-idle` turns it on, `--no-trim-idle` turns it off.
+With no files named, the flags apply to whatever is waiting in `input/`. Flags win over the config
+file.
+
 ## Settings
 
 Edit `~/Movies/demo-recordings/settings.conf`. It is one `key = value` per line, and a line

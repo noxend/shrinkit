@@ -413,30 +413,94 @@ release_lock() {
 }
 
 usage() {
-  print -r -- "usage: ${ZSH_ARGZERO:t} [file ...]
+  print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
 
-  no arguments   optimize everything waiting in $IN_DIR
+  no files       optimize everything waiting in $IN_DIR
   file ...       optimize those files where they are, next to each source
+
+Every setting is also a flag, so --crf 24 or --speed 3 changes one run without
+touching the config. A true/false setting takes no value: --trim-idle turns it
+on, --no-trim-idle turns it off.
 
   settings       $CONFIG
   log            $LOG"
 }
 
+# Any setting can be given as a flag, which is why there is no list of them here: --crf 24 for the
+# ones that take a value, --trim-idle and --no-trim-idle for the true/false ones. Anything that is
+# not a flag is a file to work on.
+typeset -A OVERRIDES
+typeset -a FILES
+
+# 1 means there is nothing left to do (--help), 2 means the command line was wrong.
+parse_args() {
+  local arg key
+  while (($# > 0)); do
+    arg="$1"
+    case "$arg" in
+      -h | --help)
+        usage
+        return 1
+        ;;
+      --no-*)
+        key="${${arg#--no-}//-/_}"
+        known_bool "$key" "$arg" || return 2
+        OVERRIDES[$key]=false
+        ;;
+      --*)
+        key="${${arg#--}//-/_}"
+        known_setting "$key" "$arg" || return 2
+        if is_bool "${DEFAULTS[$key]}"; then
+          OVERRIDES[$key]=true
+        else
+          shift
+          (($# > 0)) || {
+            print -u2 -r -- "$arg needs a value"
+            return 2
+          }
+          OVERRIDES[$key]="$1"
+        fi
+        ;;
+      -*)
+        print -u2 -r -- "unknown option: $arg"
+        usage >&2
+        return 2
+        ;;
+      *) FILES+=("$arg") ;;
+    esac
+    shift
+  done
+}
+
+known_setting() {
+  [[ -n "${DEFAULTS[$1]+known}" ]] && return 0
+  print -u2 -r -- "unknown option: $2"
+  usage >&2
+  return 1
+}
+
+known_bool() {
+  known_setting "$1" "$2" || return 1
+  is_bool "${DEFAULTS[$1]}" && return 0
+  print -u2 -r -- "$2 only works on a true/false setting"
+  return 1
+}
+
+apply_overrides() {
+  local key
+  for key in "${(@k)OVERRIDES}"; do CFG[$key]="${OVERRIDES[$key]}"; done
+}
+
 main() {
-  case "${1-}" in
-    -h | --help)
-      usage
-      return 0
-      ;;
-    -*)
-      print -u2 -r -- "unknown option: $1"
-      usage >&2
-      return 2
-      ;;
+  parse_args "$@"
+  case $? in
+    1) return 0 ;;
+    2) return 2 ;;
   esac
 
   mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
   read_config
+  apply_overrides
   validate_config
   resolve_output_suffix
   [[ -x "$FFMPEG" ]] || {
@@ -444,10 +508,10 @@ main() {
     return 1
   }
 
-  # Given file arguments (the Finder Quick Action), just optimize those and stop. No arguments
-  # means the folder-watching mode the launchd agent uses.
-  if (($# > 0)); then
-    optimize_files "$@"
+  # Given files (the Finder Quick Action), just optimize those and stop. No files means the
+  # folder-watching mode the launchd agent uses.
+  if ((${#FILES} > 0)); then
+    optimize_files "${FILES[@]}"
     return
   fi
 
