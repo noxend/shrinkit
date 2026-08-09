@@ -54,10 +54,14 @@ The original goes to a hidden `.processed/` folder, so the working folder holds 
 
 ## Right-click a video
 
-The installer adds two entries to the Finder right-click menu. **shrinkit** runs with your
-settings and the smaller copy appears beside the original. **shrinkit presets…** asks which preset
-to use first. Either way the original stays where it is, which makes this the quicker route for a
-one-off file. Select several files to do them together.
+The right-click menu is the list of your presets. Every file in `presets/` gets an entry named
+after it, so out of the box you get **shrinkit: default**, which uses your settings as they are,
+and **shrinkit: chat**, tuned for something going into a chat or a ticket. The smaller copy lands
+beside the original, which stays where it is, and you can select several files to do them
+together.
+
+Add a preset and it becomes a new entry; the installer rebuilds the menu from `presets/` every
+time it runs.
 
 ## One-off changes on the command line
 
@@ -74,23 +78,22 @@ Name no files and the flags apply to whatever is sitting in `input/`. Flags beat
 ## Presets
 
 A preset is a file of the same settings in `presets/`, read on top of `settings.conf`. Whatever it
-leaves out stays as the config has it. The installer ships one, `presets/chat.conf`, tuned for
-something going into a chat or a ticket:
+leaves out stays as the config has it. `default.conf` sets nothing at all, which is how the plain
+settings get a place in the menu alongside the rest.
 
 ```bash
 shrinkit --preset chat recording.mov
 ```
 
-Copy that file to make your own. Any preset can also become its own right-click entry:
+Copy a preset file to make your own, then give it a menu entry without reinstalling:
 
 ```bash
-shrinkit preset install chat     # adds "shrinkit: chat" as its own menu entry
 shrinkit preset list
-shrinkit preset remove chat
+shrinkit preset install tiny     # adds "shrinkit: tiny" to the right-click menu
+shrinkit preset remove tiny      # takes the entry out, keeps the file
 ```
 
-The menu grows only as far as you ask it to. Flags still beat a preset, and a preset beats the
-config file.
+Flags beat a preset, and a preset beats the config file.
 
 ## Settings
 

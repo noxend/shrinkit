@@ -74,9 +74,12 @@ echo "==> Installed script: $SCRIPT_DST"
 # 3. the folders (processed/ and logs/ are hidden so the folder shows only settings + input + output)
 mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/.processed" "$BASE_DIR/.logs"
 
-# an example preset, only while there are none, so your own are never overwritten
+# The presets are what the right-click menu is built from, so default.conf is put back whenever it
+# is missing: without it there is no menu entry for plain settings. chat.conf is only an example,
+# so it arrives once and is never restored if you delete it. Neither is ever overwritten.
 mkdir -p "$BASE_DIR/presets"
-if [[ -z "$(ls -A "$BASE_DIR/presets" 2> /dev/null)" ]]; then
+[[ -f "$BASE_DIR/presets/default.conf" ]] || cp "$REPO_DIR/presets/default.conf" "$BASE_DIR/presets/"
+if [[ -z "$(ls -A "$BASE_DIR/presets" | grep -v '^default.conf$')" ]]; then
   cp "$REPO_DIR/presets/chat.conf" "$BASE_DIR/presets/chat.conf"
   echo "==> Installed the example preset: presets/chat.conf"
 fi
@@ -170,32 +173,26 @@ if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
   fi
 fi
 
-# 7. two Finder entries, so you can right-click a video instead of routing it through the watch
-#    folder. "shrinkit" runs with your settings; "shrinkit presets…" asks which preset to use,
-#    since Finder gives no way to nest one entry inside another. Skip both with QUICK_ACTION=0.
+# 7. one right-click entry per preset, so the menu is the list of presets and nothing has to be
+#    picked out of a dialog. The menu is rebuilt from presets/ every time, which is what keeps a
+#    preset you deleted from leaving an entry behind. Skip the lot with QUICK_ACTION=0.
 if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
   SERVICES_DIR="$HOME/Library/Services"
   mkdir -p "$SERVICES_DIR"
-  # Entries these replaced. Named one by one rather than matched on content, so a menu entry you
-  # built yourself from a preset is left alone.
-  for RETIRED in "Shrink Video" "Shrink Video with"; do
+  # Entries these replaced, named one by one so nothing else in the menu is touched.
+  for RETIRED in "Shrink Video" "Shrink Video with" "shrinkit" "shrinkit presets"; do
     rm -rf "$SERVICES_DIR/$RETIRED.workflow"
   done
-  for ENTRY in "shrinkit:" "shrinkit presets:--choose"; do
-    QA_NAME="${ENTRY%%:*}"
-    QA_FLAGS="${ENTRY#*:}"
-    QA_DST="$SERVICES_DIR/$QA_NAME.workflow"
-    rm -rf "$QA_DST"
-    cp -R "$REPO_DIR/quick-action/$QA_NAME.workflow" "$QA_DST"
-    # plutil writes the value verbatim, so there is no shell quoting to fight with. "$@" forwards
-    # whatever files Finder passed in.
-    QA_CMD="SHRINKIT_DIR=\"$BASE_DIR\" \"$SCRIPT_DST\" $QA_FLAGS \"\$@\""
-    plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$QA_CMD" \
-      "$QA_DST/Contents/document.wflow"
+  for STALE in "$SERVICES_DIR"/shrinkit:*.workflow(N); do rm -rf "$STALE"; done
+
+  INSTALLED=()
+  for PRESET_PATH in "$BASE_DIR/presets"/*.conf(N.); do
+    PRESET_NAME="${PRESET_PATH:t:r}"
+    SHRINKIT_DIR="$BASE_DIR" SHRINKIT_REPO="$REPO_DIR" \
+      "$SCRIPT_DST" preset install "$PRESET_NAME" > /dev/null
+    INSTALLED+=("$PRESET_NAME")
   done
-  # Register them so they show up in the right-click menu without a logout.
-  /System/Library/CoreServices/pbs -update 2> /dev/null || true
-  echo "==> Installed Finder entries: shrinkit, shrinkit presets…"
+  echo "==> Finder entries, one per preset: ${INSTALLED[*]}"
 fi
 
 # 8. (re)load it
