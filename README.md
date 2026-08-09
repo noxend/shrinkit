@@ -77,6 +77,28 @@ A `true`/`false` setting takes no value: `--trim-idle` turns it on, `--no-trim-i
 With no files named, the flags apply to whatever is waiting in `input/`. Flags win over the config
 file.
 
+## Presets, and your own right-click entries
+
+A preset is a file of the same settings in `presets/`, read on top of `settings.conf`. Anything it
+leaves out keeps whatever the config says. One comes with the installer, `presets/chat.conf`, for
+something going into a chat or a ticket:
+
+```bash
+demo-video-optimizer --preset chat recording.mov
+```
+
+Copy that file to make your own. A preset can also become its own entry in the right-click menu,
+which is the point of them: write the file, then
+
+```bash
+demo-video-optimizer preset install chat     # adds "Optimize chat" to Quick Actions
+demo-video-optimizer preset list             # what presets exist
+demo-video-optimizer preset remove chat      # takes the entry back out
+```
+
+So the menu only grows as far as you ask it to. Flags still win over a preset, and a preset wins
+over the config file.
+
 ## Settings
 
 Edit `~/Movies/demo-recordings/settings.conf`. It is one `key = value` per line, and a line

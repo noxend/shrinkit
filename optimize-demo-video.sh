@@ -21,7 +21,10 @@ LOCK_DIR="$BASE_DIR/.optimizer.lock"
 UPDATE_STAMP="$LOG_DIR/.last-update-check"
 
 CONFIG="$BASE_DIR/settings.conf"
-LEGACY_CONFIGS=("$BASE_DIR/settings.jsonc" "$BASE_DIR/settings.txt") # converted by the installer
+# named variations on the config, one file each
+PRESET_DIR="$BASE_DIR/presets"
+# converted by the installer
+LEGACY_CONFIGS=("$BASE_DIR/settings.jsonc" "$BASE_DIR/settings.txt")
 
 OUT_DIR="$BASE_DIR/output" # settings.output_dir can point this somewhere else
 
@@ -74,22 +77,43 @@ trim() {
 # "key = value" lines. A whole line starting with # is a comment; a # anywhere else is part of the
 # value, so a banner title can contain one. A key we do not know about is ignored, which is what
 # keeps a typo harmless, and a line that makes no sense spoils only itself.
-read_config() {
-  local line key value stale
-  if [[ ! -f "$CONFIG" ]]; then
-    for stale in "${LEGACY_CONFIGS[@]}"; do
-      [[ -f "$stale" ]] && log "found ${stale:t}; run install.sh to convert it to ${CONFIG:t}"
-    done
-    return 0
-  fi
-
+read_settings() {
+  local line key value
   while IFS= read -r line; do
     line="$(trim "$line")"
     [[ -z "$line" || "$line" == '#'* || "$line" != *=* ]] && continue
     key="${(L)${line%%=*}//[[:space:]]/}"
     value="$(trim "${line#*=}")"
     [[ -n "${DEFAULTS[$key]+known}" ]] && CFG[$key]="${value//\"/}"
-  done < "$CONFIG"
+  done < "$1"
+}
+
+read_config() {
+  local stale
+  if [[ ! -f "$CONFIG" ]]; then
+    for stale in "${LEGACY_CONFIGS[@]}"; do
+      [[ -f "$stale" ]] && log "found ${stale:t}; run install.sh to convert it to ${CONFIG:t}"
+    done
+    return 0
+  fi
+  read_settings "$CONFIG"
+}
+
+# A preset is the same file in presets/, read on top of the config. It is how one recording gets
+# handled differently without the settings for every other one moving.
+preset_file() {
+  print -r -- "$PRESET_DIR/$1.conf"
+}
+
+read_preset() {
+  local file
+  file="$(preset_file "$1")"
+  [[ -f "$file" ]] || {
+    log "no preset called '$1' in $PRESET_DIR"
+    print -u2 -r -- "no preset called '$1' (looked in $PRESET_DIR)"
+    return 1
+  }
+  read_settings "$file"
 }
 
 # Written as regexes rather than zsh's <-> globs so shell tooling can still parse this file.
@@ -412,8 +436,95 @@ release_lock() {
   rmdir "$LOCK_DIR" 2> /dev/null
 }
 
+# --------------------------------------------------------------------- presets
+
+SERVICES_DIR="$HOME/Library/Services"
+
+# The bundle Automator wants is fiddly enough that it is copied rather than written from scratch.
+# The installed Quick Action is a copy of the same thing, so it works as the template when the
+# repo is not around.
+quick_action_template() {
+  local candidate
+  for candidate in "$REPO_DIR/quick-action/Optimize Video.workflow" \
+    "$SERVICES_DIR/Optimize Video.workflow"; do
+    [[ -d "$candidate" ]] && {
+      print -r -- "$candidate"
+      return
+    }
+  done
+  return 1
+}
+
+preset_names() {
+  local file
+  for file in "$PRESET_DIR"/*.conf(N.); do print -r -- "${file:t:r}"; done
+}
+
+install_preset_action() {
+  local name="$1" template action command
+  [[ -f "$(preset_file "$name")" ]] || {
+    print -u2 -r -- "no preset called '$name' (looked in $PRESET_DIR)"
+    return 1
+  }
+  template="$(quick_action_template)" || {
+    print -u2 -r -- "cannot find a Quick Action to copy; run install.sh first"
+    return 1
+  }
+
+  action="$SERVICES_DIR/Optimize $name.workflow"
+  mkdir -p "$SERVICES_DIR"
+  rm -rf "$action"
+  cp -R "$template" "$action"
+
+  command="DEMO_OPTIMIZER_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" --preset \"$name\" \"\$@\""
+  plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$command" \
+    "$action/Contents/document.wflow"
+  plutil -replace CFBundleName -string "Optimize $name" "$action/Contents/Info.plist"
+  plutil -replace NSServices.0.NSMenuItem.default -string "Optimize $name" \
+    "$action/Contents/Info.plist"
+  /System/Library/CoreServices/pbs -update 2> /dev/null || true
+
+  print -r -- "right-click a video > Quick Actions > Optimize $name"
+}
+
+remove_preset_action() {
+  rm -rf "$SERVICES_DIR/Optimize $1.workflow"
+  /System/Library/CoreServices/pbs -update 2> /dev/null || true
+  print -r -- "removed the Quick Action for '$1'"
+}
+
+preset_command() {
+  mkdir -p "$PRESET_DIR"
+  case "${1-}" in
+    list | "")
+      preset_names
+      ;;
+    install)
+      [[ -n "${2-}" ]] || {
+        print -u2 -r -- "usage: preset install <name>"
+        return 2
+      }
+      install_preset_action "$2" || return 2
+      ;;
+    remove)
+      [[ -n "${2-}" ]] || {
+        print -u2 -r -- "usage: preset remove <name>"
+        return 2
+      }
+      remove_preset_action "$2"
+      ;;
+    *)
+      print -u2 -r -- "usage: preset [list|install <name>|remove <name>]"
+      return 2
+      ;;
+  esac
+}
+
+# --------------------------------------------------------------------- run
+
 usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
+       ${ZSH_ARGZERO:t} preset [list|install <name>|remove <name>]
 
   no files       optimize everything waiting in $IN_DIR
   file ...       optimize those files where they are, next to each source
@@ -422,7 +533,12 @@ Every setting is also a flag, so --crf 24 or --speed 3 changes one run without
 touching the config. A true/false setting takes no value: --trim-idle turns it
 on, --no-trim-idle turns it off.
 
+A preset is a file of the same settings in $PRESET_DIR.
+Use one for a run with --preset <name>, or turn it into its own right-click
+entry with 'preset install <name>'.
+
   settings       $CONFIG
+  presets        $PRESET_DIR
   log            $LOG"
 }
 
@@ -431,6 +547,7 @@ on, --no-trim-idle turns it off.
 # not a flag is a file to work on.
 typeset -A OVERRIDES
 typeset -a FILES
+PRESET=""
 
 # 1 means there is nothing left to do (--help), 2 means the command line was wrong.
 parse_args() {
@@ -441,6 +558,14 @@ parse_args() {
       -h | --help)
         usage
         return 1
+        ;;
+      --preset)
+        shift
+        (($# > 0)) || {
+          print -u2 -r -- "--preset needs a name"
+          return 2
+        }
+        PRESET="$1"
         ;;
       --no-*)
         key="${${arg#--no-}//-/_}"
@@ -492,14 +617,21 @@ apply_overrides() {
 }
 
 main() {
+  if [[ "${1-}" == preset ]]; then
+    shift
+    preset_command "$@"
+    return
+  fi
+
   parse_args "$@"
   case $? in
     1) return 0 ;;
     2) return 2 ;;
   esac
 
-  mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR"
+  mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR" "$PRESET_DIR"
   read_config
+  [[ -n "$PRESET" ]] && { read_preset "$PRESET" || return 2; }
   apply_overrides
   validate_config
   resolve_output_suffix

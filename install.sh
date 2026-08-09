@@ -54,6 +54,13 @@ echo "==> Installed script: $SCRIPT_DST"
 # 3. the folders (processed/ and logs/ are hidden so the folder shows only settings + input + output)
 mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/.processed" "$BASE_DIR/.logs"
 
+# an example preset, only while there are none, so your own are never overwritten
+mkdir -p "$BASE_DIR/presets"
+if [[ -z "$(ls -A "$BASE_DIR/presets" 2> /dev/null)" ]]; then
+  cp "$REPO_DIR/presets/chat.conf" "$BASE_DIR/presets/chat.conf"
+  echo "==> Installed the example preset: presets/chat.conf"
+fi
+
 # 4. the config. Settings used to be JSON with comments; the format is now plain "key = value",
 #    so an older install gets converted once. The old file is left behind as a backup, and an
 #    existing settings.conf is never touched.

@@ -528,6 +528,77 @@ test_flags_that_make_no_sense_are_refused() {
   done
 }
 
+# preset <sandbox> <name> <line...>
+preset() {
+  local box="$1" name="$2"
+  shift 2
+  mkdir -p "$box/presets"
+  print -rl -- "$@" > "$box/presets/$name.conf"
+}
+
+test_preset_is_read_on_top_of_the_config() {
+  local box work
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'crf = 28'
+  preset "$box" chat 'speed = 3' 'crf = 32'
+  work="$(mktemp -d)"
+  SANDBOXES+=("$work")
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+    zsh "$OPTIMIZER" --preset chat "$work/clip.mov"
+
+  check "takes the settings from the preset" exists "$work/clip-3x.mp4"
+  check "and the length that goes with them" duration_near "$work/clip-3x.mp4" 4
+}
+
+test_preset_loses_to_a_flag() {
+  local box work
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  preset "$box" chat 'speed = 3'
+  work="$(mktemp -d)"
+  SANDBOXES+=("$work")
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+    zsh "$OPTIMIZER" --preset chat --speed 4 "$work/clip.mov"
+
+  check "the flag wins" exists "$work/clip-4x.mp4"
+}
+
+test_preset_list_names_what_is_there() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  preset "$box" chat 'speed = 3'
+  preset "$box" tiny 'crf = 34'
+
+  out="$(DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" preset list)"
+  check "lists both" test "$out" = "chat
+tiny"
+}
+
+test_preset_that_does_not_exist_is_refused() {
+  local box code
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+
+  code=0
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+    zsh "$OPTIMIZER" --preset nope > /dev/null 2>&1 || code=$?
+  check "stops rather than guessing" test "$code" = 2
+  check "leaves the file alone" exists "$box/input/clip.mov"
+
+  # the same for the Quick Action side, which must not write into ~/Library/Services
+  code=0
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+    zsh "$OPTIMIZER" preset install nope > /dev/null 2>&1 || code=$?
+  check "refuses to build an action for it" test "$code" = 2
+  check "and builds nothing" missing "$HOME/Library/Services/Optimize nope.workflow"
+}
+
 test_start_banner_is_logged() {
   # notifications are off in tests, but the start path still runs; make sure it does not error and
   # the finish line is present, which proves notify_start did not abort the run.
@@ -569,6 +640,10 @@ TESTS=(
   test_flags_are_answered_not_swallowed
   test_flags_beat_the_config_file
   test_flags_that_make_no_sense_are_refused
+  test_preset_is_read_on_top_of_the_config
+  test_preset_loses_to_a_flag
+  test_preset_list_names_what_is_there
+  test_preset_that_does_not_exist_is_refused
   test_start_banner_is_logged
 )
 
