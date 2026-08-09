@@ -1,7 +1,7 @@
 #!/bin/zsh
 #
 # Optimizes screen recordings dropped into the input folder: speeds them up, drops or stretches the
-# audio, and re-encodes them small. Settings live in settings.jsonc next to the folders, so this
+# audio, and re-encodes them small. Settings live in settings.conf next to the folders, so this
 # script never needs editing. A launchd WatchPaths agent runs it whenever something lands in
 # input/, and running it by hand does exactly the same thing.
 
@@ -20,8 +20,8 @@ LOG="$LOG_DIR/optimizer.log"
 LOCK_DIR="$BASE_DIR/.optimizer.lock"
 UPDATE_STAMP="$LOG_DIR/.last-update-check"
 
-CONFIG_JSON="$BASE_DIR/settings.jsonc"
-CONFIG_TEXT="$BASE_DIR/settings.txt" # the older key=value format, still read if present
+CONFIG="$BASE_DIR/settings.conf"
+LEGACY_CONFIGS=("$BASE_DIR/settings.jsonc" "$BASE_DIR/settings.txt") # converted by the installer
 
 OUT_DIR="$BASE_DIR/output" # settings.output_dir can point this somewhere else
 
@@ -71,74 +71,25 @@ trim() {
   print -r -- "${${1##[[:space:]]#}%%[[:space:]]#}"
 }
 
-# Reads "key=value" lines and keeps the ones we know about.
-apply_settings() {
-  local key value
-  while IFS='=' read -r key value; do
-    key="${(L)${key//[[:space:]]/}}"
-    [[ -z "$key" || "$key" == '#'* ]] && continue
-    value="$(trim "$value")"
-    [[ -n "${DEFAULTS[$key]+known}" ]] && CFG[$key]="${value//\"/}"
-  done
-}
-
-# The older settings.txt format allows a trailing "# comment" after a value.
-apply_text_settings() {
-  local line
-  while IFS= read -r line; do
-    print -r -- "${line%%\#*}"
-  done | apply_settings
-}
-
-# Flattens settings.jsonc (JSON, plus // and /* */ comments) into those key=value lines. Exits
-# non-zero when the file is not valid JSON, which is the caller's cue to stay on the defaults.
-# Comments are stripped by scanning rather than by regex, so a // that sits inside a value such as
-# a URL or a banner title survives.
-parse_jsonc() {
-  osascript -l JavaScript - "$1" << 'JXA'
-function strip(src) {
-  let out = '';
-  for (let i = 0, inString = false; i < src.length; i++) {
-    const c = src[i];
-    if (inString) {
-      out += c;
-      if (c === '\\') out += src[++i] || '';
-      else if (c === '"') inString = false;
-    } else if (c === '"') {
-      out += c;
-      inString = true;
-    } else if (c === '/' && src[i + 1] === '/') {
-      while (i < src.length && src[i] !== '\n') i++;
-      out += '\n';
-    } else if (c === '/' && src[i + 1] === '*') {
-      for (i += 2; i < src.length && !(src[i] === '*' && src[i + 1] === '/'); i++);
-      i++;
-    } else {
-      out += c;
-    }
-  }
-  return out;
-}
-
-function run(argv) {
-  const raw = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(argv[0], 4, null)) || '';
-  const settings = JSON.parse(strip(raw));
-  return Object.keys(settings).map(function (k) { return k + '=' + settings[k] }).join('\n');
-}
-JXA
-}
-
+# "key = value" lines. A whole line starting with # is a comment; a # anywhere else is part of the
+# value, so a banner title can contain one. A key we do not know about is ignored, which is what
+# keeps a typo harmless, and a line that makes no sense spoils only itself.
 read_config() {
-  local parsed
-  if [[ -f "$CONFIG_JSON" ]]; then
-    if parsed="$(parse_jsonc "$CONFIG_JSON" 2> /dev/null)"; then
-      print -r -- "$parsed" | apply_settings
-    else
-      log "settings.jsonc is not valid JSON, using the defaults for this run"
-    fi
-  elif [[ -f "$CONFIG_TEXT" ]]; then
-    apply_text_settings < "$CONFIG_TEXT"
+  local line key value stale
+  if [[ ! -f "$CONFIG" ]]; then
+    for stale in "${LEGACY_CONFIGS[@]}"; do
+      [[ -f "$stale" ]] && log "found ${stale:t}; run install.sh to convert it to ${CONFIG:t}"
+    done
+    return 0
   fi
+
+  while IFS= read -r line; do
+    line="$(trim "$line")"
+    [[ -z "$line" || "$line" == '#'* || "$line" != *=* ]] && continue
+    key="${(L)${line%%=*}//[[:space:]]/}"
+    value="$(trim "${line#*=}")"
+    [[ -n "${DEFAULTS[$key]+known}" ]] && CFG[$key]="${value//\"/}"
+  done < "$CONFIG"
 }
 
 # Written as regexes rather than zsh's <-> globs so shell tooling can still parse this file.
@@ -467,7 +418,7 @@ usage() {
   no arguments   optimize everything waiting in $IN_DIR
   file ...       optimize those files where they are, next to each source
 
-  settings       $CONFIG_JSON
+  settings       $CONFIG
   log            $LOG"
 }
 

@@ -53,7 +53,7 @@ Access, then reload the agent). Anywhere else, for example the default `~/Movies
 3. Take the result from `output/` (named `clip-2x.mp4`).
 
 The original is moved to a hidden `.processed/` folder as a backup, so the base folder shows only
-`settings.jsonc`, `input/` and `output/`.
+`settings.conf`, `input/` and `output/`.
 
 ## Right-click a video
 
@@ -65,9 +65,13 @@ time with `QUICK_ACTION=0`.
 
 ## Settings
 
-Edit `~/Movies/demo-recordings/settings.jsonc` (JSON with `//` comments allowed). Changes apply to
-the next recording. A bad value falls back to its default, and if the whole file is not valid JSON
-the run uses the defaults, so nothing breaks.
+Edit `~/Movies/demo-recordings/settings.conf`. It is one `key = value` per line, and a line
+starting with `#` is a comment. Changes apply to the next recording. A value you get wrong is put
+back to its default and noted in the log, and a line that makes no sense is skipped, so nothing
+here can stop a recording from being processed.
+
+Settings used to live in `settings.jsonc`. Re-running `./install.sh` converts an older config
+across and keeps the original as `settings.jsonc.bak`.
 
 | Setting | What it does | Default |
 | --- | --- | --- |
@@ -106,7 +110,7 @@ an unidentified developer. That is expected: it is your own local script, not a 
 
 A [launchd](https://www.launchd.info) agent with a `WatchPaths` entry on the input folder runs the
 installed script (`~/.local/bin/demo-video-optimizer`) whenever the folder changes. It waits for the dropped file to
-finish writing, reads `settings.jsonc`, and calls ffmpeg with `setpts` for the speed change, an
+finish writing, reads `settings.conf`, and calls ffmpeg with `setpts` for the speed change, an
 optional `scale` filter, `libx264`/`libx265` at the configured CRF, and `+faststart` so the file
 streams immediately. A `mkdir`-based lock keeps overlapping events from processing the same file
 twice.

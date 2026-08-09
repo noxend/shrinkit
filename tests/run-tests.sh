@@ -119,11 +119,12 @@ sandbox() {
   print -r -- "$box"
 }
 
-# settings <sandbox> <json body without the braces>
+# settings <sandbox> <line...>
 settings() {
-  local box="$1" body="$2"
+  local box="$1"
+  shift
   # notifications are off by default in tests so a run does not spray banners
-  print -r -- "{ \"notify\": false, $body }" > "$box/settings.jsonc"
+  print -rl -- "notify = false" "$@" > "$box/settings.conf"
 }
 
 # Runs the script under test. DEMO_OPTIMIZER_REPO is blank so the update check stays out of it.
@@ -171,7 +172,7 @@ build_fixtures() {
 test_basic_encode() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   cp "$FIXTURES/withaudio.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -190,7 +191,7 @@ test_basic_encode() {
 test_basic_settings_are_used() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 3, "remove_audio": false, "output_suffix": "-fast", "fps": 0'
+  settings "$box" 'speed = 3' 'remove_audio = false' 'output_suffix = -fast' 'fps = 0'
   cp "$FIXTURES/withaudio.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -204,7 +205,7 @@ test_basic_settings_are_used() {
 test_basic_suffix_follows_the_speed() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 3'
+  settings "$box" 'speed = 3'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -214,7 +215,7 @@ test_basic_suffix_follows_the_speed() {
 test_trim_idle_cuts_the_pauses_out() {
   local box
   box="$(sandbox)"
-  settings "$box" '"trim_idle": true'
+  settings "$box" 'trim_idle = true'
   cp "$FIXTURES/idle.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -226,7 +227,7 @@ test_trim_idle_cuts_the_pauses_out() {
 test_trim_idle_is_off_unless_asked_for() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   cp "$FIXTURES/idle.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -236,7 +237,7 @@ test_trim_idle_is_off_unless_asked_for() {
 test_trim_idle_stands_down_when_the_audio_is_kept() {
   local box
   box="$(sandbox)"
-  settings "$box" '"trim_idle": true, "remove_audio": false'
+  settings "$box" 'trim_idle = true' 'remove_audio = false'
   cp "$FIXTURES/withaudio.mov" "$box/input/clip.mov" # static picture, so trimming would gut it
   local out="$box/output/clip-2x.mp4"
 
@@ -249,7 +250,7 @@ test_trim_idle_stands_down_when_the_audio_is_kept() {
 test_downscale() {
   local box
   box="$(sandbox)"
-  settings "$box" '"max_height": 720'
+  settings "$box" 'max_height = 720'
   cp "$FIXTURES/tall.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -259,7 +260,7 @@ test_downscale() {
 test_keep_original_false_deletes_the_source() {
   local box
   box="$(sandbox)"
-  settings "$box" '"keep_original": false'
+  settings "$box" 'keep_original = false'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -270,7 +271,7 @@ test_keep_original_false_deletes_the_source() {
 test_output_dir_redirect() {
   local box
   box="$(sandbox)"
-  settings "$box" "\"output_dir\": \"$box/elsewhere\""
+  settings "$box" "output_dir = $box/elsewhere"
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -281,7 +282,7 @@ test_output_dir_redirect() {
 test_skips_work_already_done() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
   optimize "$box"
 
@@ -295,7 +296,7 @@ test_skips_work_already_done() {
 test_ignores_things_that_are_not_videos() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   print "not a video" > "$box/input/notes.txt"
   mkdir -p "$box/input/a-folder.mov"
 
@@ -304,22 +305,34 @@ test_ignores_things_that_are_not_videos() {
   check "leaves the text file alone" exists "$box/input/notes.txt"
 }
 
-test_broken_config_falls_back_to_defaults() {
+test_a_broken_line_spoils_only_itself() {
   local box
   box="$(sandbox)"
-  print '{ "speed": 2,' > "$box/settings.jsonc" # truncated on purpose
+  settings "$box" 'this line has no equals sign' 'speed = 3' '' '   # an indented comment'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "says the config is unreadable" logged "$box" 'not valid JSON'
-  check "carries on with the defaults" exists "$box/output/clip-2x.mp4"
+  local out="$box/output/clip-3x.mp4"
+
+  check "reads the settings around it" exists "$out"
+  check "and applies them" duration_near "$out" 4
+}
+
+test_an_old_json_config_is_reported() {
+  local box
+  box="$(sandbox)"
+  print '{ "speed": 3 }' > "$box/settings.jsonc"
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+
+  optimize "$box"
+  check "says the format moved on" logged "$box" 'run install.sh to convert it'
+  check "and carries on with the defaults" exists "$box/output/clip-2x.mp4"
 }
 
 test_bad_values_are_rejected_one_by_one() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": "abc", "fps": "x", "crf": 99, "codec": "vp9",
-                   "remove_audio": "maybe", "output_suffix": ""'
+  settings "$box" 'speed = abc' 'fps = x' 'crf = 99' 'codec = vp9' 'remove_audio = maybe' 'output_suffix = '
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -333,30 +346,31 @@ test_bad_values_are_rejected_one_by_one() {
 test_unknown_settings_are_ignored() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2, "there_is_no_such_setting": "hello"'
+  settings "$box" 'speed = 2' 'there_is_no_such_setting = hello'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
   check "a stray key does no harm" exists "$box/output/clip-2x.mp4"
 }
 
-test_comment_characters_inside_values() {
+test_a_hash_inside_a_value_is_kept() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 3, "notify_title": "done // ready", "output_suffix": "-2x#a"'
+  # only a whole comment line starts with #, so one in the middle of a value is just text
+  settings "$box" 'speed = 3' 'output_suffix = -2x#a'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
   local out="$box/output/clip-2x#a.mp4"
 
-  check "a // in a value does not break the parse" exists "$out"
+  check "keeps the # in the value" exists "$out"
   check "and the rest of the config still lands" duration_near "$out" 4
 }
 
 test_lock_keeps_two_runs_apart() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   cp "$FIXTURES/big.mov" "$box/input/clip.mov"
 
   optimize "$box" &
@@ -388,7 +402,7 @@ dead_pid() {
 test_a_lock_from_a_dead_run_is_taken_over() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
   plant_lock "$box" "$(dead_pid)"
 
@@ -400,7 +414,7 @@ test_a_lock_from_a_dead_run_is_taken_over() {
 test_a_lock_from_a_live_run_is_left_alone() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
   plant_lock "$box" $$ # this shell is very much alive
 
@@ -413,7 +427,7 @@ test_a_lock_from_a_live_run_is_left_alone() {
 test_picks_up_a_file_dropped_mid_run() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   cp "$FIXTURES/big.mov" "$box/input/first.mov"
 
   optimize "$box" &
@@ -429,7 +443,7 @@ test_picks_up_a_file_dropped_mid_run() {
 test_a_broken_file_does_not_wedge_the_queue() {
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   print "this is not really a video" > "$box/input/broken.mov"
   cp "$FIXTURES/silent.mov" "$box/input/good.mov"
 
@@ -442,7 +456,7 @@ test_a_broken_file_does_not_wedge_the_queue() {
 test_one_shot_optimizes_a_file_in_place() {
   local box work
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   # a file living outside the input folder, like something you right-click in Finder
   work="$(mktemp -d)"
   SANDBOXES+=("$work")
@@ -459,7 +473,7 @@ test_one_shot_optimizes_a_file_in_place() {
 test_one_shot_handles_several_files() {
   local box work
   box="$(sandbox)"
-  settings "$box" '"speed": 2'
+  settings "$box" 'speed = 2'
   work="$(mktemp -d)"
   SANDBOXES+=("$work")
   cp "$FIXTURES/silent.mov" "$work/a.mov"
@@ -489,7 +503,7 @@ test_start_banner_is_logged() {
   # the finish line is present, which proves notify_start did not abort the run.
   local box
   box="$(sandbox)"
-  settings "$box" '"speed": 2, "notify_start": true'
+  settings "$box" 'speed = 2' 'notify_start = true'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
@@ -510,10 +524,11 @@ TESTS=(
   test_output_dir_redirect
   test_skips_work_already_done
   test_ignores_things_that_are_not_videos
-  test_broken_config_falls_back_to_defaults
+  test_a_broken_line_spoils_only_itself
+  test_an_old_json_config_is_reported
   test_bad_values_are_rejected_one_by_one
   test_unknown_settings_are_ignored
-  test_comment_characters_inside_values
+  test_a_hash_inside_a_value_is_kept
   test_lock_keeps_two_runs_apart
   test_a_lock_from_a_dead_run_is_taken_over
   test_a_lock_from_a_live_run_is_left_alone

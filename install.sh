@@ -54,12 +54,39 @@ echo "==> Installed script: $SCRIPT_DST"
 # 3. the folders (processed/ and logs/ are hidden so the folder shows only settings + input + output)
 mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/.processed" "$BASE_DIR/.logs"
 
-# 4. the config (never clobber an existing one; keep a legacy settings.txt working too)
-if [[ -f "$BASE_DIR/settings.jsonc" || -f "$BASE_DIR/settings.txt" ]]; then
+# 4. the config. Settings used to be JSON with comments; the format is now plain "key = value",
+#    so an older install gets converted once. The old file is left behind as a backup, and an
+#    existing settings.conf is never touched.
+CONFIG="$BASE_DIR/settings.conf"
+if [[ -f "$CONFIG" ]]; then
   echo "==> Kept your existing settings"
+elif [[ -f "$BASE_DIR/settings.jsonc" ]]; then
+  # Into a temp file first: a config that failed to convert must not land as an empty one, which
+  # would look like a valid file full of nothing and quietly put every setting back to default.
+  CONVERTED="$(mktemp)"
+  if osascript -l JavaScript - "$BASE_DIR/settings.jsonc" > "$CONVERTED" << 'JXA' && [[ -s "$CONVERTED" ]]; then
+function run(argv) {
+  const raw = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(argv[0], 4, null)) || '';
+  const json = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[\s,{])\/\/.*$/gm, '$1');
+  const settings = JSON.parse(json);
+  return Object.keys(settings).map(function (k) { return k + ' = ' + settings[k] }).join('\n');
+}
+JXA
+    mv "$CONVERTED" "$CONFIG"
+    mv "$BASE_DIR/settings.jsonc" "$BASE_DIR/settings.jsonc.bak"
+    echo "==> Converted settings.jsonc to settings.conf (old file kept as settings.jsonc.bak)"
+  else
+    rm -f "$CONVERTED"
+    cp "$REPO_DIR/settings.conf" "$CONFIG"
+    echo "!! Could not read settings.jsonc, so it was left alone and a default settings.conf"
+    echo "!! was installed. Copy your values across by hand, then delete settings.jsonc."
+  fi
+elif [[ -f "$BASE_DIR/settings.txt" ]]; then
+  mv "$BASE_DIR/settings.txt" "$CONFIG"
+  echo "==> Renamed settings.txt to settings.conf"
 else
-  cp "$REPO_DIR/settings.jsonc" "$BASE_DIR/settings.jsonc"
-  echo "==> Installed default settings.jsonc"
+  cp "$REPO_DIR/settings.conf" "$CONFIG"
+  echo "==> Installed default settings.conf"
 fi
 
 # 5. the launchd agent (paths must be absolute; that is why we generate it here)
@@ -144,7 +171,7 @@ echo ""
 echo "Done. Open the 'demo-recordings' shortcut on your Desktop:"
 echo "  - drop recordings into  input/"
 echo "  - pick up results from  output/"
-echo "  - change behaviour by editing  settings.jsonc"
+echo "  - change behaviour by editing  settings.conf"
 echo "(The real folder is $BASE_DIR; the Desktop item is a shortcut to it.)"
 
 if [[ "$NEEDS_FDA" == 1 ]]; then
