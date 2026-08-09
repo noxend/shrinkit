@@ -101,7 +101,15 @@ over the config file.
 
 ## Settings
 
-Edit `~/Movies/demo-recordings/settings.conf`. It is one `key = value` per line, and a line
+Either from the command line:
+
+```bash
+demo-video-optimizer config              # what is in effect right now
+demo-video-optimizer config crf 32       # change one
+demo-video-optimizer config edit         # open it in $EDITOR
+```
+
+or by editing `~/Movies/demo-recordings/settings.conf` yourself. It is one `key = value` per line, and a line
 starting with `#` is a comment. Changes apply to the next recording. A value you get wrong is put
 back to its default and noted in the log, and a line that makes no sense is skipped, so nothing
 here can stop a recording from being processed.

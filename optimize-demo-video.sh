@@ -436,6 +436,67 @@ release_lock() {
   rmdir "$LOCK_DIR" 2> /dev/null
 }
 
+# --------------------------------------------------------------------- the config subcommand
+
+config_show() {
+  local key
+  for key in "${(@ko)CFG}"; do print -r -- "$key = ${CFG[$key]}"; done
+}
+
+# Rewrites the one line in place so the comments around it survive; a setting the file never
+# mentioned is appended.
+config_set() {
+  local key="${(L)${1//-/_}}" value="$2" line tmp found=0
+  [[ -n "${DEFAULTS[$key]+known}" ]] || {
+    print -u2 -r -- "unknown setting: $1"
+    return 1
+  }
+
+  tmp="$(mktemp)"
+  if [[ -f "$CONFIG" ]]; then
+    while IFS= read -r line; do
+      if [[ "$(trim "$line")" != '#'* && "$(trim "${line%%=*}")" == "$key" ]]; then
+        print -r -- "$key = $value"
+        found=1
+      else
+        print -r -- "$line"
+      fi
+    done < "$CONFIG" > "$tmp"
+  fi
+  ((found)) || print -r -- "$key = $value" >> "$tmp"
+
+  mv "$tmp" "$CONFIG"
+  print -r -- "$key = $value"
+}
+
+config_edit() {
+  local -a editor
+  # zsh does not split an expansion into words on its own, hence the =
+  editor=(${=EDITOR:-open -t})
+  [[ -f "$CONFIG" ]] || : > "$CONFIG"
+  "${editor[@]}" "$CONFIG"
+}
+
+config_command() {
+  mkdir -p "$BASE_DIR" "$LOG_DIR"
+  case "${1-}" in
+    "" | show)
+      read_config
+      config_show
+      ;;
+    edit)
+      config_edit
+      ;;
+    *)
+      [[ -n "${2-}" ]] || {
+        print -u2 -r -- "usage: config [show | edit | <setting> <value>]"
+        return 2
+      }
+      config_set "$1" "$2" || return 2
+      ;;
+  esac
+}
+
 # --------------------------------------------------------------------- presets
 
 SERVICES_DIR="$HOME/Library/Services"
@@ -524,7 +585,8 @@ preset_command() {
 
 usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
-       ${ZSH_ARGZERO:t} preset [list|install <name>|remove <name>]
+       ${ZSH_ARGZERO:t} config [show | edit | <setting> <value>]
+       ${ZSH_ARGZERO:t} preset [list | install <name> | remove <name>]
 
   no files       optimize everything waiting in $IN_DIR
   file ...       optimize those files where they are, next to each source
@@ -617,11 +679,18 @@ apply_overrides() {
 }
 
 main() {
-  if [[ "${1-}" == preset ]]; then
-    shift
-    preset_command "$@"
-    return
-  fi
+  case "${1-}" in
+    config)
+      shift
+      config_command "$@"
+      return
+      ;;
+    preset)
+      shift
+      preset_command "$@"
+      return
+      ;;
+  esac
 
   parse_args "$@"
   case $? in

@@ -528,6 +528,49 @@ test_flags_that_make_no_sense_are_refused() {
   done
 }
 
+test_config_show_lists_what_is_in_effect() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'crf = 31'
+
+  out="$(DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" config)"
+  check "reports the value from the file" grep -q '^crf = 31$' <<< "$out"
+  check "and a setting the file never named" grep -q '^codec = h264$' <<< "$out"
+}
+
+test_config_set_edits_the_line_in_place() {
+  local box
+  box="$(sandbox)"
+  print -rl -- '# how sharp' 'crf = 28' '' 'speed = 2' > "$box/settings.conf"
+
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" config crf 33 > /dev/null
+
+  check "writes the new value" grep -q '^crf = 33$' "$box/settings.conf"
+  check "keeps the comment above it" grep -q '^# how sharp$' "$box/settings.conf"
+  check "leaves the other settings" grep -q '^speed = 2$' "$box/settings.conf"
+  check "writes it only once" test "$(grep -c '^crf' "$box/settings.conf")" = 1
+}
+
+test_config_set_appends_a_setting_that_was_missing() {
+  local box
+  box="$(sandbox)"
+  print -r -- 'speed = 2' > "$box/settings.conf"
+
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" zsh "$OPTIMIZER" config trim-idle true > /dev/null
+  check "adds it under its real name" grep -q '^trim_idle = true$' "$box/settings.conf"
+}
+
+test_config_set_refuses_a_setting_that_does_not_exist() {
+  local box code=0
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+
+  DEMO_OPTIMIZER_DIR="$box" DEMO_OPTIMIZER_REPO="" \
+    zsh "$OPTIMIZER" config nope 1 > /dev/null 2>&1 || code=$?
+  check "stops with a usage error" test "$code" = 2
+  check "and writes nothing" test "$(grep -c nope "$box/settings.conf")" = 0
+}
+
 # preset <sandbox> <name> <line...>
 preset() {
   local box="$1" name="$2"
@@ -640,6 +683,10 @@ TESTS=(
   test_flags_are_answered_not_swallowed
   test_flags_beat_the_config_file
   test_flags_that_make_no_sense_are_refused
+  test_config_show_lists_what_is_in_effect
+  test_config_set_edits_the_line_in_place
+  test_config_set_appends_a_setting_that_was_missing
+  test_config_set_refuses_a_setting_that_does_not_exist
   test_preset_is_read_on_top_of_the_config
   test_preset_loses_to_a_flag
   test_preset_list_names_what_is_there
