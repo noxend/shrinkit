@@ -76,6 +76,7 @@ the run uses the defaults, so nothing breaks.
 | `crf` | Quality/size, the main size knob. Lower = bigger/sharper, higher = smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
 | `codec` | `h264` (plays everywhere) or `hevc` (~30% smaller again, less compatible) | `h264` |
 | `remove_audio` | `true` drops sound; `false` keeps it and speeds it up to match | `true` |
+| `trim_idle` | Cut out the stretches where nothing on screen changes. Ignored when the audio is kept | `false` |
 | `max_height` | Downscale tall videos to this height; `0` keeps the original | `0` |
 | `output_suffix` | Text added to the output name. `{speed}` is replaced with the speed, so the name follows a speed change | `-{speed}x` |
 | `keep_original` | `true` keeps the original in `.processed/`; `false` deletes it | `true` |

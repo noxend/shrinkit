@@ -19,6 +19,11 @@
   // Remove the audio track? true, or false to keep it and speed it up to match.
   "remove_audio": true,
 
+  // Cut out the stretches where the screen is not changing, so a recording with long pauses in
+  // it gets a lot shorter to watch. Motion around a cut can look abrupt. Ignored when the audio
+  // is being kept, because dropping frames would pull the sound out of sync.
+  "trim_idle": false,
+
   // Downscale tall videos to this height (keeps aspect ratio). 0 = keep the original resolution.
   "max_height": 0,
 

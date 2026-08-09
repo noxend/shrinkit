@@ -52,6 +52,7 @@ typeset -A DEFAULTS=(
   crf 28     # the size knob, 0-51, higher is smaller
   codec h264 # h264 or hevc
   remove_audio true
+  trim_idle false           # drop stretches where the screen is not changing
   max_height 0              # downscale tall videos, 0 keeps the original size
   output_suffix '-{speed}x' # {speed} is filled in, so the name follows a speed change
   keep_original true        # move the source aside instead of deleting it
@@ -166,6 +167,7 @@ validate_config() {
   is_int "${CFG[max_height]}" || reject max_height "want a whole number"
   [[ "${CFG[codec]}" == h264 || "${CFG[codec]}" == hevc ]] || reject codec "want h264 or hevc"
   is_bool "${CFG[remove_audio]}" || reject remove_audio "want true or false"
+  is_bool "${CFG[trim_idle]}" || reject trim_idle "want true or false"
   is_bool "${CFG[keep_original]}" || reject keep_original "want true or false"
   is_bool "${CFG[notify]}" || reject notify "want true or false"
   is_bool "${CFG[notify_start]}" || reject notify_start "want true or false"
@@ -260,10 +262,14 @@ human_size() {
   du -h "$1" | cut -f1 | tr -d ' '
 }
 
-# Speed first, then the optional downscale and frame-rate cap.
+# Trimming has to run first, on the original frames: mpdecimate throws the near-identical ones
+# away and the setpts after it pulls what is left back onto a continuous timeline. Then the
+# downscale, the speed change and the frame-rate cap.
 video_filters() {
-  local height="$1" chain="setpts=PTS/${CFG[speed]}"
-  ((CFG[max_height] > 0 && height > CFG[max_height])) && chain="scale=-2:${CFG[max_height]},$chain"
+  local height="$1" trim="$2" chain=""
+  [[ "$trim" == true ]] && chain="mpdecimate,setpts=N/FRAME_RATE/TB,"
+  ((CFG[max_height] > 0 && height > CFG[max_height])) && chain="${chain}scale=-2:${CFG[max_height]},"
+  chain="${chain}setpts=PTS/${CFG[speed]}"
   ((CFG[fps] > 0)) && chain="$chain,fps=${CFG[fps]}"
   print -r -- "$chain"
 }
@@ -284,11 +290,16 @@ encode() {
   local src="$1" out="$2" height
   height="$(video_height "$src")"
 
+  # Dropping video frames leaves the audio at its old length, so trimming and a kept audio track
+  # cannot both happen. The audio is what the file was asked to keep, so trimming stands down.
   local -a audio codec
+  local trim=false
   if [[ "${CFG[remove_audio]}" == true ]] || ! has_audio "$src"; then
     audio=(-an)
+    trim="${CFG[trim_idle]}"
   else
     audio=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "${CFG[speed]}")")
+    [[ "${CFG[trim_idle]}" == true ]] && log "not trimming ${src:t} (it would pull the kept audio out of sync)"
   fi
 
   if [[ "${CFG[codec]}" == hevc ]]; then
@@ -298,8 +309,11 @@ encode() {
   fi
   codec+=(-crf "${CFG[crf]}" -preset veryfast)
 
-  log "encode ${src:t} (${height}p, ${CFG[speed]}x, ${CFG[fps]}fps, ${CFG[codec]} crf${CFG[crf]})"
-  "$FFMPEG" -nostdin -y -i "$src" -filter:v "$(video_filters "$height")" \
+  local label="${height}p, ${CFG[speed]}x, ${CFG[fps]}fps, ${CFG[codec]} crf${CFG[crf]}"
+  [[ "$trim" == true ]] && label="$label, trimmed"
+
+  log "encode ${src:t} ($label)"
+  "$FFMPEG" -nostdin -y -i "$src" -filter:v "$(video_filters "$height" "$trim")" \
     "${audio[@]}" "${codec[@]}" -pix_fmt yuv420p -movflags +faststart \
     "$out" >> "$LOG" 2>&1 || {
     rm -f "$out"

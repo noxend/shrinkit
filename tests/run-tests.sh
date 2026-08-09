@@ -152,6 +152,12 @@ build_fixtures() {
   make_fixture withaudio.mov -f lavfi -i "color=c=0x1e1e1e:s=1920x1080:r=60:d=12" \
     -f lavfi -i "sine=frequency=440:duration=12" -c:v libx264 -preset medium -crf 20 \
     -pix_fmt yuv420p -c:a aac -shortest
+  # 20s but only the first 4 have any motion, which is what a recording with long pauses in it
+  # looks like to mpdecimate
+  make_fixture idle.mov -f lavfi -i "color=c=0x1e1e1e:s=1920x1080:r=60:d=20" \
+    -f lavfi -i "testsrc2=s=480x270:r=60:d=4" \
+    -filter_complex "[0][1]overlay=60:60:enable='lt(t,4)'" \
+    -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p
   # 4K, for the downscale test
   make_fixture tall.mov -f lavfi -i "testsrc=size=3840x2160:rate=30:duration=5" \
     -c:v libx264 -preset ultrafast -pix_fmt yuv420p
@@ -203,6 +209,41 @@ test_basic_suffix_follows_the_speed() {
 
   optimize "$box"
   check "names the file after the speed it used" exists "$box/output/clip-3x.mp4"
+}
+
+test_trim_idle_cuts_the_pauses_out() {
+  local box
+  box="$(sandbox)"
+  settings "$box" '"trim_idle": true'
+  cp "$FIXTURES/idle.mov" "$box/input/clip.mov"
+
+  optimize "$box"
+  # 20s in, 4s of it moving, halved by the default 2x speed
+  check "keeps only the moving part" duration_near "$box/output/clip-2x.mp4" 2
+  check "says so in the log" logged "$box" 'trimmed'
+}
+
+test_trim_idle_is_off_unless_asked_for() {
+  local box
+  box="$(sandbox)"
+  settings "$box" '"speed": 2'
+  cp "$FIXTURES/idle.mov" "$box/input/clip.mov"
+
+  optimize "$box"
+  check "leaves the pauses in" duration_near "$box/output/clip-2x.mp4" 10
+}
+
+test_trim_idle_stands_down_when_the_audio_is_kept() {
+  local box
+  box="$(sandbox)"
+  settings "$box" '"trim_idle": true, "remove_audio": false'
+  cp "$FIXTURES/withaudio.mov" "$box/input/clip.mov" # static picture, so trimming would gut it
+  local out="$box/output/clip-2x.mp4"
+
+  optimize "$box"
+  check "says why it did not trim" logged "$box" 'not trimming'
+  check "keeps the untrimmed length" duration_near "$out" 6
+  check "and keeps the audio" has_audio "$out"
 }
 
 test_downscale() {
@@ -461,6 +502,9 @@ TESTS=(
   test_basic_encode
   test_basic_settings_are_used
   test_basic_suffix_follows_the_speed
+  test_trim_idle_cuts_the_pauses_out
+  test_trim_idle_is_off_unless_asked_for
+  test_trim_idle_stands_down_when_the_audio_is_kept
   test_downscale
   test_keep_original_false_deletes_the_source
   test_output_dir_redirect
