@@ -2,13 +2,17 @@
 
 [![tests](https://github.com/noxend/shrinkit/actions/workflows/tests.yml/badge.svg)](https://github.com/noxend/shrinkit/actions/workflows/tests.yml)
 
-Drop a screen recording into a folder and get a faster, smaller copy back. It runs in the
-background on macOS, so there is nothing to open and nothing to click. Useful when a demo recording
-is too long or too heavy to attach to a ticket or paste into a chat.
+shrinkit compresses macOS screen recordings and speeds them up. Drop a `.mov` into a folder, or
+right-click it in Finder, and a much smaller `.mp4` comes back. A QuickTime capture that started at
+a few hundred megabytes usually ends up in single digits.
 
-Out of the box it plays the recording at 2x, drops the audio, caps the frame rate at 30 and
-re-encodes at a fixed quality, which usually takes a few hundred megabytes down to a few. All of
-that is configurable.
+A raw screen capture is almost always too big to attach to a pull request, a Jira ticket or a Slack
+message, and too slow to sit through. Playing it back at 2x and re-encoding it at a fixed quality
+deals with both at once.
+
+The encoding is ffmpeg. A launchd agent watches the folder for you, so the whole thing runs without
+an app to open. Every part of it is configurable, and it can also cut out the stretches where
+nothing on screen is moving.
 
 ## Demo
 
@@ -45,9 +49,10 @@ one of them the script prints the steps. Anywhere else, `~/Movies` included, nee
 
 ## Use
 
-1. Open the `shrinkit` shortcut on your Desktop and drop a recording into `input/`.
+1. Open the `shrinkit` shortcut on your Desktop and drop a recording into `input/`. QuickTime
+   `.mov`, `.mp4` and `.m4v` all work.
 2. Give it a few seconds.
-3. Collect the result from `output/`, named `clip-2x.mp4`.
+3. Collect the result from `output/`, converted to `.mp4` and named `clip-2x.mp4`.
 
 The original goes to a hidden `.processed/` folder, so the working folder holds only
 `settings.conf`, `presets/`, `input/` and `output/`.
