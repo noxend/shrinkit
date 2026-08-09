@@ -113,7 +113,7 @@ here will never leave a recording unprocessed.
 | Setting | What it does | Default |
 | --- | --- | --- |
 | `speed` | Speed multiplier. `2` is twice as fast, `1` leaves it alone | `2` |
-| `fps` | Cap the frame rate; `0` keeps the original | `30` |
+| `fps` | Cap the frame rate, up to 240; `0` keeps the original | `30` |
 | `crf` | Quality against size, the main knob. Lower is sharper and bigger, higher is smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
 | `codec` | `h264` plays everywhere, `hevc` is about 30% smaller and less compatible | `h264` |
 | `remove_audio` | `true` drops the sound, `false` keeps it and speeds it up to match | `true` |

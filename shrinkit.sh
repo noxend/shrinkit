@@ -137,7 +137,10 @@ reject() {
 validate_config() {
   is_num "${CFG[speed]}" && awk -v s="${CFG[speed]}" 'BEGIN { exit !(s > 0) }' \
     || reject speed "want a number above 0"
-  is_int "${CFG[fps]}" || reject fps "want a whole number"
+  # Capped, because a slip of the finger turns into an encode that never ends: 100000fps asks
+  # ffmpeg for six hundred thousand frames out of a six second clip, and in folder mode that run
+  # holds the lock while it grinds.
+  is_int "${CFG[fps]}" && ((CFG[fps] <= 240)) || reject fps "want 0-240"
   is_int "${CFG[crf]}" && ((CFG[crf] <= 51)) || reject crf "want 0-51"
   is_int "${CFG[max_height]}" || reject max_height "want a whole number"
   [[ "${CFG[codec]}" == h264 || "${CFG[codec]}" == hevc ]] || reject codec "want h264 or hevc"

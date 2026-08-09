@@ -358,7 +358,7 @@ test_an_old_json_config_is_reported() {
 test_bad_values_are_rejected_one_by_one() {
   local box
   box="$(sandbox)"
-  settings "$box" 'speed = abc' 'fps = x' 'crf = 99' 'codec = vp9' 'remove_audio = maybe' 'output_suffix = '
+  settings "$box" 'speed = abc' 'fps = 100000' 'crf = 99' 'codec = vp9' 'remove_audio = maybe' 'output_suffix = '
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
