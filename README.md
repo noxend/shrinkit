@@ -54,9 +54,10 @@ The original goes to a hidden `.processed/` folder, so the working folder holds 
 
 ## Right-click a video
 
-The installer also adds a Finder Quick Action. Right-click any video, choose **Quick Actions >
-Shrink Video**, and the smaller copy appears beside it. The original stays where it is, which makes
-this the quicker route for a one-off file. Select several files to do them together.
+The installer adds two entries to the Finder right-click menu. **Shrink Video** runs with your
+settings and the smaller copy appears beside the original. **Shrink Video with…** asks which preset
+to use first. Either way the original stays where it is, which makes this the quicker route for a
+one-off file. Select several files to do them together.
 
 ## One-off changes on the command line
 
@@ -83,7 +84,7 @@ shrinkit --preset chat recording.mov
 Copy that file to make your own. Any preset can also become its own right-click entry:
 
 ```bash
-shrinkit preset install chat     # adds "Shrink: chat" to Quick Actions
+shrinkit preset install chat     # adds "Shrink: chat" as its own menu entry
 shrinkit preset list
 shrinkit preset remove chat
 ```

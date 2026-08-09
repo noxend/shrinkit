@@ -170,24 +170,28 @@ if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
   fi
 fi
 
-# 7. a Finder Quick Action, so you can right-click any video and pick "Shrink Video" without
-#    dropping it into the watch folder. It writes the result next to the source. Skip with
+# 7. two Finder entries, so you can right-click a video instead of routing it through the watch
+#    folder. "Shrink Video" runs with your settings; "Shrink Video with…" asks which preset to
+#    use, since Finder gives no way to nest one entry inside another. Skip both with
 #    QUICK_ACTION=0.
 if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
   SERVICES_DIR="$HOME/Library/Services"
-  QA_SRC="$REPO_DIR/quick-action/Shrink Video.workflow"
-  QA_DST="$SERVICES_DIR/Shrink Video.workflow"
   mkdir -p "$SERVICES_DIR"
-  rm -rf "$QA_DST"
-  cp -R "$QA_SRC" "$QA_DST"
-  # Fill in the command with the real paths. plutil writes the value verbatim, so there is no
-  # shell-quoting to fight with. "$@" forwards the file(s) Finder passes as arguments.
-  QA_CMD="SHRINKIT_DIR=\"$BASE_DIR\" \"$SCRIPT_DST\" \"\$@\""
-  plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$QA_CMD" \
-    "$QA_DST/Contents/document.wflow"
-  # Register it so it shows up in the right-click menu without a logout.
+  for ENTRY in "Shrink Video:" "Shrink Video with:--choose"; do
+    QA_NAME="${ENTRY%%:*}"
+    QA_FLAGS="${ENTRY#*:}"
+    QA_DST="$SERVICES_DIR/$QA_NAME.workflow"
+    rm -rf "$QA_DST"
+    cp -R "$REPO_DIR/quick-action/$QA_NAME.workflow" "$QA_DST"
+    # plutil writes the value verbatim, so there is no shell quoting to fight with. "$@" forwards
+    # whatever files Finder passed in.
+    QA_CMD="SHRINKIT_DIR=\"$BASE_DIR\" \"$SCRIPT_DST\" $QA_FLAGS \"\$@\""
+    plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$QA_CMD" \
+      "$QA_DST/Contents/document.wflow"
+  done
+  # Register them so they show up in the right-click menu without a logout.
   /System/Library/CoreServices/pbs -update 2> /dev/null || true
-  echo "==> Installed Finder Quick Action: right-click a video > Quick Actions > Shrink Video"
+  echo "==> Installed Finder entries: Shrink Video, Shrink Video with…"
 fi
 
 # 8. (re)load it

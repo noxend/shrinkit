@@ -521,6 +521,27 @@ preset_names() {
   for file in "$PRESET_DIR"/*.conf(N.); do print -r -- "${file:t:r}"; done
 }
 
+# Finder has no way to nest one menu entry inside another, so the second Quick Action asks here
+# instead. Prints the chosen preset, the plain-settings marker, or nothing when it was cancelled.
+NO_PRESET="Settings as they are"
+
+ask_for_preset() {
+  local -a choices
+  choices=("$NO_PRESET" $(preset_names))
+  osascript -l JavaScript - "${choices[@]}" << 'JXA' 2> /dev/null
+function run(argv) {
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  const picked = app.chooseFromList(argv, {
+    withPrompt: 'Shrink using which settings?',
+    defaultItems: [argv[0]],
+    okButtonName: 'Shrink'
+  });
+  return picked === false ? '' : picked[0];
+}
+JXA
+}
+
 install_preset_action() {
   local name="$1" template action command
   [[ -f "$(preset_file "$name")" ]] || {
@@ -610,6 +631,7 @@ entry with 'preset install <name>'.
 typeset -A OVERRIDES
 typeset -a FILES
 PRESET=""
+CHOOSE=false
 
 # 1 means there is nothing left to do (--help), 2 means the command line was wrong.
 parse_args() {
@@ -628,6 +650,9 @@ parse_args() {
           return 2
         }
         PRESET="$1"
+        ;;
+      --choose)
+        CHOOSE=true
         ;;
       --no-*)
         key="${${arg#--no-}//-/_}"
@@ -700,6 +725,14 @@ main() {
 
   mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR" "$PRESET_DIR"
   read_config
+
+  if [[ "$CHOOSE" == true ]]; then
+    local picked
+    picked="$(ask_for_preset)"
+    [[ -z "$picked" ]] && return 0 # the dialog was cancelled
+    [[ "$picked" != "$NO_PRESET" ]] && PRESET="$picked"
+  fi
+
   [[ -n "$PRESET" ]] && { read_preset "$PRESET" || return 2; }
   apply_overrides
   validate_config
