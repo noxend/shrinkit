@@ -171,13 +171,17 @@ if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
 fi
 
 # 7. two Finder entries, so you can right-click a video instead of routing it through the watch
-#    folder. "Shrink Video" runs with your settings; "Shrink Video with…" asks which preset to
-#    use, since Finder gives no way to nest one entry inside another. Skip both with
-#    QUICK_ACTION=0.
+#    folder. "shrinkit" runs with your settings; "shrinkit presets…" asks which preset to use,
+#    since Finder gives no way to nest one entry inside another. Skip both with QUICK_ACTION=0.
 if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
   SERVICES_DIR="$HOME/Library/Services"
   mkdir -p "$SERVICES_DIR"
-  for ENTRY in "Shrink Video:" "Shrink Video with:--choose"; do
+  # Entries these replaced. Named one by one rather than matched on content, so a menu entry you
+  # built yourself from a preset is left alone.
+  for RETIRED in "Shrink Video" "Shrink Video with"; do
+    rm -rf "$SERVICES_DIR/$RETIRED.workflow"
+  done
+  for ENTRY in "shrinkit:" "shrinkit presets:--choose"; do
     QA_NAME="${ENTRY%%:*}"
     QA_FLAGS="${ENTRY#*:}"
     QA_DST="$SERVICES_DIR/$QA_NAME.workflow"
@@ -191,7 +195,7 @@ if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
   done
   # Register them so they show up in the right-click menu without a logout.
   /System/Library/CoreServices/pbs -update 2> /dev/null || true
-  echo "==> Installed Finder entries: Shrink Video, Shrink Video with…"
+  echo "==> Installed Finder entries: shrinkit, shrinkit presets…"
 fi
 
 # 8. (re)load it

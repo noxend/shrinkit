@@ -3,14 +3,14 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Shrink Video with</string>
+	<string>shrinkit presets</string>
 	<key>NSServices</key>
 	<array>
 		<dict>
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Shrink Video with…</string>
+				<string>shrinkit presets…</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>runWorkflowAsService</string>

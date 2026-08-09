@@ -639,7 +639,7 @@ test_preset_that_does_not_exist_is_refused() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" preset install nope > /dev/null 2>&1 || code=$?
   check "refuses to build an action for it" test "$code" = 2
-  check "and builds nothing" missing "$HOME/Library/Services/Shrink: nope.workflow"
+  check "and builds nothing" missing "$HOME/Library/Services/shrinkit: nope.workflow"
 }
 
 test_start_banner_is_logged() {
