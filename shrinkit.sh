@@ -287,11 +287,18 @@ encode() {
   local label="${height}p, ${CFG[speed]}x, ${CFG[fps]}fps, ${CFG[codec]} crf${CFG[crf]}"
   [[ "$trim" == true ]] && label="$label, trimmed"
 
+  # ffmpeg writes into a hidden file beside the destination and it is renamed into place at the
+  # end. Two runs aimed at the same name can no longer interleave into one broken file, and a run
+  # that dies partway leaves nothing playable-looking behind. The name has to keep the .mp4
+  # extension, since that is what ffmpeg picks the muxer from, and the leading dot keeps the
+  # half-written file out of both Finder and the queue's own glob.
+  local part="${out:h}/.${out:t:r}.$$.part.mp4"
+
   log "encode ${src:t} ($label)"
   "$FFMPEG" -nostdin -y -i "$src" -filter:v "$(video_filters "$height" "$trim")" \
     "${audio[@]}" "${codec[@]}" -pix_fmt yuv420p -movflags +faststart \
-    "$out" >> "$LOG" 2>&1 || {
-    rm -f "$out"
+    "$part" >> "$LOG" 2>&1 && mv -f "$part" "$out" || {
+    rm -f "$part"
     return 1
   }
 }

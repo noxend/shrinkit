@@ -98,6 +98,9 @@ has_audio() {
 no_audio() {
   ! has_audio "$1"
 }
+playable() {
+  "$FFPROBE" -v error "$1" > /dev/null 2>&1
+}
 
 # roughly_equal 6.03 6 0.4
 roughly_equal() {
@@ -303,6 +306,29 @@ test_ignores_things_that_are_not_videos() {
   optimize "$box"
   check "reports an empty queue" logged "$box" 'nothing new to do'
   check "leaves the text file alone" exists "$box/input/notes.txt"
+}
+
+# Two right-click entries aimed at one file land on the same output name with no lock between
+# them, so the guard is that nothing is ever written at that name until it is complete.
+test_the_output_appears_only_once_it_is_finished() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(mktemp -d)"
+  SANDBOXES+=("$work")
+  cp "$FIXTURES/big.mov" "$work/clip.mov"
+  out="$work/clip-2x.mp4"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov" > /dev/null 2>&1 &
+  sleep 2 # the 4K fixture takes several seconds, so this lands mid-encode
+
+  check "nothing sits at the final name yet" missing "$out"
+  check "the half-written file is hidden" test "$(ls -A "$work" | grep -c '\.part\.mp4$')" = 1
+  wait
+
+  check "it lands when the encode finishes" exists "$out"
+  check "and plays" playable "$out"
+  check "leaving no part files behind" test "$(ls -A "$work" | grep -c part)" = 0
 }
 
 test_a_broken_line_spoils_only_itself() {
@@ -668,6 +694,7 @@ TESTS=(
   test_output_dir_redirect
   test_skips_work_already_done
   test_ignores_things_that_are_not_videos
+  test_the_output_appears_only_once_it_is_finished
   test_a_broken_line_spoils_only_itself
   test_an_old_json_config_is_reported
   test_bad_values_are_rejected_one_by_one
