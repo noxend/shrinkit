@@ -179,7 +179,8 @@ if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
       "$SCRIPT_DST" preset install "$PRESET_NAME" > /dev/null
     INSTALLED+=("$PRESET_NAME")
   done
-  echo "==> Finder entries, one per preset: ${INSTALLED[*]}"
+  SHRINKIT_DIR="$BASE_DIR" SHRINKIT_REPO="$REPO_DIR" "$SCRIPT_DST" mark-cuts --install > /dev/null
+  echo "==> Finder entries, one per preset, plus 'shrinkit: mark cuts': ${INSTALLED[*]}"
 fi
 
 # 8. (re)load it
