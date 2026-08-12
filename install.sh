@@ -1,8 +1,8 @@
 #!/bin/zsh
-# Installs the shrinkit: copies the script into place, creates the watch folders,
-# installs the config, and registers a launchd agent that runs it whenever a recording is dropped
-# into the input folder. Re-running it is safe: it updates the script and reloads the agent, and it
-# never overwrites your settings.
+# Installs shrinkit: copies the script into place, creates the watch folders, installs the config,
+# and registers a launchd agent that runs it whenever a recording is dropped into the input folder.
+# Re-running it is safe: it updates the script and reloads the agent, and it never overwrites your
+# settings.
 #
 #   Optional: choose a different base folder before running:
 #       SHRINKIT_DIR="$HOME/Movies/my-clips" ./install.sh
@@ -18,8 +18,7 @@ SCRIPT_DST="$BIN_DIR/shrinkit"
 LABEL="com.shrinkit"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
-# The tool used to be called demo-video-optimizer. Take the old install apart before building the
-# new one, or the machine ends up with two agents watching two folders.
+# Old install (renamed from demo-video-optimizer) goes first, or two agents watch two folders.
 OLD_LABEL="com.demo-video-optimizer"
 OLD_BASE="$HOME/Movies/demo-recordings"
 launchctl bootout "gui/$(id -u)/$OLD_LABEL" 2> /dev/null || true
@@ -32,8 +31,7 @@ setopt extended_glob
 for action in "$HOME/Library/Services"/*.workflow(N); do
   grep -q 'demo-video-optimizer' "$action/Contents/document.wflow" 2> /dev/null && rm -rf "$action"
 done
-# Recordings and settings move across with it, but only into a folder that is not already there,
-# and only when you have not named one yourself.
+# Move the old data across, unless you set SHRINKIT_DIR yourself or something is already there.
 if [[ -z "${SHRINKIT_DIR+set}" && -d "$OLD_BASE" && ! -d "$BASE_DIR" ]]; then
   mv "$OLD_BASE" "$BASE_DIR"
   echo "==> Moved $OLD_BASE to $BASE_DIR"
@@ -74,9 +72,7 @@ echo "==> Installed script: $SCRIPT_DST"
 # 3. the folders (processed/ and logs/ are hidden so the folder shows only settings + input + output)
 mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/.processed" "$BASE_DIR/.logs"
 
-# The presets are what the right-click menu is built from, so default.conf is put back whenever it
-# is missing: without it there is no menu entry for plain settings. chat.conf is only an example,
-# so it arrives once and is never restored if you delete it. Neither is ever overwritten.
+# default.conf is restored if missing, since the menu needs it; chat.conf is only an example.
 mkdir -p "$BASE_DIR/presets"
 [[ -f "$BASE_DIR/presets/default.conf" ]] || cp "$REPO_DIR/presets/default.conf" "$BASE_DIR/presets/"
 if [[ -z "$(ls -A "$BASE_DIR/presets" | grep -v '^default.conf$')" ]]; then
@@ -84,15 +80,12 @@ if [[ -z "$(ls -A "$BASE_DIR/presets" | grep -v '^default.conf$')" ]]; then
   echo "==> Installed the example preset: presets/chat.conf"
 fi
 
-# 4. the config. Settings used to be JSON with comments; the format is now plain "key = value",
-#    so an older install gets converted once. The old file is left behind as a backup, and an
-#    existing settings.conf is never touched.
+# 4. the config, converted from the old formats once; an existing settings.conf is never touched.
 CONFIG="$BASE_DIR/settings.conf"
 if [[ -f "$CONFIG" ]]; then
   echo "==> Kept your existing settings"
 elif [[ -f "$BASE_DIR/settings.jsonc" ]]; then
-  # Into a temp file first: a config that failed to convert must not land as an empty one, which
-  # would look like a valid file full of nothing and quietly put every setting back to default.
+  # Via a temp file, so a failed conversion cannot leave an empty settings.conf behind.
   CONVERTED="$(mktemp)"
   if osascript -l JavaScript - "$BASE_DIR/settings.jsonc" > "$CONVERTED" << 'JXA' && [[ -s "$CONVERTED" ]]; then
 function run(argv) {
@@ -128,8 +121,7 @@ cat > "$PLIST" << PLIST_EOF
 <dict>
     <key>Label</key>
     <string>$LABEL</string>
-    <!-- Run the script directly (it has a #!/bin/zsh shebang) so the background item shows as
-         "shrinkit" instead of "zsh". -->
+    <!-- Direct shebang execution, so Login Items shows "shrinkit" rather than "zsh". -->
     <key>ProgramArguments</key>
     <array>
         <string>$SCRIPT_DST</string>
@@ -160,9 +152,7 @@ cat > "$PLIST" << PLIST_EOF
 PLIST_EOF
 echo "==> Installed launchd agent: $PLIST"
 
-# 6. a shortcut on the Desktop pointing at the working folder, so you reach input/ and output/
-#    from the Desktop while the real folder stays in a non-protected location (no permissions
-#    needed). Skipped when the base is already on the Desktop, or with DESKTOP_SHORTCUT=0.
+# 6. Desktop shortcut to the working folder, which itself stays outside TCC-protected locations.
 if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
   LINK="$HOME/Desktop/${BASE_DIR:t}"
   if [[ -e "$LINK" && ! -L "$LINK" ]]; then
@@ -173,9 +163,7 @@ if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
   fi
 fi
 
-# 7. one right-click entry per preset, so the menu is the list of presets and nothing has to be
-#    picked out of a dialog. The menu is rebuilt from presets/ every time, which is what keeps a
-#    preset you deleted from leaving an entry behind. Skip the lot with QUICK_ACTION=0.
+# 7. one right-click entry per preset; rebuilt fresh each run so a deleted preset leaves nothing.
 if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
   SERVICES_DIR="$HOME/Library/Services"
   mkdir -p "$SERVICES_DIR"
