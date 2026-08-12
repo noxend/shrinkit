@@ -729,6 +729,12 @@ test_cuts_trims_whitespace_around_the_dash() {
   check "still cuts it, spaces and all" duration_near "$out" 11
 }
 
+test_mark_cuts_with_no_files_is_refused() {
+  local code=0
+  zsh "$OPTIMIZER" mark-cuts > /dev/null 2>&1 || code=$?
+  check "stops with a usage error" test "$code" = 2
+}
+
 test_bad_values_are_rejected_one_by_one() {
   local box
   box="$(sandbox)"
@@ -1089,6 +1095,7 @@ TESTS=(
   test_cuts_rich_text_sidecar_is_named_and_refused
   test_cuts_smart_dash_is_named_specifically
   test_cuts_trims_whitespace_around_the_dash
+  test_mark_cuts_with_no_files_is_refused
   test_bad_values_are_rejected_one_by_one
   test_unknown_settings_are_ignored
   test_a_hash_inside_a_value_is_kept

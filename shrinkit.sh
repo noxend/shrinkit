@@ -715,12 +715,74 @@ preset_command() {
   esac
 }
 
+# A fixed Quick Action, not tied to any preset: it doesn't shrink anything, only opens the sidecar
+# (creating it first if needed) so a cut can be marked before a normal preset runs on the file.
+install_cuts_action() {
+  local template action command
+  template="$(quick_action_template)" || {
+    print -u2 -r -- "cannot find a Quick Action to copy; run install.sh first"
+    return 1
+  }
+
+  action="$SERVICES_DIR/shrinkit: mark cuts.workflow"
+  mkdir -p "$SERVICES_DIR"
+  rm -rf "$action"
+  cp -R "$template" "$action"
+
+  command="SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" mark-cuts \"\$@\""
+  plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$command" \
+    "$action/Contents/document.wflow"
+  plutil -replace CFBundleName -string "shrinkit: mark cuts" "$action/Contents/Info.plist"
+  plutil -replace NSServices.0.NSMenuItem.default -string "shrinkit: mark cuts" \
+    "$action/Contents/Info.plist"
+  /System/Library/CoreServices/pbs -update 2> /dev/null || true
+
+  print -r -- "right-click a video > shrinkit: mark cuts"
+}
+
+# Seeds a .cuts sidecar with a header comment and the recording's own length, if one is not there
+# yet; leaves an existing sidecar's content untouched so a second range can be added to it.
+seed_cuts_sidecar() {
+  local file="$1" sidecar="${file}.cuts" dur mins secs
+  [[ -f "$sidecar" ]] && return 0
+  dur="$("$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$file" 2> /dev/null)"
+  {
+    print -r -- "# ${file:t}.cuts -- one range per line, e.g. 0:32-0:35 or plain seconds"
+    if is_num "$dur"; then
+      mins=$((${dur%.*} / 60))
+      secs=$((${dur%.*} % 60))
+      print -r -- "# ${file:t} is ${mins}:$(printf '%02d' "$secs") long"
+    fi
+  } > "$sidecar"
+}
+
+# Finder entry point for authoring a .cuts sidecar: seeds it, then opens both the sidecar and the
+# recording itself so timestamps can be read straight off the player while typing them in.
+mark_cuts_command() {
+  [[ "${1-}" == --install ]] && {
+    install_cuts_action
+    return
+  }
+  (($# > 0)) || {
+    print -u2 -r -- "usage: mark-cuts <file>..."
+    return 2
+  }
+  local file
+  for file in "$@"; do
+    [[ -f "$file" ]] || continue
+    seed_cuts_sidecar "$file"
+    open -e "${file}.cuts"
+    open -- "$file"
+  done
+}
+
 # --------------------------------------------------------------------- run
 
 usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
        ${ZSH_ARGZERO:t} config [show | edit | <setting> <value>]
        ${ZSH_ARGZERO:t} preset [list | install <name> | remove <name>]
+       ${ZSH_ARGZERO:t} mark-cuts <file>...
 
   no files       optimize everything waiting in $IN_DIR
   file ...       optimize those files where they are, next to each source
@@ -732,6 +794,10 @@ on, --no-trim-idle turns it off.
 A preset is a file of the same settings in $PRESET_DIR.
 Use one for a run with --preset <name>, or turn it into its own right-click
 entry with 'preset install <name>'.
+
+mark-cuts opens (creating first, if needed) the .cuts sidecar for each file
+alongside the recording itself, ready to mark a range to cut. Same as the
+right-click 'shrinkit: mark cuts' entry.
 
   settings       $CONFIG
   presets        $PRESET_DIR
@@ -820,6 +886,11 @@ main() {
     preset)
       shift
       preset_command "$@"
+      return
+      ;;
+    mark-cuts)
+      shift
+      mark_cuts_command "$@"
       return
       ;;
   esac
