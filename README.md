@@ -59,14 +59,15 @@ The original goes to a hidden `.processed/` folder, so the working folder holds 
 
 ## Right-click a video
 
-The right-click menu is the list of your presets. Every file in `presets/` gets an entry named
-after it, so out of the box you get `shrinkit: default`, which uses your settings as they are,
-and `shrinkit: chat`, tuned for something going into a chat or a ticket. The smaller copy lands
-beside the original, which stays where it is, and you can select several files to do them
+Most of the right-click menu is the list of your presets. Every file in `presets/` gets an entry
+named after it, so out of the box you get `shrinkit: default`, which uses your settings as they
+are, and `shrinkit: chat`, tuned for something going into a chat or a ticket. The smaller copy
+lands beside the original, which stays where it is, and you can select several files to do them
 together.
 
 Add a preset and it becomes a new entry; the installer rebuilds the menu from `presets/` every
-time it runs.
+time it runs. One entry isn't a preset: `shrinkit: mark cuts`, for marking a stretch to remove
+before shrinking (see below).
 
 ## One-off changes on the command line
 
@@ -79,6 +80,35 @@ shrinkit --trim-idle --no-remove-audio recording.mov
 
 A true/false setting takes no value: `--trim-idle` turns it on and `--no-trim-idle` turns it off.
 Name no files and the flags apply to whatever is sitting in `input/`. Flags beat the config file.
+
+## Cutting a stretch out of the middle
+
+Right-click a recording and choose `shrinkit: mark cuts`. It opens the recording, so you can find
+the moment, and a `<recording>.cuts` text file next to it (creating one the first time) where you
+mark what to remove, one range per line:
+
+```
+# clip.mov.cuts
+0:32-0:35
+1:10-1:12.5
+```
+
+Save it, then process the recording as usual: drop it into `input/` or right-click it and pick a
+preset. Each range is removed entirely, not just skipped past on playback, since the frames are
+never written to the output at all. Good for cutting a secret out of a recording, a password typed
+into a form, a private chat glanced at mid-recording, and works just as well for plain shortening.
+
+Times are `M:SS`, `M:SS.f`, or plain seconds. `#` starts a comment, a range under a tenth of a
+second is too short to reliably land on a real frame, and a line that does not parse is skipped
+rather than stopping the run. All three are logged, so check the log if a cut you expected does
+not show up in the result. If you edit the file in TextEdit rather than through the menu entry,
+save it as plain text (Format > Make Plain Text) with Smart Dashes off (Edit > Substitutions), or
+it will not parse as written.
+
+Dropping a recording into `input/` files the `.cuts` sidecar away with the original once
+processing is done. Right-clicking a file directly leaves both in place, the same way it leaves
+the recording itself in place. Once you have the result, check it and clean up the source
+yourself.
 
 ## Presets
 
