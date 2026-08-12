@@ -74,9 +74,7 @@ trim() {
   print -r -- "${${1##[[:space:]]#}%%[[:space:]]#}"
 }
 
-# "key = value" lines. A whole line starting with # is a comment; a # anywhere else is part of the
-# value, so a banner title can contain one. A key we do not know about is ignored, which is what
-# keeps a typo harmless, and a line that makes no sense spoils only itself.
+# A whole line starting with # is a comment; a # elsewhere is part of the value.
 read_settings() {
   local line key value
   while IFS= read -r line; do
@@ -137,9 +135,7 @@ reject() {
 validate_config() {
   is_num "${CFG[speed]}" && awk -v s="${CFG[speed]}" 'BEGIN { exit !(s > 0) }' \
     || reject speed "want a number above 0"
-  # Capped, because a slip of the finger turns into an encode that never ends: 100000fps asks
-  # ffmpeg for six hundred thousand frames out of a six second clip, and in folder mode that run
-  # holds the lock while it grinds.
+  # Capped, so a mistyped value cannot hang the encode.
   is_int "${CFG[fps]}" && ((CFG[fps] <= 240)) || reject fps "want 0-240"
   is_int "${CFG[crf]}" && ((CFG[crf] <= 51)) || reject crf "want 0-51"
   is_int "${CFG[max_height]}" || reject max_height "want a whole number"
@@ -240,9 +236,7 @@ human_size() {
   du -h "$1" | cut -f1 | tr -d ' '
 }
 
-# Trimming has to run first, on the original frames: mpdecimate throws the near-identical ones
-# away and the setpts after it pulls what is left back onto a continuous timeline. Then the
-# downscale, the speed change and the frame-rate cap.
+# mpdecimate drops frames, so setpts has to renumber the timeline before anything else runs.
 video_filters() {
   local height="$1" trim="$2" chain=""
   [[ "$trim" == true ]] && chain="mpdecimate,setpts=N/FRAME_RATE/TB,"
@@ -261,9 +255,7 @@ atempo_chain() {
   }'
 }
 
-# Encodes one file to a given path. Non-zero means ffmpeg failed and nothing usable was written.
-# Quality-based (CRF) rather than a fixed bitrate, which matters a lot for screen recordings: a
-# fixed bitrate can make them bigger than the original.
+# Non-zero means ffmpeg failed and nothing was written to $out.
 encode() {
   local src="$1" out="$2" height
   height="$(video_height "$src")"
@@ -290,11 +282,7 @@ encode() {
   local label="${height}p, ${CFG[speed]}x, ${CFG[fps]}fps, ${CFG[codec]} crf${CFG[crf]}"
   [[ "$trim" == true ]] && label="$label, trimmed"
 
-  # ffmpeg writes into a hidden file beside the destination and it is renamed into place at the
-  # end. Two runs aimed at the same name can no longer interleave into one broken file, and a run
-  # that dies partway leaves nothing playable-looking behind. The name has to keep the .mp4
-  # extension, since that is what ffmpeg picks the muxer from, and the leading dot keeps the
-  # half-written file out of both Finder and the queue's own glob.
+  # Written to a hidden temp file first, so two runs on one name can never collide mid-write.
   local part="${out:h}/.${out:t:r}.$$.part.mp4"
 
   log "encode ${src:t} ($label)"
@@ -362,9 +350,7 @@ optimize_files() {
   done
 }
 
-# Keeps going until the folder is empty. Re-reading it after every file is what catches a
-# recording dropped mid-encode: launchd swallows those events while we are already running. A pass
-# that gets nowhere ends the loop, so a half-written or broken file cannot spin forever.
+# Re-scans after every file: launchd swallows drop events while a run is already in progress.
 process_queue() {
   local -a pending
   local src out progressed=1 seen=0
@@ -413,11 +399,7 @@ check_for_updates() {
 
 # --------------------------------------------------------------------- run
 
-# mkdir is atomic, so it doubles as the lock, and the pid inside says who holds it. Liveness is
-# what decides whether a lock may be taken over: a signal test cannot mistake a long encode for an
-# abandoned run the way a timeout can, and it frees a killed run's lock at once instead of after a
-# wait. The release has to be armed at the top level: in zsh an EXIT trap set inside a function
-# fires when that function returns, which would drop the lock immediately.
+# mkdir is atomic; the pid inside says who holds it, so a dead owner's lock can be taken over.
 LOCK_HELD=0
 LOCK_PID_FILE="$LOCK_DIR/pid"
 
@@ -511,9 +493,7 @@ config_command() {
 
 SERVICES_DIR="$HOME/Library/Services"
 
-# The bundle Automator wants is fiddly enough that it is copied rather than written from scratch.
-# Any entry already in the menu is a copy of the same thing, so one of those works as the template
-# when the repo is not around.
+# Copied rather than built from scratch; any existing menu entry works as the template too.
 quick_action_template() {
   local candidate
   for candidate in "$REPO_DIR/quick-action/shrinkit.workflow" "$SERVICES_DIR"/shrinkit*.workflow(N); do
@@ -613,9 +593,7 @@ entry with 'preset install <name>'.
   log            $LOG"
 }
 
-# Any setting can be given as a flag, which is why there is no list of them here: --crf 24 for the
-# ones that take a value, --trim-idle and --no-trim-idle for the true/false ones. Anything that is
-# not a flag is a file to work on.
+# Every setting doubles as a flag, so there is no explicit list of them here.
 typeset -A OVERRIDES
 typeset -a FILES
 PRESET=""
@@ -734,5 +712,6 @@ main() {
   check_for_updates
 }
 
+# Set at the top level: in zsh, a trap set inside a function fires when that function returns.
 trap release_lock EXIT INT TERM
 main "$@"
