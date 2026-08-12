@@ -172,8 +172,7 @@ build_fixtures() {
   make_fixture withaudio.mov -f lavfi -i "color=c=0x1e1e1e:s=1920x1080:r=60:d=12" \
     -f lavfi -i "sine=frequency=440:duration=12" -c:v libx264 -preset medium -crf 20 \
     -pix_fmt yuv420p -c:a aac -shortest
-  # 20s but only the first 4 have any motion, which is what a recording with long pauses in it
-  # looks like to mpdecimate
+  # 20s, motion only in the first 4, mimicking long pauses for mpdecimate
   make_fixture idle.mov -f lavfi -i "color=c=0x1e1e1e:s=1920x1080:r=60:d=20" \
     -f lavfi -i "testsrc2=s=480x270:r=60:d=4" \
     -filter_complex "[0][1]overlay=60:60:enable='lt(t,4)'" \
