@@ -25,11 +25,10 @@ launchctl bootout "gui/$(id -u)/$OLD_LABEL" 2> /dev/null || true
 rm -f "$HOME/Library/LaunchAgents/$OLD_LABEL.plist"
 rm -f "$BIN_DIR/demo-video-optimizer" "$BIN_DIR/optimize-demo-video.sh"
 [[ -L "$HOME/Desktop/demo-recordings" ]] && rm -f "$HOME/Desktop/demo-recordings"
-# Menu entries from an older install point at a command that has just been removed, so they would
-# sit there doing nothing. Matched on the command inside, not the name, to leave your own alone.
-setopt extended_glob
+# Matched on the old install's own binary path, so your own menu entries are not swept up.
 for action in "$HOME/Library/Services"/*.workflow(N); do
-  grep -q 'demo-video-optimizer' "$action/Contents/document.wflow" 2> /dev/null && rm -rf "$action"
+  grep -qE "$BIN_DIR/(demo-video-optimizer|optimize-demo-video\.sh)" \
+    "$action/Contents/document.wflow" 2> /dev/null && rm -rf "$action"
 done
 # Move the old data across, unless you set SHRINKIT_DIR yourself or something is already there.
 if [[ -z "${SHRINKIT_DIR+set}" && -d "$OLD_BASE" && ! -d "$BASE_DIR" ]]; then

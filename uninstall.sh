@@ -22,12 +22,11 @@ for link in "$HOME/Desktop/${BASE_DIR:t}" "$HOME/Desktop/demo-recordings"; do
   [[ -L "$link" ]] && rm -f "$link"
 done
 
-# remove the Finder Quick Actions, including any built from a preset. Matching on the command
-# inside rather than on the name, so a Quick Action of your own is never caught by it.
-setopt extended_glob
+# Matched on the installed binary's own path, not a bare name, so a Quick Action of your own that
+# happens to mention "shrinkit" is never swept up.
 for action in "$HOME/Library/Services"/*.workflow(N); do
-  grep -q 'shrinkit\|demo-video-optimizer' "$action/Contents/document.wflow" 2> /dev/null \
-    && rm -rf "$action"
+  grep -qE "$BIN_DIR/(shrinkit|demo-video-optimizer|optimize-demo-video\.sh)" \
+    "$action/Contents/document.wflow" 2> /dev/null && rm -rf "$action"
 done
 /System/Library/CoreServices/pbs -update 2> /dev/null || true
 
