@@ -40,13 +40,22 @@ FFPROBE="$(find_tool ffprobe)"
 
 FILTER="${1:-}"
 typeset -i PASSED=0 FAILED=0
-typeset -a FAILURES SANDBOXES
+typeset -a FAILURES
+
+# A file, not an array: a sandbox is usually created inside a $(...) capture, which forks a
+# subshell, and an array append there would vanish with it. A file write survives.
+SANDBOX_MANIFEST="$(mktemp)"
 
 cleanup() {
   local box
-  for box in "${SANDBOXES[@]}"; do rm -rf "$box"; done
+  [[ -f "$SANDBOX_MANIFEST" ]] && while IFS= read -r box; do rm -rf "$box"; done < "$SANDBOX_MANIFEST"
+  rm -f "$SANDBOX_MANIFEST"
 }
 trap cleanup EXIT INT TERM
+
+track() {
+  print -r -- "$1" >> "$SANDBOX_MANIFEST"
+}
 
 # --------------------------------------------------------------------- helpers
 
@@ -113,11 +122,18 @@ smaller_than() {
   [[ "$(stat -f%z "$1")" -lt "$(stat -f%z "$2")" ]]
 }
 
-# A fresh working folder plus the settings the test wants. Everything lives under /tmp.
+# A tracked-for-cleanup temp dir.
+scratch() {
+  local dir
+  dir="$(mktemp -d)"
+  track "$dir"
+  print -r -- "$dir"
+}
+
+# A fresh working folder plus the settings the test wants.
 sandbox() {
   local box
-  box="$(mktemp -d)"
-  SANDBOXES+=("$box")
+  box="$(scratch)"
   mkdir -p "$box/input" "$box/output" "$box/.processed" "$box/.logs"
   print -r -- "$box"
 }
@@ -314,8 +330,7 @@ test_the_output_appears_only_once_it_is_finished() {
   local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 2'
-  work="$(mktemp -d)"
-  SANDBOXES+=("$work")
+  work="$(scratch)"
   cp "$FIXTURES/big.mov" "$work/clip.mov"
   out="$work/clip-2x.mp4"
 
@@ -484,8 +499,7 @@ test_one_shot_optimizes_a_file_in_place() {
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   # a file living outside the input folder, like something you right-click in Finder
-  work="$(mktemp -d)"
-  SANDBOXES+=("$work")
+  work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/recording.mov"
 
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/recording.mov"
@@ -500,8 +514,7 @@ test_one_shot_handles_several_files() {
   local box work
   box="$(sandbox)"
   settings "$box" 'speed = 2'
-  work="$(mktemp -d)"
-  SANDBOXES+=("$work")
+  work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/a.mov"
   cp "$FIXTURES/withaudio.mov" "$work/b.mov"
 
@@ -512,8 +525,7 @@ test_one_shot_handles_several_files() {
 
 test_flags_are_answered_not_swallowed() {
   local box out code=0
-  box="$(mktemp -d)"
-  SANDBOXES+=("$box")
+  box="$(scratch)"
   rmdir "$box" # so we can tell whether --help went on to build the working folders
 
   out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --help)"
@@ -528,8 +540,7 @@ test_flags_beat_the_config_file() {
   local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'crf = 28'
-  work="$(mktemp -d)"
-  SANDBOXES+=("$work")
+  work="$(scratch)"
   cp "$FIXTURES/withaudio.mov" "$work/clip.mov"
   out="$work/clip-4x.mp4"
 
@@ -610,8 +621,7 @@ test_preset_is_read_on_top_of_the_config() {
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'crf = 28'
   preset "$box" chat 'speed = 3' 'crf = 32'
-  work="$(mktemp -d)"
-  SANDBOXES+=("$work")
+  work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
 
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
@@ -626,8 +636,7 @@ test_preset_loses_to_a_flag() {
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   preset "$box" chat 'speed = 3'
-  work="$(mktemp -d)"
-  SANDBOXES+=("$work")
+  work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
 
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
