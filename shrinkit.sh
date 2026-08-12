@@ -414,7 +414,15 @@ encode() {
     rm -f "$part"
     return 1
   }
-  mv -f "$part" "$out"
+  # ffmpeg writing $part is not proof the folder is actually writable to the process running this:
+  # a right-click Quick Action runs as Automator/Finder, which needs its own Full Disk Access grant
+  # for Desktop/Documents/Downloads, separate from Terminal's -- and unlike ffmpeg failing loudly,
+  # a denied rename here used to fail with no explanation at all, leaving the temp file behind.
+  mv -f "$part" "$out" || {
+    log "FAILED ${src:t}: could not write ${out:t} (Desktop, Documents and Downloads need Full Disk Access granted to whatever ran this)"
+    rm -f "$part"
+    return 1
+  }
 }
 
 # The size line, clipboard copy and finished banner, shared by both modes. note is cuts_note()'s
