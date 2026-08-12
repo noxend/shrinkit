@@ -889,6 +889,21 @@ test_one_shot_handles_several_files() {
   check "optimizes the second" exists "$work/b-2x.mp4"
 }
 
+test_one_shot_skips_a_cuts_sidecar_selected_alongside_the_video() {
+  local box work
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/recording.mov"
+  print -r -- '1-2' > "$work/recording.mov.cuts"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/recording.mov" "$work/recording.mov.cuts"
+
+  check "shrinks the video" exists "$work/recording-2x.mp4"
+  check "does not try to encode the sidecar" logged "$box" "skip   recording.mov.cuts (not a video)"
+  check "so it is never reported as a failed shrink" not_logged "$box" 'FAILED'
+}
+
 test_flags_are_answered_not_swallowed() {
   local box out code=0
   box="$(scratch)"
@@ -1106,6 +1121,7 @@ TESTS=(
   test_a_broken_file_does_not_wedge_the_queue
   test_one_shot_optimizes_a_file_in_place
   test_one_shot_handles_several_files
+  test_one_shot_skips_a_cuts_sidecar_selected_alongside_the_video
   test_flags_are_answered_not_swallowed
   test_flags_beat_the_config_file
   test_flags_that_make_no_sense_are_refused
