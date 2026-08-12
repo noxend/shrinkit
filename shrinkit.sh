@@ -465,6 +465,13 @@ optimize_files() {
       log "skip   $src (not a file)"
       continue
     }
+    # The right-click menu only offers video files, but a .cuts sidecar sits right next to its
+    # recording and is easy to select along with it -- without this, encode() would be handed a
+    # text file and fail with a "could not shrink" notification naming the sidecar, not the video.
+    [[ "$src" == (#i)*.(mov|mp4|m4v) ]] || {
+      log "skip   ${src:t} (not a video)"
+      continue
+    }
     out="${src:h}/${src:t:r}${CFG[output_suffix]}.mp4"
     [[ -e "$out" ]] && out="${src:h}/${src:t:r}${CFG[output_suffix]}-$(date +%s).mp4"
 
