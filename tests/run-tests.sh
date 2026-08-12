@@ -676,9 +676,7 @@ test_preset_that_does_not_exist_is_refused() {
   check "and builds nothing" missing "$HOME/Library/Services/shrinkit: nope.workflow"
 }
 
-test_start_banner_is_logged() {
-  # notifications are off in tests, but the start path still runs; make sure it does not error and
-  # the finish line is present, which proves notify_start did not abort the run.
+test_notify_start_does_not_break_the_run() {
   local box
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'notify_start = true'
@@ -726,7 +724,7 @@ TESTS=(
   test_preset_loses_to_a_flag
   test_preset_list_names_what_is_there
   test_preset_that_does_not_exist_is_refused
-  test_start_banner_is_logged
+  test_notify_start_does_not_break_the_run
 )
 
 print "building sample videos in tests/fixtures (first run only)"
