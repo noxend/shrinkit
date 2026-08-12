@@ -534,7 +534,7 @@ install_preset_action() {
     "$action/Contents/Info.plist"
   /System/Library/CoreServices/pbs -update 2> /dev/null || true
 
-  print -r -- "right-click a video > right-click menu > shrinkit: $name"
+  print -r -- "right-click a video > shrinkit: $name"
 }
 
 remove_preset_action() {
