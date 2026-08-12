@@ -178,7 +178,7 @@ resolve_output_dir() {
 notify() {
   [[ "${CFG[notify]}" == true ]] || return 0
   local message="$1" title="${2:-${CFG[notify_title]}}" sound="${3-${CFG[notify_sound]}}"
-  [[ "$sound" == none || "$sound" == off || "$sound" == silent || "$sound" == no ]] && sound=""
+  [[ "$sound" == none ]] && sound=""
   osascript -l JavaScript - "$title" "$message" "$sound" << 'JXA' > /dev/null 2>&1 || true
 function run(argv) {
   const [title, message, sound] = argv;
