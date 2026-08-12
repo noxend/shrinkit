@@ -365,7 +365,7 @@ test_an_old_json_config_is_reported() {
   print '{ "speed": 3 }' > "$box/settings.jsonc"
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
-  optimize "$box"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --no-notify --no-notify-start
   check "says the format moved on" logged "$box" 'run install.sh to convert it'
   check "and carries on with the defaults" exists "$box/output/clip-2x.mp4"
 }
