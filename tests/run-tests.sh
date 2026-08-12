@@ -286,6 +286,80 @@ test_keep_original_false_deletes_the_source() {
   check "deletes instead of filing" empty_dir "$box/.processed"
 }
 
+test_keep_days_prunes_old_originals() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'keep_days = 30'
+  cp "$FIXTURES/silent.mov" "$box/input/old.mov"
+  optimize "$box"
+  touch -t 200001010000 "$box/.processed/old.mov"
+
+  cp "$FIXTURES/silent.mov" "$box/input/fresh.mov"
+  optimize "$box"
+
+  check "prunes the old original" missing "$box/.processed/old.mov"
+  check "keeps the fresh one" exists "$box/.processed/fresh.mov"
+  check "says so in the log" logged "$box" 'pruned old.mov'
+}
+
+test_keep_days_counts_from_archiving_not_the_recording_date() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'keep_days = 30'
+  cp "$FIXTURES/silent.mov" "$box/input/old-recording.mov"
+  touch -t 200506070000 "$box/input/old-recording.mov" # made years ago, dropped in only today
+
+  optimize "$box"
+  check "archives it rather than pruning it on day one" exists "$box/.processed/old-recording.mov"
+}
+
+test_keep_days_too_large_is_rejected_not_truncated() {
+  local box
+  box="$(sandbox)"
+  # long enough that zsh's own arithmetic would truncate rather than reject a bare comparison
+  settings "$box" 'keep_days = 99999999999999999999999999999'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  optimize "$box"
+  touch -t 200001010000 "$box/.processed/clip.mov"
+
+  cp "$FIXTURES/silent.mov" "$box/input/second.mov"
+  optimize "$box"
+
+  check "rejects it back to the default" logged "$box" "ignoring keep_days="
+  check "prunes nothing on the default" exists "$box/.processed/clip.mov"
+}
+
+test_keep_days_does_not_claim_a_removal_that_failed() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'keep_days = 5'
+  cp "$FIXTURES/silent.mov" "$box/input/locked.mov"
+  optimize "$box"
+  touch -t 200001010000 "$box/.processed/locked.mov"
+  chflags uchg "$box/.processed/locked.mov"
+
+  cp "$FIXTURES/silent.mov" "$box/input/second.mov"
+  optimize "$box"
+  chflags nouchg "$box/.processed/locked.mov"
+
+  check "leaves the locked file in place" exists "$box/.processed/locked.mov"
+  check "does not claim it was pruned" test "$(log_count "$box" 'pruned locked.mov')" = 0
+}
+
+test_keep_days_off_by_default() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  cp "$FIXTURES/silent.mov" "$box/input/old.mov"
+  optimize "$box"
+  touch -t 200001010000 "$box/.processed/old.mov"
+
+  cp "$FIXTURES/silent.mov" "$box/input/second.mov"
+  optimize "$box"
+
+  check "leaves it alone" exists "$box/.processed/old.mov"
+}
+
 test_output_dir_redirect() {
   local box
   box="$(sandbox)"
@@ -372,12 +446,13 @@ test_an_old_json_config_is_reported() {
 test_bad_values_are_rejected_one_by_one() {
   local box
   box="$(sandbox)"
-  settings "$box" 'speed = abc' 'fps = 100000' 'crf = 99' 'codec = vp9' 'remove_audio = maybe' 'output_suffix = '
+  settings "$box" 'speed = abc' 'fps = 100000' 'crf = 99' 'codec = vp9' 'remove_audio = maybe' \
+    'output_suffix = ' 'keep_days = never'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
   local key
-  for key in speed fps crf codec remove_audio output_suffix; do
+  for key in speed fps crf codec remove_audio output_suffix keep_days; do
     check "rejects a bad $key" logged "$box" "ignoring $key="
   done
   check "still encodes on the defaults" exists "$box/output/clip-2x.mp4"
@@ -697,6 +772,11 @@ TESTS=(
   test_trim_idle_stands_down_when_the_audio_is_kept
   test_downscale
   test_keep_original_false_deletes_the_source
+  test_keep_days_prunes_old_originals
+  test_keep_days_counts_from_archiving_not_the_recording_date
+  test_keep_days_too_large_is_rejected_not_truncated
+  test_keep_days_does_not_claim_a_removal_that_failed
+  test_keep_days_off_by_default
   test_output_dir_redirect
   test_skips_work_already_done
   test_ignores_things_that_are_not_videos

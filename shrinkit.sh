@@ -59,6 +59,7 @@ typeset -A DEFAULTS=(
   max_height 0              # downscale tall videos, 0 keeps the original size
   output_suffix '-{speed}x' # {speed} is filled in, so the name follows a speed change
   keep_original true        # move the source aside instead of deleting it
+  keep_days 0               # prune .processed/ older than this many days, 0 keeps it forever
   notify true
   notify_start true # also show a quiet banner when a file starts, not just when it finishes
   notify_title "Video optimized"
@@ -143,6 +144,12 @@ validate_config() {
   is_bool "${CFG[remove_audio]}" || reject remove_audio "want true or false"
   is_bool "${CFG[trim_idle]}" || reject trim_idle "want true or false"
   is_bool "${CFG[keep_original]}" || reject keep_original "want true or false"
+  # The digit count is bounded before the value ever reaches zsh arithmetic: a long enough digit
+  # string gets silently truncated there rather than rejected, and could slip through a bare
+  # <=3650 comparison at the wrong truncated value. Capped well short of where keep_days*86400
+  # overflows and wraps the cutoff into the future, which would prune everything in .processed/
+  # in one pass, freshly-archived files included.
+  [[ "${CFG[keep_days]}" =~ ^[0-9]{1,4}$ ]] && ((CFG[keep_days] <= 3650)) || reject keep_days "want 0-3650"
   is_bool "${CFG[notify]}" || reject notify "want true or false"
   is_bool "${CFG[notify_start]}" || reject notify_start "want true or false"
   is_bool "${CFG[copy_to_clipboard]}" || reject copy_to_clipboard "want true or false"
@@ -319,7 +326,9 @@ handle() {
   after="$(human_size "$out")"
 
   if [[ "${CFG[keep_original]}" == true ]]; then
-    mv "$src" "$DONE_DIR/"
+    # touch: mv keeps the recording's own mtime, but keep_days counts from when it was archived.
+    # touch: mv keeps the recording's own mtime, but keep_days counts from when it was archived.
+    mv "$src" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}"
   else
     rm -f "$src"
   fi
@@ -372,6 +381,16 @@ process_queue() {
   done
 
   ((seen)) || log "nothing new to do"
+}
+
+# Epoch seconds, not zsh's (m+N): that counts calendar days, not 24h spans, and misjudged a 25h file here.
+prune_processed() {
+  ((CFG[keep_days] > 0)) || return 0
+  local cutoff=$(($(date +%s) - CFG[keep_days] * 86400)) file mtime
+  for file in "$DONE_DIR"/*(N.); do
+    mtime="$(stat -f%m "$file" 2> /dev/null)" || continue
+    ((mtime < cutoff)) && rm -f "$file" && log "pruned ${file:t} (older than ${CFG[keep_days]}d)"
+  done
 }
 
 # --------------------------------------------------------------------- update check
@@ -709,6 +728,7 @@ main() {
     return 0
   }
   process_queue
+  prune_processed
   check_for_updates
 }
 
