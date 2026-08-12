@@ -181,6 +181,32 @@ make_fixture() {
   "$FFMPEG" -nostdin -y "$@" "$FIXTURES/$name" > /dev/null 2>&1
 }
 
+# A container that declares a much higher frame rate than the real one, the way ReplayKit does
+# (r_frame_rate=120 there against an avg_frame_rate nearer 32-38): red, green, blue, blue, held for
+# irregular durations on a 120Hz grid. Only exists to catch a regression back to
+# setpts=N/FRAME_RATE/TB, which reads the declared rate rather than the real one and silently
+# played this kind of file dozens of times too fast.
+build_vfr_fixture() {
+  [[ -f "$FIXTURES/vfr.mov" ]] && return
+  print "  building vfr.mov ..."
+  local work
+  work="$(scratch)"
+  "$FFMPEG" -nostdin -y -f lavfi -i color=c=red:s=160x90 -frames:v 1 "$work/f1.png" > /dev/null 2>&1
+  "$FFMPEG" -nostdin -y -f lavfi -i color=c=green:s=160x90 -frames:v 1 "$work/f2.png" > /dev/null 2>&1
+  "$FFMPEG" -nostdin -y -f lavfi -i color=c=blue:s=160x90 -frames:v 1 "$work/f3.png" > /dev/null 2>&1
+  {
+    print -r -- "file '$work/f1.png'"
+    print -r -- "duration 2.5"
+    print -r -- "file '$work/f2.png'"
+    print -r -- "duration 1.833333"
+    print -r -- "file '$work/f3.png'"
+    print -r -- "duration 2.666667"
+    print -r -- "file '$work/f3.png'"
+  } > "$work/list.txt"
+  "$FFMPEG" -nostdin -y -f concat -safe 0 -i "$work/list.txt" -vsync vfr -video_track_timescale 120 \
+    -c:v libx264 -pix_fmt yuv420p "$FIXTURES/vfr.mov" > /dev/null 2>&1
+}
+
 build_fixtures() {
   mkdir -p "$FIXTURES"
   # 12s of mostly-static 1080p60, which is what a screen recording actually looks like
@@ -191,13 +217,8 @@ build_fixtures() {
   make_fixture withaudio.mov -f lavfi -i "color=c=0x1e1e1e:s=1920x1080:r=60:d=12" \
     -f lavfi -i "sine=frequency=440:duration=12" -c:v libx264 -preset medium -crf 20 \
     -pix_fmt yuv420p -c:a aac -shortest
-  # 20s, motion only in the first 4, mimicking long pauses for mpdecimate
-  make_fixture idle.mov -f lavfi -i "color=c=0x1e1e1e:s=1920x1080:r=60:d=20" \
-    -f lavfi -i "testsrc2=s=480x270:r=60:d=4" \
-    -filter_complex "[0][1]overlay=60:60:enable='lt(t,4)'" \
-    -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p
-  # blue/red/blue/green/blue, 3-1-4-1-3s, a moving overlay in each stretch so trim_idle behaves
-  # normally on it. Red 3-4s and green 8-9s stand in for something that must not survive a cut.
+  # blue/red/blue/green/blue, 3-1-4-1-3s. Red 3-4s and green 8-9s stand in for something that
+  # must not survive a cut.
   make_fixture colored.mov -f lavfi -i "color=c=blue:s=640x360:r=30:d=3" \
     -f lavfi -i "color=c=red:s=640x360:r=30:d=1" \
     -f lavfi -i "color=c=blue:s=640x360:r=30:d=4" \
@@ -214,6 +235,7 @@ build_fixtures() {
   # long 4K, so its encode lasts long enough to drop another file mid-run
   make_fixture big.mov -f lavfi -i "testsrc=size=3840x2160:rate=30:duration=45" \
     -c:v libx264 -preset ultrafast -pix_fmt yuv420p
+  build_vfr_fixture
 }
 
 # --------------------------------------------------------------------- the tests
@@ -259,41 +281,6 @@ test_basic_suffix_follows_the_speed() {
 
   optimize "$box"
   check "names the file after the speed it used" exists "$box/output/clip-3x.mp4"
-}
-
-test_trim_idle_cuts_the_pauses_out() {
-  local box
-  box="$(sandbox)"
-  settings "$box" 'trim_idle = true'
-  cp "$FIXTURES/idle.mov" "$box/input/clip.mov"
-
-  optimize "$box"
-  # 20s in, 4s of it moving, halved by the default 2x speed
-  check "keeps only the moving part" duration_near "$box/output/clip-2x.mp4" 2
-  check "says so in the log" logged "$box" 'trimmed'
-}
-
-test_trim_idle_is_off_unless_asked_for() {
-  local box
-  box="$(sandbox)"
-  settings "$box" 'speed = 2'
-  cp "$FIXTURES/idle.mov" "$box/input/clip.mov"
-
-  optimize "$box"
-  check "leaves the pauses in" duration_near "$box/output/clip-2x.mp4" 10
-}
-
-test_trim_idle_stands_down_when_the_audio_is_kept() {
-  local box
-  box="$(sandbox)"
-  settings "$box" 'trim_idle = true' 'remove_audio = false'
-  cp "$FIXTURES/withaudio.mov" "$box/input/clip.mov" # static picture, so trimming would gut it
-  local out="$box/output/clip-2x.mp4"
-
-  optimize "$box"
-  check "says why it did not trim" logged "$box" 'not trimming'
-  check "keeps the untrimmed length" duration_near "$out" 6
-  check "and keeps the audio" has_audio "$out"
 }
 
 test_downscale() {
@@ -729,6 +716,98 @@ test_cuts_trims_whitespace_around_the_dash() {
   check "still cuts it, spaces and all" duration_near "$out" 11
 }
 
+test_cuts_do_not_distort_footage_with_a_misleading_frame_rate() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/vfr.mov" "$box/input/clip.mov"
+  # well past the fixture's own ~6.9s, so nothing real is actually removed -- this is purely about
+  # whether going through the cuts machinery at all distorts the timing of what survives
+  print -r -- '900-901' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  # setpts=N/FRAME_RATE/TB read this fixture's declared 120fps instead of its real ~0.6fps and
+  # compressed it to a fraction of a second; trim+concat rebases on the frames' own timestamps
+  check "keeps the real length, not a frame-rate-based guess at it" duration_near "$out" 6.9
+}
+
+test_cuts_merge_overlapping_ranges() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -rl -- '3-5' '4-6' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  # two overlapping lines merge into one 3-6 cut (3s), not two independently-trimmed stretches
+  check "cuts the merged 3s span, not something narrower" duration_near "$out" 9
+}
+
+test_cuts_reaching_past_the_real_end_do_not_add_an_empty_trailing_stretch() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  # a CFR fixture does not reproduce this: the empty trailing branch only confuses fps= downstream
+  # on footage like vfr.mov's, where FRAME_RATE and the real spacing between frames disagree
+  cp "$FIXTURES/vfr.mov" "$box/input/clip.mov"
+  print -r -- '5-999' > "$box/input/clip.mov.cuts" # vfr.mov is ~6.9s; nothing survives past 5s
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "keeps the first 5s and nothing more" duration_near "$out" 5
+}
+
+test_cuts_in_the_middle_keep_both_sides_on_misleading_frame_rate_footage() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  # a single ordinary cut with footage before AND after it, on the fixture that mimics a real
+  # ReplayKit recording -- every existing vfr.mov test collapses to one kept stretch and missed a
+  # bug that reused one filter label ([vnorm]) for every stretch, silently feeding every stretch
+  # after the first the raw un-normalized frames: on this fixture that dropped ~89% of the video
+  cp "$FIXTURES/vfr.mov" "$box/input/clip.mov"
+  print -r -- '1-2' > "$box/input/clip.mov.cuts" # vfr.mov is ~6.9s; keeps [0,1) and [2,end)
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "keeps roughly all of both sides of the cut" duration_near "$out" 5.9
+}
+
+test_cuts_still_respect_the_fps_cap_once_speed_changes_the_frame_rate() {
+  local box out frames rate
+  box="$(sandbox)"
+  settings "$box" 'speed = 3' 'fps = 20'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-3x.mp4"
+  # cutting keeps a fixed frame rate before speeding up, so speed x3 on that is real content moving
+  # 3x faster -- nothing re-applied the fps cap afterward, so this used to land near 60fps (native,
+  # doubled by an ffmpeg default) rather than the configured 20
+  rate="$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=nw=1:nk=1 "$out")"
+  frames="$("$FFPROBE" -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of default=nw=1:nk=1 "$out")"
+  check "declares the configured 20fps, not something speed-inflated" test "$rate" = "20/1"
+  check "and the frame count matches it" roughly_equal "$frames" 73 5
+}
+
+test_cuts_accept_a_range_that_is_exactly_the_minimum_length() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/vfr.mov" "$box/input/clip.mov"
+  # 6.1 - 6.0 lands a hair under 0.1 in IEEE-754 double subtraction; a plain, deliberately-typed
+  # 0.1s cut should not be silently discarded over that
+  print -r -- '6.0-6.1' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "accepts the exact-0.1s range" logged "$box" ', cut applied'
+  check "does not treat it as too short" not_logged "$box" 'too short'
+}
+
 test_mark_cuts_with_no_files_is_refused() {
   local code=0
   zsh "$OPTIMIZER" mark-cuts > /dev/null 2>&1 || code=$?
@@ -998,8 +1077,8 @@ test_config_set_appends_a_setting_that_was_missing() {
   box="$(sandbox)"
   print -r -- 'speed = 2' > "$box/settings.conf"
 
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" config trim-idle true > /dev/null
-  check "adds it under its real name" grep -q '^trim_idle = true$' "$box/settings.conf"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" config remove-audio false > /dev/null
+  check "adds it under its real name" grep -q '^remove_audio = false$' "$box/settings.conf"
 }
 
 test_config_set_refuses_a_setting_that_does_not_exist() {
@@ -1098,9 +1177,6 @@ TESTS=(
   test_basic_encode
   test_basic_settings_are_used
   test_basic_suffix_follows_the_speed
-  test_trim_idle_cuts_the_pauses_out
-  test_trim_idle_is_off_unless_asked_for
-  test_trim_idle_stands_down_when_the_audio_is_kept
   test_downscale
   test_keep_original_false_deletes_the_source
   test_keep_days_prunes_old_originals
@@ -1134,6 +1210,12 @@ TESTS=(
   test_cuts_rich_text_sidecar_is_named_and_refused
   test_cuts_smart_dash_is_named_specifically
   test_cuts_trims_whitespace_around_the_dash
+  test_cuts_do_not_distort_footage_with_a_misleading_frame_rate
+  test_cuts_merge_overlapping_ranges
+  test_cuts_reaching_past_the_real_end_do_not_add_an_empty_trailing_stretch
+  test_cuts_in_the_middle_keep_both_sides_on_misleading_frame_rate_footage
+  test_cuts_still_respect_the_fps_cap_once_speed_changes_the_frame_rate
+  test_cuts_accept_a_range_that_is_exactly_the_minimum_length
   test_mark_cuts_with_no_files_is_refused
   test_bad_values_are_rejected_one_by_one
   test_unknown_settings_are_ignored

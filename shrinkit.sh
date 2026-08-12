@@ -55,7 +55,6 @@ typeset -A DEFAULTS=(
   crf 28     # the size knob, 0-51, higher is smaller
   codec h264 # h264 or hevc
   remove_audio true
-  trim_idle false           # drop stretches where the screen is not changing
   max_height 0              # downscale tall videos, 0 keeps the original size
   output_suffix '-{speed}x' # {speed} is filled in, so the name follows a speed change
   keep_original true        # move the source aside instead of deleting it
@@ -144,7 +143,6 @@ validate_config() {
   is_int "${CFG[max_height]}" || reject max_height "want a whole number"
   [[ "${CFG[codec]}" == h264 || "${CFG[codec]}" == hevc ]] || reject codec "want h264 or hevc"
   is_bool "${CFG[remove_audio]}" || reject remove_audio "want true or false"
-  is_bool "${CFG[trim_idle]}" || reject trim_idle "want true or false"
   is_bool "${CFG[keep_original]}" || reject keep_original "want true or false"
   # The digit count is bounded before the value ever reaches zsh arithmetic: a long enough digit
   # string gets silently truncated there rather than rejected, and could slip through a bare
@@ -236,6 +234,14 @@ video_height() {
   is_int "$height" && print -r -- "$height" || print -r -- 1080
 }
 
+# A lookup failure returns a very large number rather than 0, so a cuts range near the real end of
+# a file whose duration could not be read still gets its trailing stretch instead of losing it.
+video_duration() {
+  local dur
+  dur="$("$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$1" 2> /dev/null)"
+  is_num "$dur" && print -r -- "$dur" || print -r -- 999999
+}
+
 has_audio() {
   [[ -n "$("$FFPROBE" -v error -select_streams a -show_entries stream=index \
     -of csv=p=0 "$1" 2> /dev/null | head -1)" ]]
@@ -257,7 +263,11 @@ human_size() {
 parse_time() {
   local t="$1"
   if [[ "$t" == *:* ]]; then
+    # OFMT: awk's default (%.6g) rounds a long fraction to 6 significant digits, so "16:40.333333"
+    # would come out as 1000.33 instead of 1000.333333 -- harmless at a recording's usual length,
+    # but needless, and it would start to matter past roughly 2.7 hours (10000s) of mm:ss input.
     awk -v t="$t" 'BEGIN {
+      OFMT = "%.9g"
       if (t ~ /^[0-9]+:[0-9]+(\.[0-9]+)?$/) { n = split(t, p, ":"); print p[1] * 60 + p[2] }
     }'
   elif is_num "$t"; then
@@ -278,12 +288,12 @@ warn_near_miss_cuts_file() {
   done
 }
 
-# A "start-end" line per range to cut, in <name>.cuts next to <name>. Prints a select() expression
-# in the between(t,a,b) form ffmpeg wants, or nothing if there is no sidecar file or no valid line
-# in it. A bad line is skipped and logged rather than spoiling the ones around it.
+# A "start-end" line per range to cut, in <name>.cuts next to <name>. Prints the ranges as sorted,
+# merged "start end" pairs, one per line in seconds, or nothing if there is no sidecar file or no
+# valid line in it. A bad line is skipped and logged rather than spoiling the ones around it.
 read_cuts() {
   local src="$1" cuts_file="${src}.cuts" line shown start end
-  local -a exprs
+  local -a pairs
   if [[ ! -f "$cuts_file" ]]; then
     warn_near_miss_cuts_file "$src"
     return 0
@@ -321,18 +331,31 @@ read_cuts() {
         log "ignoring cut '$shown' in ${cuts_file:t} (want start-end, end after start)"
       fi
     # Under one frame interval at any fps this tool allows (fps <= 240, 1 frame = ~4ms) can match
-    # no real frame at all, cutting nothing while still being logged and reported as a success.
-    elif ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b - a >= 0.1) }'; then
+    # no real frame at all, cutting nothing while still being logged and reported as a success. The
+    # 1e-9 slack is so a range typed as exactly 0.1s (e.g. 6.0-6.1) is not rejected over IEEE-754
+    # double subtraction landing a hair under 0.1 for some perfectly ordinary decimal pairs.
+    elif ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b - a >= 0.1 - 1e-9) }'; then
       log "ignoring cut '$shown' in ${cuts_file:t} (too short to reliably cut, want at least 0.1s)"
     else
-      exprs+=("between(t,$start,$end)")
+      pairs+=("$start $end")
     fi
   done < "$cuts_file"
   # Always 0 past this point, whether or not any line produced a usable range: a bad line already
   # got its own log entry above, and cuts_note() needs a plain 0 to tell "no ranges parsed" apart
   # from the two harder failures above that already notified on their own.
-  ((${#exprs} > 0)) && print -r -- "not(${(j:+:)exprs})"
+  ((${#pairs} > 0)) && printf '%s\n' "${pairs[@]}" | sort -n -k1,1 | merge_cut_ranges
   return 0
+}
+
+# Sorted "start end" pairs in, one per line on stdin; merges any that touch or overlap so two
+# ranges from separate .cuts lines can never leave a keep-segment with a negative length.
+merge_cut_ranges() {
+  awk '
+    NR == 1 { s = $1; e = $2; next }
+    $1 <= e { if ($2 > e) e = $2; next }
+    { print s, e; s = $1; e = $2 }
+    END { if (NR > 0) print s, e }
+  '
 }
 
 # ", cut applied" once at least one range took; ", cut requested but none applied" when the sidecar
@@ -344,13 +367,88 @@ cuts_note() {
   [[ -n "$cuts" ]] && print -r -- ", cut applied" || print -r -- ", cut requested but none applied -- see the log"
 }
 
-# mpdecimate drops frames, so setpts has to renumber the timeline before anything else runs.
-# Cuts run before any of it: their times are the original clip's, not the sped-up or decimated one.
+# Cut ranges (read_cuts()'s output) and the source's real duration in, on stdin -> the
+# complementary "start end" pairs to KEEP, same format, except the last one's end is left empty to
+# mean "through the end of the clip". Bounded by the real duration so a cut reaching at or past it
+# never adds an empty trailing stretch: concat tolerates one, but fps= downstream of it does not --
+# measured, it stretched a 6.9s result out to 9.3s instead of leaving it alone.
+keep_ranges() {
+  local duration="$1" start end prev=0
+  while IFS=' ' read -r start end; do
+    [[ -n "$start" ]] || continue
+    awk -v a="$prev" -v b="$start" 'BEGIN { exit !(b > a) }' && print -r -- "$prev $start"
+    prev="$end"
+  done
+  awk -v a="$prev" -v b="$duration" 'BEGIN { exit !(b > a) }' && print -r -- "$prev "
+}
+
+# Builds the -filter_complex graph for a set of cut ranges: each surviving stretch is trimmed and
+# has its own timestamps rebased to start at PTS 0, then the stretches are concatenated back
+# together. No step here assumes a constant frame rate anywhere, unlike the select()+
+# setpts=N/FRAME_RATE/TB this replaced, which played 2-3x too fast on the variable frame rate
+# ReplayKit actually records at (measured: a select() that dropped zero frames still compressed a
+# 24.6s clip to 7.8s). Ends in [vout], and [aout] too when keep_audio is true. Empty means the cuts
+# leave nothing to keep.
+cut_filter_graph() {
+  local cuts="$1" height="$2" keep_audio="$3" duration="$4"
+  local -a segments vchains achains
+  local start end i n
+
+  segments=("${(@f)$(keep_ranges "$duration" <<< "$cuts")}")
+  n="${#segments}"
+  ((n > 0)) || return 0
+
+  # trim keeps or drops whole frames by where they start, not by the second, so a frame held for
+  # seconds (ordinary for a mostly-static screen recording) survives a cut boundary landing inside
+  # it in full, pushing the real cut point out by however long that held frame was. Resampling to a
+  # steady rate before any trim runs bounds that to a single frame, the same margin read_cuts()
+  # already assumes elsewhere.
+  local cutfps=$((CFG[fps] > 0 ? CFG[fps] : 30))
+
+  # A plain shared [vnorm] read by more than one filter looked fine but was not: ffmpeg only ever
+  # handed the fps-normalized stream to the FIRST filter that read the label, silently handing every
+  # later cut segment the raw, un-normalized frames instead -- reopening the bug directly above for
+  # every keep segment but the first. split= is the explicit fan-out ffmpeg actually needs here.
+  local vnormlabels=""
+  for ((i = 0; i < n; i++)); do vnormlabels="${vnormlabels}[vnorm$i]"; done
+  local pre="[0:v]fps=${cutfps},split=${n}${vnormlabels};"
+
+  for ((i = 0; i < n; i++)); do
+    start="${segments[i + 1]%% *}"
+    end="${segments[i + 1]#* }"
+    if [[ -z "$end" ]]; then
+      vchains+=("[vnorm$i]trim=start=${start},setpts=PTS-STARTPTS[v$i]")
+      achains+=("[0:a]atrim=start=${start},asetpts=PTS-STARTPTS[a$i]")
+    else
+      vchains+=("[vnorm$i]trim=start=${start}:end=${end},setpts=PTS-STARTPTS[v$i]")
+      achains+=("[0:a]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS[a$i]")
+    fi
+  done
+
+  local -a vtail
+  ((CFG[max_height] > 0 && height > CFG[max_height])) && vtail+=("scale=-2:${CFG[max_height]}")
+  vtail+=("setpts=PTS/${CFG[speed]}")
+  # Speeding up after the trims changes the real frame density (2x speed roughly doubles it), so the
+  # configured cap has to be re-applied here too, the same as video_filters() already does for a run
+  # with no cuts at all -- otherwise "fps" stops being a cap the moment a .cuts file is involved.
+  ((CFG[fps] > 0)) && vtail+=("fps=${CFG[fps]}")
+
+  local vlabels="" alabels=""
+  for ((i = 0; i < n; i++)); do
+    vlabels="${vlabels}[v$i]"
+    alabels="${alabels}[a$i]"
+  done
+
+  local graph="${pre}${(j:;:)vchains};${vlabels}concat=n=${n}:v=1:a=0[vcut];[vcut]${(j:,:)vtail}[vout]"
+  [[ "$keep_audio" == true ]] \
+    && graph="${graph};${(j:;:)achains};${alabels}concat=n=${n}:v=0:a=1[acut];[acut]$(atempo_chain "${CFG[speed]}")[aout]"
+  print -r -- "$graph"
+}
+
+# No cuts: the plain per-file filters, unchanged by anything above.
 video_filters() {
-  local height="$1" trim="$2" cuts="$3" chain=""
-  [[ -n "$cuts" ]] && chain="select='${cuts}',setpts=N/FRAME_RATE/TB,"
-  [[ "$trim" == true ]] && chain="${chain}mpdecimate,setpts=N/FRAME_RATE/TB,"
-  ((CFG[max_height] > 0 && height > CFG[max_height])) && chain="${chain}scale=-2:${CFG[max_height]},"
+  local height="$1" chain=""
+  ((CFG[max_height] > 0 && height > CFG[max_height])) && chain="scale=-2:${CFG[max_height]},"
   chain="${chain}setpts=PTS/${CFG[speed]}"
   ((CFG[fps] > 0)) && chain="$chain,fps=${CFG[fps]}"
   print -r -- "$chain"
@@ -368,24 +466,14 @@ atempo_chain() {
 # Non-zero means ffmpeg failed and nothing was written to $out. cuts is read_cuts()'s output,
 # passed in rather than read here so a caller can also use it to decide what to tell the user.
 encode() {
-  local src="$1" out="$2" cuts="$3" height
+  local src="$1" out="$2" cuts="$3" height keep_audio=false
   height="$(video_height "$src")"
 
-  # Dropping video frames leaves the audio at its old length, so trimming and a kept audio track
-  # cannot both happen. The audio is what the file was asked to keep, so trimming stands down.
-  # Cuts are exempt: aselect below removes the same ranges from the audio, so the two stay paired.
-  local -a audio codec
-  local trim=false
+  local -a audio codec filter_args
   if [[ "${CFG[remove_audio]}" == true ]] || ! has_audio "$src"; then
     audio=(-an)
-    trim="${CFG[trim_idle]}"
   else
-    local afilter="$(atempo_chain "${CFG[speed]}")"
-    [[ -n "$cuts" ]] && afilter="aselect='${cuts}',asetpts=N/SR/TB,$afilter"
-    # -shortest: video is quantized to whole frames, audio to AAC's own frame size, so the two
-    # round a cut boundary slightly differently. Harmless alone; -shortest keeps it from adding up.
-    audio=(-c:a aac -b:a 128k -filter:a "$afilter" -shortest)
-    [[ "${CFG[trim_idle]}" == true ]] && log "not trimming ${src:t} (it would pull the kept audio out of sync)"
+    keep_audio=true
   fi
 
   if [[ "${CFG[codec]}" == hevc ]]; then
@@ -396,14 +484,32 @@ encode() {
   codec+=(-crf "${CFG[crf]}" -preset veryfast)
 
   local label="${height}p, ${CFG[speed]}x, ${CFG[fps]}fps, ${CFG[codec]} crf${CFG[crf]}"
-  [[ "$trim" == true ]] && label="$label, trimmed"
   [[ -n "$cuts" ]] && label="$label, cut"
+
+  if [[ -n "$cuts" ]]; then
+    local graph
+    graph="$(cut_filter_graph "$cuts" "$height" "$keep_audio" "$(video_duration "$src")")"
+    if [[ -z "$graph" ]]; then
+      log "FAILED ${src:t}: nothing was left to encode (a cut may remove the whole clip)"
+      return 1
+    fi
+    filter_args=(-filter_complex "$graph" -map '[vout]')
+    if [[ "$keep_audio" == true ]]; then
+      filter_args+=(-map '[aout]')
+      # -shortest: video is quantized to whole frames, audio to AAC's own frame size, so the two
+      # round a cut boundary slightly differently. Harmless alone; -shortest keeps it from adding up.
+      audio=(-c:a aac -b:a 128k -shortest)
+    fi
+  else
+    filter_args=(-filter:v "$(video_filters "$height")")
+    [[ "$keep_audio" == true ]] && audio=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "${CFG[speed]}")" -shortest)
+  fi
 
   # Written to a hidden temp file first, so two runs on one name can never collide mid-write.
   local part="${out:h}/.${out:t:r}.$$.part.mp4"
 
   log "encode ${src:t} ($label)"
-  "$FFMPEG" -nostdin -y -i "$src" -filter:v "$(video_filters "$height" "$trim" "$cuts")" \
+  "$FFMPEG" -nostdin -y -i "$src" "${filter_args[@]}" \
     "${audio[@]}" "${codec[@]}" -pix_fmt yuv420p -movflags +faststart \
     "$part" >> "$LOG" 2>&1 || {
     rm -f "$part"
@@ -803,8 +909,8 @@ usage() {
   file ...       optimize those files where they are, next to each source
 
 Every setting is also a flag, so --crf 24 or --speed 3 changes one run without
-touching the config. A true/false setting takes no value: --trim-idle turns it
-on, --no-trim-idle turns it off.
+touching the config. A true/false setting takes no value: --remove-audio turns
+it on, --no-remove-audio turns it off.
 
 A preset is a file of the same settings in $PRESET_DIR.
 Use one for a run with --preset <name>, or turn it into its own right-click
