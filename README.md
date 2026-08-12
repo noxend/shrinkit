@@ -60,8 +60,8 @@ The original goes to a hidden `.processed/` folder, so the working folder holds 
 ## Right-click a video
 
 The right-click menu is the list of your presets. Every file in `presets/` gets an entry named
-after it, so out of the box you get **shrinkit: default**, which uses your settings as they are,
-and **shrinkit: chat**, tuned for something going into a chat or a ticket. The smaller copy lands
+after it, so out of the box you get `shrinkit: default`, which uses your settings as they are,
+and `shrinkit: chat`, tuned for something going into a chat or a ticket. The smaller copy lands
 beside the original, which stays where it is, and you can select several files to do them
 together.
 
