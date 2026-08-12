@@ -126,6 +126,7 @@ here will never leave a recording unprocessed.
 | `max_height` | Downscale tall videos to this height; `0` keeps the original | `0` |
 | `output_suffix` | Added to the output name. `{speed}` becomes the speed, so the name follows it | `-{speed}x` |
 | `keep_original` | `true` files the original in `.processed/`, `false` deletes it | `true` |
+| `keep_days` | Delete originals from `.processed/` once this many days old, up to 3650; `0` keeps them forever | `0` |
 | `notify` | Post a macOS banner when a file is done | `true` |
 | `notify_title` | Banner title | `Video optimized` |
 | `notify_sound` | `Glass`, `Ping`, `Pop`, `Hero` and the rest, or `none` | `Glass` |
