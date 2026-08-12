@@ -11,8 +11,8 @@ message, and too slow to sit through. Playing it back at 2x and re-encoding it a
 deals with both at once.
 
 The encoding is ffmpeg. A launchd agent watches the folder for you, so the whole thing runs without
-an app to open. Every part of it is configurable, and it can also cut out the stretches where
-nothing on screen is moving.
+an app to open. Every part of it is configurable, and it can also cut a stretch out of the middle,
+to shorten a recording or redact something in it.
 
 ## Demo
 
@@ -75,11 +75,12 @@ Every setting doubles as a flag, so one file can be handled differently without 
 
 ```bash
 shrinkit --speed 4 --crf 32 recording.mov
-shrinkit --trim-idle --no-remove-audio recording.mov
+shrinkit --no-remove-audio recording.mov
 ```
 
-A true/false setting takes no value: `--trim-idle` turns it on and `--no-trim-idle` turns it off.
-Name no files and the flags apply to whatever is sitting in `input/`. Flags beat the config file.
+A true/false setting takes no value: `--remove-audio` turns it on and `--no-remove-audio` turns it
+off. Name no files and the flags apply to whatever is sitting in `input/`. Flags beat the config
+file.
 
 ## Cutting a stretch out of the middle
 
@@ -104,6 +105,10 @@ rather than stopping the run. All three are logged, so check the log if a cut yo
 not show up in the result. If you edit the file in TextEdit rather than through the menu entry,
 save it as plain text (Format > Make Plain Text) with Smart Dashes off (Edit > Substitutions), or
 it will not parse as written.
+
+Cutting needs a steady frame rate to land exactly where it is told to, so a recording gets
+resampled to `fps` (30 if `fps = 0`) before anything is removed, even when `fps = 0` would
+otherwise mean "keep the original" for the rest of the recording.
 
 Dropping a recording into `input/` files the `.cuts` sidecar away with the original once
 processing is done. Right-clicking a file directly leaves both in place, the same way it leaves
@@ -152,7 +157,6 @@ here will never leave a recording unprocessed.
 | `crf` | Quality against size, the main knob. Lower is sharper and bigger, higher is smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
 | `codec` | `h264` plays everywhere, `hevc` is about 30% smaller and less compatible | `h264` |
 | `remove_audio` | `true` drops the sound, `false` keeps it and speeds it up to match | `true` |
-| `trim_idle` | Cut out the stretches where nothing on screen changes. Skipped when the audio is kept | `false` |
 | `max_height` | Downscale tall videos to this height; `0` keeps the original | `0` |
 | `output_suffix` | Added to the output name. `{speed}` becomes the speed, so the name follows it | `-{speed}x` |
 | `keep_original` | `true` files the original in `.processed/`, `false` deletes it | `true` |
