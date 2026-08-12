@@ -889,6 +889,30 @@ test_one_shot_handles_several_files() {
   check "optimizes the second" exists "$work/b-2x.mp4"
 }
 
+test_a_failed_move_into_place_is_reported_not_silent() {
+  local box work fakebin
+  local -a leftover
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+
+  # Stands in for mv refusing the final rename -- Full Disk Access denied to whatever ran this, on
+  # Desktop/Documents/Downloads, is the real-world case, but any reason mv fails should end up here.
+  fakebin="$(scratch)"
+  print -rl -- '#!/bin/zsh' 'exit 1' > "$fakebin/mv"
+  chmod +x "$fakebin/mv"
+
+  PATH="$fakebin:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov"
+
+  leftover=("$work"/.*.part.mp4(N))
+  check "does not silently succeed" missing "$work/clip-2x.mp4"
+  check "leaves no orphaned temp file behind" test "${#leftover}" = 0
+  check "names the actual problem" logged "$box" 'could not write clip-2x.mp4'
+  check "mentions Full Disk Access" logged "$box" 'Full Disk Access'
+  check "leaves the source in place" exists "$work/clip.mov"
+}
+
 test_one_shot_skips_a_cuts_sidecar_selected_alongside_the_video() {
   local box work
   box="$(sandbox)"
@@ -1122,6 +1146,7 @@ TESTS=(
   test_one_shot_optimizes_a_file_in_place
   test_one_shot_handles_several_files
   test_one_shot_skips_a_cuts_sidecar_selected_alongside_the_video
+  test_a_failed_move_into_place_is_reported_not_silent
   test_flags_are_answered_not_swallowed
   test_flags_beat_the_config_file
   test_flags_that_make_no_sense_are_refused
