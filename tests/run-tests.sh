@@ -88,6 +88,9 @@ empty_dir() {
 logged() {
   grep -q -- "$2" "$1/.logs/optimizer.log"
 }
+not_logged() {
+  ! grep -q -- "$2" "$1/.logs/optimizer.log"
+}
 log_count() {
   grep -c -- "$2" "$1/.logs/optimizer.log"
 }
@@ -109,6 +112,22 @@ no_audio() {
 }
 playable() {
   "$FFPROBE" -v error "$1" > /dev/null 2>&1
+}
+
+# color_at <seconds> <file>, a corner untouched by colored.mov's moving overlay
+color_at() {
+  "$FFMPEG" -y -ss "$1" -i "$2" -frames:v 1 -vf "crop=4:4:600:330" \
+    -f rawvideo -pix_fmt rgb24 -s 1x1 - 2> /dev/null | xxd -p
+}
+no_marker_color_anywhere() {
+  local file="$1" dur="$2" t
+  for t in $(seq 0 0.5 "$dur"); do
+    # fe0000/018001, not the nominal ff0000/008000: yuv420p round-tripping shifts every channel by a
+    # few counts, and ffmpeg's named "green" is X11 dark-green (0,128,0) to begin with.
+    case "$(color_at "$t" "$file")" in
+      fe0000 | 018001) return 1 ;;
+    esac
+  done
 }
 
 # roughly_equal 6.03 6 0.4
@@ -177,6 +196,18 @@ build_fixtures() {
     -f lavfi -i "testsrc2=s=480x270:r=60:d=4" \
     -filter_complex "[0][1]overlay=60:60:enable='lt(t,4)'" \
     -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p
+  # blue/red/blue/green/blue, 3-1-4-1-3s, a moving overlay in each stretch so trim_idle behaves
+  # normally on it. Red 3-4s and green 8-9s stand in for something that must not survive a cut.
+  make_fixture colored.mov -f lavfi -i "color=c=blue:s=640x360:r=30:d=3" \
+    -f lavfi -i "color=c=red:s=640x360:r=30:d=1" \
+    -f lavfi -i "color=c=blue:s=640x360:r=30:d=4" \
+    -f lavfi -i "color=c=green:s=640x360:r=30:d=1" \
+    -f lavfi -i "color=c=blue:s=640x360:r=30:d=3" \
+    -f lavfi -i "testsrc2=s=160x90:r=30:d=12" \
+    -f lavfi -i "sine=frequency=440:duration=12" \
+    -filter_complex "[0][1][2][3][4]concat=n=5:v=1:a=0[bg];[bg][5]overlay=20:20[v]" \
+    -map "[v]" -map 6:a -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
+    -c:a aac -shortest
   # 4K, for the downscale test
   make_fixture tall.mov -f lavfi -i "testsrc=size=3840x2160:rate=30:duration=5" \
     -c:v libx264 -preset ultrafast -pix_fmt yuv420p
@@ -441,6 +472,261 @@ test_an_old_json_config_is_reported() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --no-notify --no-notify-start
   check "says the format moved on" logged "$box" 'run install.sh to convert it'
   check "and carries on with the defaults" exists "$box/output/clip-2x.mp4"
+}
+
+test_cuts_remove_the_marked_ranges() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -rl -- '3-4' '8-9' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+
+  check "produces the output" exists "$out"
+  check "drops roughly the cut two seconds (12s -> ~10s)" duration_near "$out" 10
+  check "no red or green frame survives anywhere" no_marker_color_anywhere "$out" 10
+  check "encodes it" logged "$box" 'encode clip.mov'
+  check "says so in the log" logged "$box" ', cut)'
+}
+
+test_cuts_accept_the_mm_ss_format() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -rl -- '0:03-0:04' '0:08-0:09' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "cuts the same two seconds either way" duration_near "$out" 10
+}
+
+test_cuts_keep_kept_audio_in_sync() {
+  local box out video_len audio_len
+  box="$(sandbox)"
+  settings "$box" 'speed = 1' 'remove_audio = false'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -rl -- '3-4' '8-9' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  video_len="$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=duration -of default=nw=1:nk=1 "$out")"
+  audio_len="$("$FFPROBE" -v error -select_streams a:0 -show_entries stream=duration -of default=nw=1:nk=1 "$out")"
+  check "keeps the audio" has_audio "$out"
+  check "video and audio land within half a second of each other" roughly_equal "$video_len" "$audio_len" 0.5
+}
+
+test_cuts_are_skipped_with_no_sidecar_file() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+
+  optimize "$box"
+  check "keeps the full length" duration_near "$box/output/clip-1x.mp4" 12
+}
+
+test_cuts_bad_line_spoils_only_itself() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -rl -- 'not-a-range' '3-4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "still applies the good range" duration_near "$out" 11
+  check "logs the bad one" logged "$box" "ignoring cut 'not-a-range'"
+}
+
+test_cuts_sidecar_is_archived_with_the_original() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  check "archives the source" exists "$box/.processed/clip.mov"
+  check "archives the sidecar with it" exists "$box/.processed/clip.mov.cuts"
+}
+
+test_cuts_sidecar_is_deleted_with_the_original() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1' 'keep_original = false'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  check "deletes the source" missing "$box/input/clip.mov"
+  check "deletes the sidecar with it" missing "$box/input/clip.mov.cuts"
+}
+
+test_cuts_reject_a_range_under_one_frame() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3.001-3.015' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "cuts nothing, the range is under one frame" duration_near "$out" 12
+  check "says why in the log" logged "$box" "too short to reliably cut"
+  check "does not claim a cut happened" not_logged "$box" ', cut)'
+}
+
+test_cuts_that_remove_everything_fail_instead_of_destroying_the_original() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '0-12' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  check "does not write a broken output" missing "$box/output/clip-1x.mp4"
+  check "leaves the original in place" exists "$box/input/clip.mov"
+  check "logs it as a failure, not a success" logged "$box" 'FAILED clip.mov'
+}
+
+test_cuts_reject_a_malformed_end_like_a_stray_dash() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4-4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "does not mistake the stray dash for a number" duration_near "$out" 12
+  check "logs the whole malformed line" logged "$box" "ignoring cut '3-4-4'"
+}
+
+test_cuts_unreadable_sidecar_is_logged_and_skipped() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4' > "$box/input/clip.mov.cuts"
+  chmod 000 "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "says it could not read the sidecar" logged "$box" 'cannot read clip.mov.cuts'
+  check "carries on rather than leaving it unprocessed" duration_near "$out" 12
+}
+
+test_cuts_without_a_trailing_newline_still_applies() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  printf '3-4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "cuts the range on the unterminated last line" duration_near "$out" 11
+}
+
+test_cuts_long_bad_line_is_truncated_in_the_log() {
+  local box i nums long_line
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  nums=()
+  for i in {0..499}; do nums+=("$i"); done
+  long_line="${(j:-:)nums}"
+  print -r -- "$long_line" > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  check "logs the truncated line" logged "$box" "ignoring cut '${long_line:0:80}'"
+  check "not the whole thing" not_logged "$box" "$long_line"
+}
+
+test_cuts_note_says_applied_when_a_cut_took() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  check "says so on the done line" logged "$box" 'done   clip-1x.mp4.*, cut applied'
+}
+
+test_cuts_note_is_silent_with_no_sidecar() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+
+  optimize "$box"
+  check "no cuts mentioned on a plain shrink" not_logged "$box" 'cut applied'
+  check "and no false 'none applied' either" not_logged "$box" 'none applied'
+}
+
+test_cuts_note_warns_when_every_line_was_rejected() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- 'garbage' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  check "says the sidecar was there but nothing came of it" \
+    logged "$box" 'done   clip-1x.mp4.*, cut requested but none applied'
+}
+
+test_cuts_near_miss_filename_is_warned_about() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4' > "$box/input/clip.cuts" # missing the .mov, so it never matches clip.mov.cuts
+
+  optimize "$box"
+  check "names the stray file it found" logged "$box" "found 'clip.cuts'"
+  check "and the name it actually expected" logged "$box" "expected 'clip.mov.cuts'"
+  check "still shrinks the file" exists "$box/output/clip-1x.mp4"
+}
+
+test_cuts_rich_text_sidecar_is_named_and_refused() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '{\rtf1\ansi 3-4}' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  check "names Rich Text specifically, not a generic parse error" \
+    logged "$box" 'Rich Text, not plain text'
+  check "keeps the full length" duration_near "$box/output/clip-1x.mp4" 12
+}
+
+test_cuts_smart_dash_is_named_specifically() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- $'3–4' > "$box/input/clip.mov.cuts" # en dash, not a hyphen
+
+  optimize "$box"
+  check "names the smart dash rather than a generic parse error" logged "$box" 'looks like a smart dash'
+}
+
+test_cuts_trims_whitespace_around_the_dash() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3 - 4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip-1x.mp4"
+  check "still cuts it, spaces and all" duration_near "$out" 11
 }
 
 test_bad_values_are_rejected_one_by_one() {
@@ -783,6 +1069,26 @@ TESTS=(
   test_the_output_appears_only_once_it_is_finished
   test_a_broken_line_spoils_only_itself
   test_an_old_json_config_is_reported
+  test_cuts_remove_the_marked_ranges
+  test_cuts_accept_the_mm_ss_format
+  test_cuts_keep_kept_audio_in_sync
+  test_cuts_are_skipped_with_no_sidecar_file
+  test_cuts_bad_line_spoils_only_itself
+  test_cuts_sidecar_is_archived_with_the_original
+  test_cuts_sidecar_is_deleted_with_the_original
+  test_cuts_reject_a_range_under_one_frame
+  test_cuts_that_remove_everything_fail_instead_of_destroying_the_original
+  test_cuts_reject_a_malformed_end_like_a_stray_dash
+  test_cuts_unreadable_sidecar_is_logged_and_skipped
+  test_cuts_without_a_trailing_newline_still_applies
+  test_cuts_long_bad_line_is_truncated_in_the_log
+  test_cuts_note_says_applied_when_a_cut_took
+  test_cuts_note_is_silent_with_no_sidecar
+  test_cuts_note_warns_when_every_line_was_rejected
+  test_cuts_near_miss_filename_is_warned_about
+  test_cuts_rich_text_sidecar_is_named_and_refused
+  test_cuts_smart_dash_is_named_specifically
+  test_cuts_trims_whitespace_around_the_dash
   test_bad_values_are_rejected_one_by_one
   test_unknown_settings_are_ignored
   test_a_hash_inside_a_value_is_kept

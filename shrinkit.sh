@@ -120,7 +120,9 @@ is_int() {
   [[ "$1" =~ ^[0-9]+$ ]]
 }
 is_num() {
-  [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]
+  # [.] not \., which [[ =~ ]] strips to a bare . (any character) before the regex ever sees it,
+  # so "4-4" or "4X4" would otherwise pass as a number.
+  [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]
 }
 is_bool() {
   [[ "$1" == true || "$1" == false ]]
@@ -239,14 +241,115 @@ has_audio() {
     -of csv=p=0 "$1" 2> /dev/null | head -1)" ]]
 }
 
+# Cutting every remaining frame out (an over-wide cut, or one that spans the whole clip) leaves
+# ffmpeg exiting 0 over an empty, unplayable file. Checked before that file is ever promoted to
+# $out, so it is never mistaken for a successful shrink and the source never moved or deleted for it.
+has_frames() {
+  [[ "$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=duration \
+    -of default=nw=1:nk=1 "$1" 2> /dev/null)" =~ ^[0-9] ]]
+}
+
 human_size() {
   du -h "$1" | cut -f1 | tr -d ' '
 }
 
+# "1:05.5" or "65.5", either way to seconds. Prints nothing for anything else.
+parse_time() {
+  local t="$1"
+  if [[ "$t" == *:* ]]; then
+    awk -v t="$t" 'BEGIN {
+      if (t ~ /^[0-9]+:[0-9]+(\.[0-9]+)?$/) { n = split(t, p, ":"); print p[1] * 60 + p[2] }
+    }'
+  elif is_num "$t"; then
+    print -r -- "$t"
+  fi
+}
+
+# A stray *.cuts-looking file next to a video whose exact sidecar name is missing is usually a typo
+# (dropped extension, Finder tacking on .txt) rather than "no cuts wanted" -- worth a banner, since
+# that mistake would otherwise ship the source unredacted with nothing to show for it.
+warn_near_miss_cuts_file() {
+  local src="$1" expected="${src:t}.cuts" stray
+  for stray in "${src:h}/${src:t:r}"*.cuts*(N); do
+    [[ "${stray:t}" == "$expected" ]] && continue
+    log "found '${stray:t}' next to ${src:t}, expected '${expected}' -- no cuts applied"
+    notify "${src:t}: found '${stray:t}', expected '${expected}' -- no cuts applied"
+    return
+  done
+}
+
+# A "start-end" line per range to cut, in <name>.cuts next to <name>. Prints a select() expression
+# in the between(t,a,b) form ffmpeg wants, or nothing if there is no sidecar file or no valid line
+# in it. A bad line is skipped and logged rather than spoiling the ones around it.
+read_cuts() {
+  local src="$1" cuts_file="${src}.cuts" line shown start end
+  local -a exprs
+  if [[ ! -f "$cuts_file" ]]; then
+    warn_near_miss_cuts_file "$src"
+    return 0
+  fi
+  if [[ ! -r "$cuts_file" ]]; then
+    log "cannot read ${cuts_file:t} (check its permissions); no cuts applied"
+    notify "${src:t}: cannot read ${cuts_file:t} (check its permissions), no cuts applied"
+    return 1
+  fi
+  # TextEdit defaults to Rich Text, which wraps the file in RTF markup instead of the plain
+  # "start-end" text read_cuts expects -- worth a specific message rather than a run of confusing
+  # "ignoring cut" lines, one per garbled line of RTF.
+  if [[ "$(head -c 5 "$cuts_file")" == '{\rtf' ]]; then
+    log "${cuts_file:t} is Rich Text, not plain text (Format > Make Plain Text in TextEdit, then save again); no cuts applied"
+    notify "${src:t}: ${cuts_file:t} is Rich Text, not plain text -- no cuts applied"
+    return 1
+  fi
+  # The `|| [[ -n "$line" ]]` catches a last line with no trailing newline, which read would
+  # otherwise drop silently: a single-line .cuts file missing one would apply no cut at all.
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(trim "${line%%\#*}")"
+    [[ -z "$line" ]] && continue
+    shown="${line:0:80}"
+    start="$(trim "${line%%-*}")"
+    end="$(trim "${line#*-}")"
+    start="$(parse_time "$start")"
+    end="$(parse_time "$end")"
+    if [[ -z "$start" || -z "$end" ]] || ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b > a) }'; then
+      # TextEdit's Smart Dashes turns a typed "-" into an en dash the split above never sees, so the
+      # line reads as one blob with no separator at all -- worth naming, since it looks nothing like
+      # a formatting mistake to whoever typed it.
+      if [[ "$line" == *[–—]* && "$line" != *-* ]]; then
+        log "ignoring cut '$shown' in ${cuts_file:t} (looks like a smart dash -- turn off Smart Dashes in TextEdit's Edit > Substitutions, or retype the -)"
+      else
+        log "ignoring cut '$shown' in ${cuts_file:t} (want start-end, end after start)"
+      fi
+    # Under one frame interval at any fps this tool allows (fps <= 240, 1 frame = ~4ms) can match
+    # no real frame at all, cutting nothing while still being logged and reported as a success.
+    elif ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b - a >= 0.1) }'; then
+      log "ignoring cut '$shown' in ${cuts_file:t} (too short to reliably cut, want at least 0.1s)"
+    else
+      exprs+=("between(t,$start,$end)")
+    fi
+  done < "$cuts_file"
+  # Always 0 past this point, whether or not any line produced a usable range: a bad line already
+  # got its own log entry above, and cuts_note() needs a plain 0 to tell "no ranges parsed" apart
+  # from the two harder failures above that already notified on their own.
+  ((${#exprs} > 0)) && print -r -- "not(${(j:+:)exprs})"
+  return 0
+}
+
+# ", cut applied" once at least one range took; ", cut requested but none applied" when the sidecar
+# was there but every line in it was rejected -- empty otherwise (no sidecar, or read_cuts already
+# notified directly about a harder failure like an unreadable or Rich Text file).
+cuts_note() {
+  local src="$1" cuts="$2" rc="$3"
+  [[ -f "${src}.cuts" && "$rc" -eq 0 ]] || return 0
+  [[ -n "$cuts" ]] && print -r -- ", cut applied" || print -r -- ", cut requested but none applied -- see the log"
+}
+
 # mpdecimate drops frames, so setpts has to renumber the timeline before anything else runs.
+# Cuts run before any of it: their times are the original clip's, not the sped-up or decimated one.
 video_filters() {
-  local height="$1" trim="$2" chain=""
-  [[ "$trim" == true ]] && chain="mpdecimate,setpts=N/FRAME_RATE/TB,"
+  local height="$1" trim="$2" cuts="$3" chain=""
+  [[ -n "$cuts" ]] && chain="select='${cuts}',setpts=N/FRAME_RATE/TB,"
+  [[ "$trim" == true ]] && chain="${chain}mpdecimate,setpts=N/FRAME_RATE/TB,"
   ((CFG[max_height] > 0 && height > CFG[max_height])) && chain="${chain}scale=-2:${CFG[max_height]},"
   chain="${chain}setpts=PTS/${CFG[speed]}"
   ((CFG[fps] > 0)) && chain="$chain,fps=${CFG[fps]}"
@@ -262,20 +365,26 @@ atempo_chain() {
   }'
 }
 
-# Non-zero means ffmpeg failed and nothing was written to $out.
+# Non-zero means ffmpeg failed and nothing was written to $out. cuts is read_cuts()'s output,
+# passed in rather than read here so a caller can also use it to decide what to tell the user.
 encode() {
-  local src="$1" out="$2" height
+  local src="$1" out="$2" cuts="$3" height
   height="$(video_height "$src")"
 
   # Dropping video frames leaves the audio at its old length, so trimming and a kept audio track
   # cannot both happen. The audio is what the file was asked to keep, so trimming stands down.
+  # Cuts are exempt: aselect below removes the same ranges from the audio, so the two stay paired.
   local -a audio codec
   local trim=false
   if [[ "${CFG[remove_audio]}" == true ]] || ! has_audio "$src"; then
     audio=(-an)
     trim="${CFG[trim_idle]}"
   else
-    audio=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "${CFG[speed]}")")
+    local afilter="$(atempo_chain "${CFG[speed]}")"
+    [[ -n "$cuts" ]] && afilter="aselect='${cuts}',asetpts=N/SR/TB,$afilter"
+    # -shortest: video is quantized to whole frames, audio to AAC's own frame size, so the two
+    # round a cut boundary slightly differently. Harmless alone; -shortest keeps it from adding up.
+    audio=(-c:a aac -b:a 128k -filter:a "$afilter" -shortest)
     [[ "${CFG[trim_idle]}" == true ]] && log "not trimming ${src:t} (it would pull the kept audio out of sync)"
   fi
 
@@ -288,25 +397,33 @@ encode() {
 
   local label="${height}p, ${CFG[speed]}x, ${CFG[fps]}fps, ${CFG[codec]} crf${CFG[crf]}"
   [[ "$trim" == true ]] && label="$label, trimmed"
+  [[ -n "$cuts" ]] && label="$label, cut"
 
   # Written to a hidden temp file first, so two runs on one name can never collide mid-write.
   local part="${out:h}/.${out:t:r}.$$.part.mp4"
 
   log "encode ${src:t} ($label)"
-  "$FFMPEG" -nostdin -y -i "$src" -filter:v "$(video_filters "$height" "$trim")" \
+  "$FFMPEG" -nostdin -y -i "$src" -filter:v "$(video_filters "$height" "$trim" "$cuts")" \
     "${audio[@]}" "${codec[@]}" -pix_fmt yuv420p -movflags +faststart \
-    "$part" >> "$LOG" 2>&1 && mv -f "$part" "$out" || {
+    "$part" >> "$LOG" 2>&1 || {
     rm -f "$part"
     return 1
   }
+  has_frames "$part" || {
+    log "FAILED ${src:t}: nothing was left to encode (a cut may remove the whole clip)"
+    rm -f "$part"
+    return 1
+  }
+  mv -f "$part" "$out"
 }
 
-# The size line, clipboard copy and finished banner, shared by both modes.
+# The size line, clipboard copy and finished banner, shared by both modes. note is cuts_note()'s
+# output, if any -- e.g. ", cut applied" -- folded in the same way the clipboard note already is.
 announce() {
-  local name="$1" out="$2" before="$3" after="$4" extra=""
+  local name="$1" out="$2" before="$3" after="$4" extra="${5:-}"
   if [[ "${CFG[copy_to_clipboard]}" == true ]]; then
     copy_to_clipboard "$out"
-    extra=", copied to clipboard"
+    extra="${extra}, copied to clipboard"
   fi
   log "done   ${out:t} ($before -> $after)$extra"
   notify "$name   $before -> $after$extra"
@@ -314,11 +431,15 @@ announce() {
 
 # Folder mode: encode into the output folder and file the original away.
 handle() {
-  local src="$1" out="$2" before after
+  local src="$1" out="$2" before after cuts rc note
   before="$(human_size "$src")"
   notify_start "${src:t:r}"
 
-  encode "$src" "$out" || {
+  cuts="$(read_cuts "$src")"
+  rc=$?
+  note="$(cuts_note "$src" "$cuts" "$rc")"
+
+  encode "$src" "$out" "$cuts" || {
     log "FAILED ${src:t}, left in place (ffmpeg output is above)"
     notify "${src:t}" "Could not shrink"
     return 1
@@ -326,19 +447,19 @@ handle() {
   after="$(human_size "$out")"
 
   if [[ "${CFG[keep_original]}" == true ]]; then
-    # touch: mv keeps the recording's own mtime, but keep_days counts from when it was archived.
-    # touch: mv keeps the recording's own mtime, but keep_days counts from when it was archived.
+    # touch: mv keeps the file's own mtime, but keep_days counts from when it was archived.
     mv "$src" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}"
+    [[ -f "${src}.cuts" ]] && mv "${src}.cuts" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}.cuts"
   else
-    rm -f "$src"
+    rm -f "$src" "${src}.cuts"
   fi
-  announce "${src:t:r}" "$out" "$before" "$after"
+  announce "${src:t:r}" "$out" "$before" "$after" "$note"
 }
 
 # One-shot mode (the Finder Quick Action): optimize the given files in place, writing the result
 # next to each source and leaving the originals alone.
 optimize_files() {
-  local src out before after
+  local src out before after cuts rc note
   for src in "$@"; do
     [[ -f "$src" ]] || {
       log "skip   $src (not a file)"
@@ -349,9 +470,14 @@ optimize_files() {
 
     before="$(human_size "$src")"
     notify_start "${src:t:r}"
-    if encode "$src" "$out"; then
+
+    cuts="$(read_cuts "$src")"
+    rc=$?
+    note="$(cuts_note "$src" "$cuts" "$rc")"
+
+    if encode "$src" "$out" "$cuts"; then
       after="$(human_size "$out")"
-      announce "${src:t:r}" "$out" "$before" "$after"
+      announce "${src:t:r}" "$out" "$before" "$after" "$note"
     else
       log "FAILED $src (one-shot, ffmpeg output is above)"
       notify "${src:t}" "Could not shrink"
