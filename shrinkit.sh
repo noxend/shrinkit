@@ -272,14 +272,6 @@ read_cuts() {
     notify "${src:t}: cannot read ${cuts_file:t} (check its permissions), no cuts applied"
     return 1
   fi
-  # TextEdit defaults to Rich Text, which wraps the file in RTF markup instead of the plain
-  # "start-end" text read_cuts expects -- worth a specific message rather than a run of confusing
-  # "ignoring cut" lines, one per garbled line of RTF.
-  if [[ "$(head -c 5 "$cuts_file")" == '{\rtf' ]]; then
-    log "${cuts_file:t} is Rich Text, not plain text (Format > Make Plain Text in TextEdit, then save again); no cuts applied"
-    notify "${src:t}: ${cuts_file:t} is Rich Text, not plain text -- no cuts applied"
-    return 1
-  fi
   # The `|| [[ -n "$line" ]]` catches a last line with no trailing newline, which read would
   # otherwise drop silently: a single-line .cuts file missing one would apply no cut at all.
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -329,7 +321,7 @@ merge_cut_ranges() {
 
 # ", cut applied" once at least one range took; ", cut requested but none applied" when the sidecar
 # was there but every line in it was rejected -- empty otherwise (no sidecar, or read_cuts already
-# notified directly about a harder failure like an unreadable or Rich Text file).
+# notified directly about a harder failure, like a sidecar it could not read at all).
 cuts_note() {
   local src="$1" cuts="$2" rc="$3"
   [[ -f "${src}.cuts" && "$rc" -eq 0 ]] || return 0
@@ -709,11 +701,6 @@ quick_action_template() {
   return 1
 }
 
-preset_names() {
-  local file
-  for file in "$PRESET_DIR"/*.conf(N.); do print -r -- "${file:t:r}"; done
-}
-
 install_preset_action() {
   local name="$1" template action command
   [[ -f "$(preset_file "$name")" ]] || {
@@ -750,9 +737,6 @@ remove_preset_action() {
 preset_command() {
   mkdir -p "$PRESET_DIR"
   case "${1-}" in
-    list | "")
-      preset_names
-      ;;
     install)
       [[ -n "${2-}" ]] || {
         print -u2 -r -- "usage: preset install <name>"
@@ -768,7 +752,7 @@ preset_command() {
       remove_preset_action "$2"
       ;;
     *)
-      print -u2 -r -- "usage: preset [list|install <name>|remove <name>]"
+      print -u2 -r -- "usage: preset [install <name>|remove <name>]"
       return 2
       ;;
   esac
@@ -840,7 +824,7 @@ mark_cuts_command() {
 usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
        ${ZSH_ARGZERO:t} config [show | edit | <setting> <value>]
-       ${ZSH_ARGZERO:t} preset [list | install <name> | remove <name>]
+       ${ZSH_ARGZERO:t} preset [install <name> | remove <name>]
        ${ZSH_ARGZERO:t} mark-cuts <file>...
 
   no files       optimize everything waiting in $IN_DIR
