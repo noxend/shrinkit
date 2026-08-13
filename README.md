@@ -161,7 +161,6 @@ here will never leave a recording unprocessed.
 | `keep_original` | `true` files the original in `.processed/`, `false` deletes it | `true` |
 | `keep_days` | Delete originals from `.processed/` once this many days old, up to 3650; `0` keeps them forever | `0` |
 | `notify` | Post a macOS banner when a file is done | `true` |
-| `notify_title` | Banner title | `Video optimized` |
 | `notify_sound` | `Glass`, `Ping`, `Pop`, `Hero` and the rest, or `none` | `Glass` |
 | `notify_start` | Also post a quiet banner when a file starts | `true` |
 | `copy_to_clipboard` | Put the finished file on the clipboard, ready to paste | `false` |
