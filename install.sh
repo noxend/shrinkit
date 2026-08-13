@@ -53,12 +53,20 @@ echo "==> Installed script: $SCRIPT_DST"
 # 3. the folders (processed/ and logs/ are hidden so the folder shows only settings + input + output)
 mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/.processed" "$BASE_DIR/.logs"
 
-# default.conf is restored if missing, since the menu needs it; chat.conf is only an example.
+# A first install gets both example presets; after that the folder is yours, and an empty one is
+# a deliberate choice rather than something to repopulate.
 mkdir -p "$BASE_DIR/presets"
-[[ -f "$BASE_DIR/presets/default.conf" ]] || cp "$REPO_DIR/presets/default.conf" "$BASE_DIR/presets/"
-if [[ -z "$(ls -A "$BASE_DIR/presets" | grep -v '^default.conf$')" ]]; then
-  cp "$REPO_DIR/presets/chat.conf" "$BASE_DIR/presets/chat.conf"
-  echo "==> Installed the example preset: presets/chat.conf"
+if [[ -z "$(ls -A "$BASE_DIR/presets")" && ! -f "$BASE_DIR/settings.conf" ]]; then
+  cp "$REPO_DIR/presets/2x.conf" "$REPO_DIR/presets/chat.conf" "$BASE_DIR/presets/"
+  echo "==> Installed the example presets: 2x, chat"
+fi
+# "default" set nothing and only existed to hold a place in the menu; "2x" pins the speed it
+# always meant. Only retired if it is still setting-free, so an edited one is left alone.
+if [[ -f "$BASE_DIR/presets/default.conf" ]] \
+  && ! grep -qE '^[[:space:]]*[a-z_]+[[:space:]]*=' "$BASE_DIR/presets/default.conf"; then
+  rm -f "$BASE_DIR/presets/default.conf"
+  [[ -f "$BASE_DIR/presets/2x.conf" ]] || cp "$REPO_DIR/presets/2x.conf" "$BASE_DIR/presets/"
+  echo "==> Replaced the empty 'default' preset with '2x'"
 fi
 
 # 4. the config; an existing settings.conf is never touched.

@@ -52,10 +52,9 @@ typeset -A DEFAULTS=(
   crf 28     # the size knob, 0-51, higher is smaller
   codec h264 # h264 or hevc
   remove_audio true
-  max_height 0              # downscale tall videos, 0 keeps the original size
-  output_suffix '-{speed}x' # {speed} is filled in, so the name follows a speed change
-  keep_original true        # move the source aside instead of deleting it
-  keep_days 0               # prune .processed/ older than this many days, 0 keeps it forever
+  max_height 0       # downscale tall videos, 0 keeps the original size
+  keep_original true # move the source aside instead of deleting it
+  keep_days 0         # prune .processed/ older than this many days, 0 keeps it forever
   notify true
   notify_start true  # also show a quiet banner when a file starts, not just when it finishes
   notify_sound Glass # any /System/Library/Sounds name, or none
@@ -141,11 +140,12 @@ validate_config() {
   is_bool "${CFG[notify]}" || reject notify "want true or false"
   is_bool "${CFG[notify_start]}" || reject notify_start "want true or false"
   is_bool "${CFG[copy_to_clipboard]}" || reject copy_to_clipboard "want true or false"
-  [[ -n "${CFG[output_suffix]}" ]] || reject output_suffix "cannot be empty"
 }
 
-resolve_output_suffix() {
-  CFG[output_suffix]="${CFG[output_suffix]//\{speed\}/${CFG[speed]}}"
+# What a shrunk <name>.mov is called: named after the preset that ran, so the file says which one
+# it was, and a plain <name>.mp4 when no preset was named at all.
+output_name() {
+  [[ -n "$PRESET" ]] && print -r -- "${1:t:r}-${PRESET}.mp4" || print -r -- "${1:t:r}.mp4"
 }
 
 # --------------------------------------------------------------------- macOS niceties
@@ -512,9 +512,11 @@ announce() {
   notify "$name   $before -> $after$extra"
 }
 
-# Folder mode: encode into the output folder and file the original away.
-handle() {
-  local src="$1" out="$2" before after cuts rc note
+# Shrink one file. archive=true files the source away afterwards (folder mode); false leaves it
+# where it is (the Finder Quick Action). Non-zero means nothing was written and the source is
+# untouched either way.
+shrink() {
+  local src="$1" out="$2" archive="$3" before after cuts rc note
   before="$(human_size "$src")"
   notify_start "${src:t:r}"
 
@@ -523,26 +525,30 @@ handle() {
   note="$(cuts_note "$src" "$cuts" "$rc")"
 
   encode "$src" "$out" "$cuts" || {
-    log "FAILED ${src:t}, left in place (ffmpeg output is above)"
+    # A watched file is always in input/; a right-clicked one can be anywhere, so name the path.
+    [[ "$archive" == true ]] \
+      && log "FAILED ${src:t}, left in place (ffmpeg output is above)" \
+      || log "FAILED $src (one-shot, ffmpeg output is above)"
     notify "${src:t}" "Could not shrink"
     return 1
   }
   after="$(human_size "$out")"
 
-  if [[ "${CFG[keep_original]}" == true ]]; then
-    # touch: mv keeps the file's own mtime, but keep_days counts from when it was archived.
-    mv "$src" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}"
-    [[ -f "${src}.cuts" ]] && mv "${src}.cuts" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}.cuts"
-  else
-    rm -f "$src" "${src}.cuts"
+  if [[ "$archive" == true ]]; then
+    if [[ "${CFG[keep_original]}" == true ]]; then
+      # touch: mv keeps the file's own mtime, but keep_days counts from when it was archived.
+      mv "$src" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}"
+      [[ -f "${src}.cuts" ]] && mv "${src}.cuts" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}.cuts"
+    else
+      rm -f "$src" "${src}.cuts"
+    fi
   fi
   announce "${src:t:r}" "$out" "$before" "$after" "$note"
 }
 
-# One-shot mode (the Finder Quick Action): optimize the given files in place, writing the result
-# next to each source and leaving the originals alone.
+# One-shot mode (the Finder Quick Action): write the result next to each source, originals alone.
 optimize_files() {
-  local src out before after cuts rc note
+  local src out
   for src in "$@"; do
     [[ -f "$src" ]] || {
       log "skip   $src (not a file)"
@@ -555,23 +561,9 @@ optimize_files() {
       log "skip   ${src:t} (not a video)"
       continue
     }
-    out="${src:h}/${src:t:r}${CFG[output_suffix]}.mp4"
-    [[ -e "$out" ]] && out="${src:h}/${src:t:r}${CFG[output_suffix]}-$(date +%s).mp4"
-
-    before="$(human_size "$src")"
-    notify_start "${src:t:r}"
-
-    cuts="$(read_cuts "$src")"
-    rc=$?
-    note="$(cuts_note "$src" "$cuts" "$rc")"
-
-    if encode "$src" "$out" "$cuts"; then
-      after="$(human_size "$out")"
-      announce "${src:t:r}" "$out" "$before" "$after" "$note"
-    else
-      log "FAILED $src (one-shot, ffmpeg output is above)"
-      notify "${src:t}" "Could not shrink"
-    fi
+    out="${src:h}/$(output_name "$src")"
+    [[ -e "$out" ]] && out="${src:h}/${${out:t}:r}-$(date +%s).mp4"
+    shrink "$src" "$out" false
   done
 }
 
@@ -585,12 +577,12 @@ process_queue() {
     pending=("$IN_DIR"/(#i)*.(mov|mp4|m4v)(N.))
     for src in "${pending[@]}"; do
       seen=1
-      out="$OUT_DIR/${src:t:r}${CFG[output_suffix]}.mp4"
+      out="$OUT_DIR/$(output_name "$src")"
       if [[ -e "$out" ]]; then
         log "skip   ${src:t} (already has an optimized copy)"
       elif ! is_settled "$src"; then
         log "skip   ${src:t} (still being written)"
-      elif handle "$src" "$out"; then
+      elif shrink "$src" "$out" true; then
         progressed=1
       fi
     done
@@ -973,7 +965,6 @@ main() {
   [[ -n "$PRESET" ]] && { read_preset "$PRESET" || return 2; }
   apply_overrides
   validate_config
-  resolve_output_suffix
   [[ -x "$FFMPEG" ]] || {
     log "ffmpeg is not on PATH or in the Homebrew folders"
     return 1

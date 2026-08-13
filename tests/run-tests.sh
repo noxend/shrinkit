@@ -247,7 +247,7 @@ test_basic_encode() {
   cp "$FIXTURES/withaudio.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  local out="$box/output/clip-2x.mp4"
+  local out="$box/output/clip.mp4"
 
   check "produces an output file" exists "$out"
   check "halves a 12s clip at 2x" duration_near "$out" 6
@@ -262,25 +262,30 @@ test_basic_encode() {
 test_basic_settings_are_used() {
   local box
   box="$(sandbox)"
-  settings "$box" 'speed = 3' 'remove_audio = false' 'output_suffix = -fast' 'fps = 0'
+  settings "$box" 'speed = 3' 'remove_audio = false' 'fps = 0'
   cp "$FIXTURES/withaudio.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  local out="$box/output/clip-fast.mp4"
+  local out="$box/output/clip.mp4"
 
-  check "honours output_suffix" exists "$out"
   check "honours speed 3 on a 12s clip" duration_near "$out" 4
   check "keeps the audio when asked" has_audio "$out"
 }
 
-test_basic_suffix_follows_the_speed() {
-  local box
+test_basic_the_output_is_named_after_the_preset() {
+  local box work
   box="$(sandbox)"
-  settings "$box" 'speed = 3'
-  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  settings "$box" 'speed = 2'
+  preset "$box" chat 'speed = 3'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
 
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --preset chat "$work/clip.mov"
+  check "names the file after the preset that ran" exists "$work/clip-chat.mp4"
+
+  cp "$FIXTURES/silent.mov" "$box/input/plain.mov"
   optimize "$box"
-  check "names the file after the speed it used" exists "$box/output/clip-3x.mp4"
+  check "and leaves a run with no preset unadorned" exists "$box/output/plain.mp4"
 }
 
 test_downscale() {
@@ -290,7 +295,7 @@ test_downscale() {
   cp "$FIXTURES/tall.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "downscales 2160p to 720p" test "$(height_of "$box/output/clip-2x.mp4")" = 720
+  check "downscales 2160p to 720p" test "$(height_of "$box/output/clip.mp4")" = 720
 }
 
 test_keep_original_false_deletes_the_source() {
@@ -300,7 +305,7 @@ test_keep_original_false_deletes_the_source() {
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "still writes the output" exists "$box/output/clip-2x.mp4"
+  check "still writes the output" exists "$box/output/clip.mp4"
   check "deletes instead of filing" empty_dir "$box/.processed"
 }
 
@@ -412,7 +417,7 @@ test_the_output_appears_only_once_it_is_finished() {
   settings "$box" 'speed = 2'
   work="$(scratch)"
   cp "$FIXTURES/big.mov" "$work/clip.mov"
-  out="$work/clip-2x.mp4"
+  out="$work/clip.mp4"
 
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov" > /dev/null 2>&1 &
   sleep 2 # the 4K fixture takes several seconds, so this lands mid-encode
@@ -433,7 +438,7 @@ test_a_broken_line_spoils_only_itself() {
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  local out="$box/output/clip-3x.mp4"
+  local out="$box/output/clip.mp4"
 
   check "reads the settings around it" exists "$out"
   check "and applies them" duration_near "$out" 4
@@ -447,7 +452,7 @@ test_cuts_remove_the_marked_ranges() {
   print -rl -- '3-4' '8-9' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
 
   check "produces the output" exists "$out"
   check "drops roughly the cut two seconds (12s -> ~10s)" duration_near "$out" 10
@@ -464,7 +469,7 @@ test_cuts_accept_the_mm_ss_format() {
   print -rl -- '0:03-0:04' '0:08-0:09' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "cuts the same two seconds either way" duration_near "$out" 10
 }
 
@@ -476,7 +481,7 @@ test_cuts_keep_kept_audio_in_sync() {
   print -rl -- '3-4' '8-9' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   video_len="$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=duration -of default=nw=1:nk=1 "$out")"
   audio_len="$("$FFPROBE" -v error -select_streams a:0 -show_entries stream=duration -of default=nw=1:nk=1 "$out")"
   check "keeps the audio" has_audio "$out"
@@ -490,7 +495,7 @@ test_cuts_are_skipped_with_no_sidecar_file() {
   cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "keeps the full length" duration_near "$box/output/clip-1x.mp4" 12
+  check "keeps the full length" duration_near "$box/output/clip.mp4" 12
 }
 
 test_cuts_bad_line_spoils_only_itself() {
@@ -501,7 +506,7 @@ test_cuts_bad_line_spoils_only_itself() {
   print -rl -- 'not-a-range' '3-4' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "still applies the good range" duration_near "$out" 11
   check "logs the bad one" logged "$box" "ignoring cut 'not-a-range'"
 }
@@ -538,7 +543,7 @@ test_cuts_reject_a_range_under_one_frame() {
   print -r -- '3.001-3.015' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "cuts nothing, the range is under one frame" duration_near "$out" 12
   check "says why in the log" logged "$box" "too short to reliably cut"
   check "does not claim a cut happened" not_logged "$box" ', cut)'
@@ -552,7 +557,7 @@ test_cuts_that_remove_everything_fail_instead_of_destroying_the_original() {
   print -r -- '0-12' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  check "does not write a broken output" missing "$box/output/clip-1x.mp4"
+  check "does not write a broken output" missing "$box/output/clip.mp4"
   check "leaves the original in place" exists "$box/input/clip.mov"
   check "logs it as a failure, not a success" logged "$box" 'FAILED clip.mov'
 }
@@ -565,7 +570,7 @@ test_cuts_reject_a_malformed_end_like_a_stray_dash() {
   print -r -- '3-4-4' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "does not mistake the stray dash for a number" duration_near "$out" 12
   check "logs the whole malformed line" logged "$box" "ignoring cut '3-4-4'"
 }
@@ -579,7 +584,7 @@ test_cuts_unreadable_sidecar_is_logged_and_skipped() {
   chmod 000 "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "says it could not read the sidecar" logged "$box" 'cannot read clip.mov.cuts'
   check "carries on rather than leaving it unprocessed" duration_near "$out" 12
 }
@@ -592,7 +597,7 @@ test_cuts_without_a_trailing_newline_still_applies() {
   printf '3-4' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "cuts the range on the unterminated last line" duration_near "$out" 11
 }
 
@@ -619,7 +624,7 @@ test_cuts_note_says_applied_when_a_cut_took() {
   print -r -- '3-4' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  check "says so on the done line" logged "$box" 'done   clip-1x.mp4.*, cut applied'
+  check "says so on the done line" logged "$box" 'done   clip.mp4.*, cut applied'
 }
 
 test_cuts_note_is_silent_with_no_sidecar() {
@@ -642,7 +647,7 @@ test_cuts_note_warns_when_every_line_was_rejected() {
 
   optimize "$box"
   check "says the sidecar was there but nothing came of it" \
-    logged "$box" 'done   clip-1x.mp4.*, cut requested but none applied'
+    logged "$box" 'done   clip.mp4.*, cut requested but none applied'
 }
 
 test_cuts_near_miss_filename_is_warned_about() {
@@ -655,7 +660,7 @@ test_cuts_near_miss_filename_is_warned_about() {
   optimize "$box"
   check "names the stray file it found" logged "$box" "found 'clip.cuts'"
   check "and the name it actually expected" logged "$box" "expected 'clip.mov.cuts'"
-  check "still shrinks the file" exists "$box/output/clip-1x.mp4"
+  check "still shrinks the file" exists "$box/output/clip.mp4"
 }
 
 test_cuts_rich_text_sidecar_is_named_and_refused() {
@@ -668,7 +673,7 @@ test_cuts_rich_text_sidecar_is_named_and_refused() {
   optimize "$box"
   check "names Rich Text specifically, not a generic parse error" \
     logged "$box" 'Rich Text, not plain text'
-  check "keeps the full length" duration_near "$box/output/clip-1x.mp4" 12
+  check "keeps the full length" duration_near "$box/output/clip.mp4" 12
 }
 
 test_cuts_smart_dash_is_named_specifically() {
@@ -690,7 +695,7 @@ test_cuts_trims_whitespace_around_the_dash() {
   print -r -- '3 - 4' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "still cuts it, spaces and all" duration_near "$out" 11
 }
 
@@ -704,7 +709,7 @@ test_cuts_do_not_distort_footage_with_a_misleading_frame_rate() {
   print -r -- '900-901' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   # setpts=N/FRAME_RATE/TB read this fixture's declared 120fps instead of its real ~0.6fps and
   # compressed it to a fraction of a second; trim+concat rebases on the frames' own timestamps
   check "keeps the real length, not a frame-rate-based guess at it" duration_near "$out" 6.9
@@ -718,7 +723,7 @@ test_cuts_merge_overlapping_ranges() {
   print -rl -- '3-5' '4-6' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   # two overlapping lines merge into one 3-6 cut (3s), not two independently-trimmed stretches
   check "cuts the merged 3s span, not something narrower" duration_near "$out" 9
 }
@@ -733,7 +738,7 @@ test_cuts_reaching_past_the_real_end_do_not_add_an_empty_trailing_stretch() {
   print -r -- '5-999' > "$box/input/clip.mov.cuts" # vfr.mov is ~6.9s; nothing survives past 5s
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "keeps the first 5s and nothing more" duration_near "$out" 5
 }
 
@@ -749,7 +754,7 @@ test_cuts_in_the_middle_keep_both_sides_on_misleading_frame_rate_footage() {
   print -r -- '1-2' > "$box/input/clip.mov.cuts" # vfr.mov is ~6.9s; keeps [0,1) and [2,end)
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "keeps roughly all of both sides of the cut" duration_near "$out" 5.9
 }
 
@@ -761,7 +766,7 @@ test_cuts_still_respect_the_fps_cap_once_speed_changes_the_frame_rate() {
   print -r -- '3-4' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-3x.mp4"
+  out="$box/output/clip.mp4"
   # cutting keeps a fixed frame rate before speeding up, so speed x3 on that is real content moving
   # 3x faster -- nothing re-applied the fps cap afterward, so this used to land near 60fps (native,
   # doubled by an ffmpeg default) rather than the configured 20
@@ -781,7 +786,7 @@ test_cuts_accept_a_range_that_is_exactly_the_minimum_length() {
   print -r -- '6.0-6.1' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  out="$box/output/clip-1x.mp4"
+  out="$box/output/clip.mp4"
   check "accepts the exact-0.1s range" logged "$box" ', cut applied'
   check "does not treat it as too short" not_logged "$box" 'too short'
 }
@@ -796,15 +801,15 @@ test_bad_values_are_rejected_one_by_one() {
   local box
   box="$(sandbox)"
   settings "$box" 'speed = abc' 'fps = 100000' 'crf = 99' 'codec = vp9' 'remove_audio = maybe' \
-    'output_suffix = ' 'keep_days = never'
+    'keep_days = never'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
   local key
-  for key in speed fps crf codec remove_audio output_suffix keep_days; do
+  for key in speed fps crf codec remove_audio keep_days; do
     check "rejects a bad $key" logged "$box" "ignoring $key="
   done
-  check "still encodes on the defaults" exists "$box/output/clip-2x.mp4"
+  check "still encodes on the defaults" exists "$box/output/clip.mp4"
 }
 
 test_unknown_settings_are_ignored() {
@@ -814,21 +819,19 @@ test_unknown_settings_are_ignored() {
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "a stray key does no harm" exists "$box/output/clip-2x.mp4"
+  check "a stray key does no harm" exists "$box/output/clip.mp4"
 }
 
 test_a_hash_inside_a_value_is_kept() {
   local box
   box="$(sandbox)"
   # only a whole comment line starts with #, so one in the middle of a value is just text
-  settings "$box" 'speed = 3' 'output_suffix = -2x#a'
+  settings "$box" 'speed = 3' 'notify_sound = Gla#ss'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  local out="$box/output/clip-2x#a.mp4"
-
-  check "keeps the # in the value" exists "$out"
-  check "and the rest of the config still lands" duration_near "$out" 4
+  check "keeps the # in the value" not_logged "$box" 'ignoring notify_sound'
+  check "and the rest of the config still lands" duration_near "$box/output/clip.mp4" 4
 }
 
 test_lock_keeps_two_runs_apart() {
@@ -844,7 +847,7 @@ test_lock_keeps_two_runs_apart() {
 
   check "the second run stands down" logged "$box" 'another run has the lock'
   check "the file is encoded once" test "$(log_count "$box" 'encode clip.mov')" = 1
-  check "the output survives" exists "$box/output/clip-2x.mp4"
+  check "the output survives" exists "$box/output/clip.mp4"
   check "the lock is released" missing "$box/.optimizer.lock"
 }
 
@@ -871,7 +874,7 @@ test_a_lock_from_a_dead_run_is_taken_over() {
   plant_lock "$box" "$(dead_pid)"
 
   optimize "$box"
-  check "takes the abandoned lock over" exists "$box/output/clip-2x.mp4"
+  check "takes the abandoned lock over" exists "$box/output/clip.mp4"
   check "and leaves none behind" missing "$box/.optimizer.lock"
 }
 
@@ -899,8 +902,8 @@ test_picks_up_a_file_dropped_mid_run() {
   cp "$FIXTURES/silent.mov" "$box/input/second.mov"
   wait
 
-  check "finishes the first" exists "$box/output/first-2x.mp4"
-  check "catches the late arrival too" exists "$box/output/second-2x.mp4"
+  check "finishes the first" exists "$box/output/first.mp4"
+  check "catches the late arrival too" exists "$box/output/second.mp4"
   check "and empties the queue" empty_dir "$box/input"
 }
 
@@ -914,7 +917,7 @@ test_a_broken_file_does_not_wedge_the_queue() {
   optimize "$box"
   check "reports the failure" logged "$box" 'FAILED broken.mov'
   check "leaves the bad file put" exists "$box/input/broken.mov"
-  check "still handles the good one" exists "$box/output/good-2x.mp4"
+  check "still handles the good one" exists "$box/output/good.mp4"
 }
 
 test_one_shot_optimizes_a_file_in_place() {
@@ -927,9 +930,9 @@ test_one_shot_optimizes_a_file_in_place() {
 
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/recording.mov"
 
-  check "writes the result next to the source" exists "$work/recording-2x.mp4"
+  check "writes the result next to the source" exists "$work/recording.mp4"
   check "leaves the original in place" exists "$work/recording.mov"
-  check "halves the duration" duration_near "$work/recording-2x.mp4" 6
+  check "halves the duration" duration_near "$work/recording.mp4" 6
   check "does not use the watch folder" empty_dir "$box/output"
 }
 
@@ -942,8 +945,8 @@ test_one_shot_handles_several_files() {
   cp "$FIXTURES/withaudio.mov" "$work/b.mov"
 
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/a.mov" "$work/b.mov"
-  check "optimizes the first" exists "$work/a-2x.mp4"
-  check "optimizes the second" exists "$work/b-2x.mp4"
+  check "optimizes the first" exists "$work/a.mp4"
+  check "optimizes the second" exists "$work/b.mp4"
 }
 
 test_a_failed_move_into_place_is_reported_not_silent() {
@@ -963,9 +966,9 @@ test_a_failed_move_into_place_is_reported_not_silent() {
   PATH="$fakebin:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov"
 
   leftover=("$work"/.*.part.mp4(N))
-  check "does not silently succeed" missing "$work/clip-2x.mp4"
+  check "does not silently succeed" missing "$work/clip.mp4"
   check "leaves no orphaned temp file behind" test "${#leftover}" = 0
-  check "names the actual problem" logged "$box" 'could not write clip-2x.mp4'
+  check "names the actual problem" logged "$box" 'could not write clip.mp4'
   check "mentions Full Disk Access" logged "$box" 'Full Disk Access'
   check "leaves the source in place" exists "$work/clip.mov"
 }
@@ -980,7 +983,7 @@ test_one_shot_skips_a_cuts_sidecar_selected_alongside_the_video() {
 
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/recording.mov" "$work/recording.mov.cuts"
 
-  check "shrinks the video" exists "$work/recording-2x.mp4"
+  check "shrinks the video" exists "$work/recording.mp4"
   check "does not try to encode the sidecar" logged "$box" "skip   recording.mov.cuts (not a video)"
   check "so it is never reported as a failed shrink" not_logged "$box" 'FAILED'
 }
@@ -1004,7 +1007,7 @@ test_flags_beat_the_config_file() {
   settings "$box" 'speed = 2' 'crf = 28'
   work="$(scratch)"
   cp "$FIXTURES/withaudio.mov" "$work/clip.mov"
-  out="$work/clip-4x.mp4"
+  out="$work/clip.mp4"
 
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" --speed 4 --no-remove-audio "$work/clip.mov"
@@ -1089,8 +1092,8 @@ test_preset_is_read_on_top_of_the_config() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" --preset chat "$work/clip.mov"
 
-  check "takes the settings from the preset" exists "$work/clip-3x.mp4"
-  check "and the length that goes with them" duration_near "$work/clip-3x.mp4" 4
+  check "names the result after the preset" exists "$work/clip-chat.mp4"
+  check "and the length its settings ask for" duration_near "$work/clip-chat.mp4" 4
 }
 
 test_preset_loses_to_a_flag() {
@@ -1104,7 +1107,8 @@ test_preset_loses_to_a_flag() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" --preset chat --speed 4 "$work/clip.mov"
 
-  check "the flag wins" exists "$work/clip-4x.mp4"
+  # 12s at the flag's 4x is 3s; the preset's 3x would have left 4s
+  check "the flag wins" duration_near "$work/clip-chat.mp4" 3
 }
 
 test_preset_list_names_what_is_there() {
@@ -1146,7 +1150,7 @@ test_notify_start_does_not_break_the_run() {
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "the run still completes with notify_start on" exists "$box/output/clip-2x.mp4"
+  check "the run still completes with notify_start on" exists "$box/output/clip.mp4"
 }
 
 # --------------------------------------------------------------------- run them
@@ -1154,7 +1158,7 @@ test_notify_start_does_not_break_the_run() {
 TESTS=(
   test_basic_encode
   test_basic_settings_are_used
-  test_basic_suffix_follows_the_speed
+  test_basic_the_output_is_named_after_the_preset
   test_downscale
   test_keep_original_false_deletes_the_source
   test_keep_days_prunes_old_originals

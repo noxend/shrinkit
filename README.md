@@ -51,7 +51,7 @@ one of them the script prints the steps. Anywhere else, `~/Movies` included, nee
 1. Open the `shrinkit` shortcut on your Desktop and drop a recording into `input/`. QuickTime
    `.mov`, `.mp4` and `.m4v` all work.
 2. Give it a few seconds.
-3. Collect the result from `output/`, converted to `.mp4` and named `clip-2x.mp4`.
+3. Collect the result from `output/`, converted to `.mp4` and named `clip.mp4`.
 
 The original goes to a hidden `.processed/` folder, so the working folder holds only
 `settings.conf`, `presets/`, `input/` and `output/`.
@@ -59,10 +59,10 @@ The original goes to a hidden `.processed/` folder, so the working folder holds 
 ## Right-click a video
 
 Most of the right-click menu is the list of your presets. Every file in `presets/` gets an entry
-named after it, so out of the box you get `shrinkit: default`, which uses your settings as they
-are, and `shrinkit: chat`, tuned for something going into a chat or a ticket. The smaller copy
-lands beside the original, which stays where it is, and you can select several files to do them
-together.
+named after it, so out of the box you get `shrinkit: 2x`, the everyday one, and `shrinkit: chat`,
+tuned for something going into a chat or a ticket. The result is named after the preset that ran,
+`clip-2x.mp4` or `clip-chat.mp4`, and lands beside the original, which stays where it is. You can
+select several files to do them together.
 
 Add a preset and it becomes a new entry; the installer rebuilds the menu from `presets/` every
 time it runs. One entry isn't a preset: `shrinkit: mark cuts`, for marking a stretch to remove
@@ -117,8 +117,8 @@ yourself.
 ## Presets
 
 A preset is a file of the same settings in `presets/`, read on top of `settings.conf`. Whatever it
-leaves out stays as the config has it. `default.conf` sets nothing at all, which is how the plain
-settings get a place in the menu alongside the rest.
+leaves out stays as the config has it, so a preset only spells out what it changes. The finished
+file is named after the preset that made it, which is how you can tell two copies apart.
 
 ```bash
 shrinkit --preset chat recording.mov
@@ -157,7 +157,6 @@ here will never leave a recording unprocessed.
 | `codec` | `h264` plays everywhere, `hevc` is about 30% smaller and less compatible | `h264` |
 | `remove_audio` | `true` drops the sound, `false` keeps it and speeds it up to match | `true` |
 | `max_height` | Downscale tall videos to this height; `0` keeps the original | `0` |
-| `output_suffix` | Added to the output name. `{speed}` becomes the speed, so the name follows it | `-{speed}x` |
 | `keep_original` | `true` files the original in `.processed/`, `false` deletes it | `true` |
 | `keep_days` | Delete originals from `.processed/` once this many days old, up to 3650; `0` keeps them forever | `0` |
 | `notify` | Post a macOS banner when a file is done | `true` |
