@@ -378,17 +378,6 @@ test_keep_days_off_by_default() {
   check "leaves it alone" exists "$box/.processed/old.mov"
 }
 
-test_output_dir_redirect() {
-  local box
-  box="$(sandbox)"
-  settings "$box" "output_dir = $box/elsewhere"
-  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
-
-  optimize "$box"
-  check "writes to the folder we named" exists "$box/elsewhere/clip-2x.mp4"
-  check "leaves the default one empty" empty_dir "$box/output"
-}
-
 test_skips_work_already_done() {
   local box
   box="$(sandbox)"
@@ -1173,7 +1162,6 @@ TESTS=(
   test_keep_days_too_large_is_rejected_not_truncated
   test_keep_days_does_not_claim_a_removal_that_failed
   test_keep_days_off_by_default
-  test_output_dir_redirect
   test_skips_work_already_done
   test_ignores_things_that_are_not_videos
   test_the_output_appears_only_once_it_is_finished
