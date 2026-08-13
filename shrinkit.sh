@@ -799,8 +799,8 @@ seed_cuts_sidecar() {
   } > "$sidecar"
 }
 
-# Finder entry point for authoring a .cuts sidecar: seeds it, then opens both the sidecar and the
-# recording itself so timestamps can be read straight off the player while typing them in.
+# Finder entry point for authoring a .cuts sidecar: seeds it, then opens both the recording and the
+# sidecar so timestamps can be read straight off the player while typing them in.
 mark_cuts_command() {
   [[ "${1-}" == --install ]] && {
     install_cuts_action
@@ -814,8 +814,11 @@ mark_cuts_command() {
   for file in "$@"; do
     [[ -f "$file" ]] || continue
     seed_cuts_sidecar "$file"
-    open -e "${file}.cuts"
+    # Player first, sidecar second: the last one opened comes up in front, and the sidecar is the
+    # window being typed into. Opened the other way round it hides behind the video and reads as
+    # nothing having happened.
     open -- "$file"
+    open -e "${file}.cuts"
   done
 }
 
