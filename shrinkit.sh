@@ -54,7 +54,7 @@ typeset -A DEFAULTS=(
   remove_audio true
   max_height 0       # downscale tall videos, 0 keeps the original size
   keep_original true # move the source aside instead of deleting it
-  keep_days 0         # prune .processed/ older than this many days, 0 keeps it forever
+  keep_days 0        # prune .processed/ older than this many days, 0 keeps it forever
   notify true
   notify_start true  # also show a quiet banner when a file starts, not just when it finishes
   notify_sound Glass # any /System/Library/Sounds name, or none
