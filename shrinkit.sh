@@ -11,14 +11,13 @@ setopt extended_glob
 # --------------------------------------------------------------------- where things live
 
 BASE_DIR="${SHRINKIT_DIR:-$HOME/Movies/shrinkit}"
-REPO_DIR="${SHRINKIT_REPO:-}" # set by the installer, used for the update check
+REPO_DIR="${SHRINKIT_REPO:-}" # set by the installer; where the Quick Action template lives
 
 IN_DIR="$BASE_DIR/input"        # the watched folder
 DONE_DIR="$BASE_DIR/.processed" # originals end up here after a good encode
 LOG_DIR="$BASE_DIR/.logs"
 LOG="$LOG_DIR/optimizer.log"
 LOCK_DIR="$BASE_DIR/.optimizer.lock"
-UPDATE_STAMP="$LOG_DIR/.last-update-check"
 
 CONFIG="$BASE_DIR/settings.conf"
 # named variations on the config, one file each
@@ -62,7 +61,6 @@ typeset -A DEFAULTS=(
   notify_title "Video optimized"
   notify_sound Glass # any /System/Library/Sounds name, or none
   copy_to_clipboard false
-  check_updates true
   output_dir "" # empty means <base>/output
 )
 typeset -A CFG
@@ -145,7 +143,6 @@ validate_config() {
   is_bool "${CFG[notify]}" || reject notify "want true or false"
   is_bool "${CFG[notify_start]}" || reject notify_start "want true or false"
   is_bool "${CFG[copy_to_clipboard]}" || reject copy_to_clipboard "want true or false"
-  is_bool "${CFG[check_updates]}" || reject check_updates "want true or false"
   [[ -n "${CFG[output_suffix]}" ]] || reject output_suffix "cannot be empty"
   [[ -n "${CFG[notify_title]}" ]] || reject notify_title "cannot be empty"
 }
@@ -632,29 +629,6 @@ prune_processed() {
   done
 }
 
-# --------------------------------------------------------------------- update check
-
-# Once a day, mention that the clone is behind. The stamp is written before fetching so a hang
-# cannot turn into a retry loop, and ssh gets a timeout so a dead network cannot hold up the queue.
-check_for_updates() {
-  [[ "${CFG[check_updates]}" == true && -n "$REPO_DIR" && -d "$REPO_DIR/.git" ]] || return 0
-
-  local last behind
-  last="$(cat "$UPDATE_STAMP" 2> /dev/null)"
-  is_int "$last" || last=0
-  (($(date +%s) - last >= 86400)) || return 0
-  date +%s > "$UPDATE_STAMP"
-
-  git -C "$REPO_DIR" -c core.sshCommand='ssh -o ConnectTimeout=8 -o BatchMode=yes' \
-    fetch --quiet origin main 2> /dev/null || return 0
-
-  behind="$(git -C "$REPO_DIR" rev-list --count HEAD..origin/main 2> /dev/null)"
-  is_int "$behind" && ((behind > 0)) || return 0
-
-  log "update available: $behind new commit(s) on origin/main"
-  notify "$behind new commit(s), run update.sh" "Update available"
-}
-
 # --------------------------------------------------------------------- run
 
 # mkdir is atomic; the pid inside says who holds it, so a dead owner's lock can be taken over.
@@ -1039,7 +1013,6 @@ main() {
   }
   process_queue
   prune_processed
-  check_for_updates
 }
 
 # Set at the top level: in zsh, a trap set inside a function fires when that function returns.
