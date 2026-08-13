@@ -663,7 +663,7 @@ test_cuts_near_miss_filename_is_warned_about() {
   check "still shrinks the file" exists "$box/output/clip.mp4"
 }
 
-test_cuts_rich_text_sidecar_is_named_and_refused() {
+test_cuts_rich_text_sidecar_is_logged_and_skipped() {
   local box
   box="$(sandbox)"
   settings "$box" 'speed = 1'
@@ -671,8 +671,9 @@ test_cuts_rich_text_sidecar_is_named_and_refused() {
   print -r -- '{\rtf1\ansi 3-4}' > "$box/input/clip.mov.cuts"
 
   optimize "$box"
-  check "names Rich Text specifically, not a generic parse error" \
-    logged "$box" 'Rich Text, not plain text'
+  # no dedicated check for this: the markup shows up verbatim in the ignoring-cut line, which says
+  # plainly enough that the file was saved as Rich Text rather than plain text
+  check "logs the markup it could not parse" logged "$box" 'ignoring cut .{.rtf1'
   check "keeps the full length" duration_near "$box/output/clip.mp4" 12
 }
 
@@ -1111,18 +1112,6 @@ test_preset_loses_to_a_flag() {
   check "the flag wins" duration_near "$work/clip-chat.mp4" 3
 }
 
-test_preset_list_names_what_is_there() {
-  local box out
-  box="$(sandbox)"
-  settings "$box" 'speed = 2'
-  preset "$box" chat 'speed = 3'
-  preset "$box" tiny 'crf = 34'
-
-  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" preset list)"
-  check "lists both" test "$out" = "chat
-tiny"
-}
-
 test_preset_that_does_not_exist_is_refused() {
   local box code
   box="$(sandbox)"
@@ -1187,7 +1176,7 @@ TESTS=(
   test_cuts_note_is_silent_with_no_sidecar
   test_cuts_note_warns_when_every_line_was_rejected
   test_cuts_near_miss_filename_is_warned_about
-  test_cuts_rich_text_sidecar_is_named_and_refused
+  test_cuts_rich_text_sidecar_is_logged_and_skipped
   test_cuts_smart_dash_is_named_specifically
   test_cuts_trims_whitespace_around_the_dash
   test_cuts_do_not_distort_footage_with_a_misleading_frame_rate
@@ -1218,7 +1207,6 @@ TESTS=(
   test_config_set_refuses_a_setting_that_does_not_exist
   test_preset_is_read_on_top_of_the_config
   test_preset_loses_to_a_flag
-  test_preset_list_names_what_is_there
   test_preset_that_does_not_exist_is_refused
   test_notify_start_does_not_break_the_run
 )

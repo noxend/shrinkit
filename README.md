@@ -127,7 +127,6 @@ shrinkit --preset chat recording.mov
 Copy a preset file to make your own, then give it a menu entry without reinstalling:
 
 ```bash
-shrinkit preset list
 shrinkit preset install tiny     # adds "shrinkit: tiny" to the right-click menu
 shrinkit preset remove tiny      # takes the entry out, keeps the file
 ```
