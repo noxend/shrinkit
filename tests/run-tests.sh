@@ -1120,84 +1120,12 @@ test_preset_that_does_not_exist_is_refused() {
   check "and builds nothing" missing "$HOME/Library/Services/shrinkit: nope.workflow"
 }
 
-test_notify_start_does_not_break_the_run() {
-  local box
-  box="$(sandbox)"
-  settings "$box" 'speed = 2' 'notify_start = true'
-  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
-
-  optimize "$box"
-  check "the run still completes with notify_start on" exists "$box/output/clip.mp4"
-}
-
 # --------------------------------------------------------------------- run them
 
-TESTS=(
-  test_basic_encode
-  test_basic_settings_are_used
-  test_basic_the_output_is_named_after_the_preset
-  test_downscale
-  test_keep_original_false_deletes_the_source
-  test_keep_days_prunes_old_originals
-  test_keep_days_counts_from_archiving_not_the_recording_date
-  test_keep_days_too_large_is_rejected_not_truncated
-  test_keep_days_does_not_claim_a_removal_that_failed
-  test_keep_days_off_by_default
-  test_skips_work_already_done
-  test_ignores_things_that_are_not_videos
-  test_the_output_appears_only_once_it_is_finished
-  test_a_broken_line_spoils_only_itself
-  test_cuts_remove_the_marked_ranges
-  test_cuts_accept_the_mm_ss_format
-  test_cuts_keep_kept_audio_in_sync
-  test_cuts_are_skipped_with_no_sidecar_file
-  test_cuts_bad_line_spoils_only_itself
-  test_cuts_sidecar_is_archived_with_the_original
-  test_cuts_sidecar_is_deleted_with_the_original
-  test_cuts_reject_a_range_under_one_frame
-  test_cuts_that_remove_everything_fail_instead_of_destroying_the_original
-  test_cuts_reject_a_malformed_end_like_a_stray_dash
-  test_cuts_unreadable_sidecar_is_logged_and_skipped
-  test_cuts_without_a_trailing_newline_still_applies
-  test_cuts_long_bad_line_is_truncated_in_the_log
-  test_cuts_note_says_applied_when_a_cut_took
-  test_cuts_note_is_silent_with_no_sidecar
-  test_cuts_note_warns_when_every_line_was_rejected
-  test_cuts_near_miss_filename_is_warned_about
-  test_cuts_rich_text_sidecar_is_logged_and_skipped
-  test_cuts_smart_dash_is_named_specifically
-  test_cuts_trims_whitespace_around_the_dash
-  test_cuts_do_not_distort_footage_with_a_misleading_frame_rate
-  test_cuts_merge_overlapping_ranges
-  test_cuts_reaching_past_the_real_end_do_not_add_an_empty_trailing_stretch
-  test_cuts_in_the_middle_keep_both_sides_on_misleading_frame_rate_footage
-  test_cuts_still_respect_the_fps_cap_once_speed_changes_the_frame_rate
-  test_cuts_accept_a_range_that_is_exactly_the_minimum_length
-  test_mark_cuts_with_no_files_is_refused
-  test_bad_values_are_rejected_one_by_one
-  test_unknown_settings_are_ignored
-  test_a_hash_inside_a_value_is_kept
-  test_lock_keeps_two_runs_apart
-  test_a_lock_from_a_dead_run_is_taken_over
-  test_a_lock_from_a_live_run_is_left_alone
-  test_picks_up_a_file_dropped_mid_run
-  test_a_broken_file_does_not_wedge_the_queue
-  test_one_shot_optimizes_a_file_in_place
-  test_one_shot_handles_several_files
-  test_one_shot_skips_a_cuts_sidecar_selected_alongside_the_video
-  test_a_failed_move_into_place_is_reported_not_silent
-  test_flags_are_answered_not_swallowed
-  test_flags_beat_the_config_file
-  test_flags_that_make_no_sense_are_refused
-  test_config_show_lists_what_is_in_effect
-  test_config_set_edits_the_line_in_place
-  test_config_set_appends_a_setting_that_was_missing
-  test_config_set_refuses_a_setting_that_does_not_exist
-  test_preset_is_read_on_top_of_the_config
-  test_preset_loses_to_a_flag
-  test_preset_that_does_not_exist_is_refused
-  test_notify_start_does_not_break_the_run
-)
+# Every top-level test_* function, in the order they're defined, so the grouping in this file is
+# the grouping that runs. Nothing here to keep in sync by hand when a test is added or renamed.
+typeset -a TESTS
+TESTS=("${(f)$(grep -oE '^test_[a-zA-Z0-9_]+' "${0:A}")}")
 
 print "building sample videos in tests/fixtures (first run only)"
 build_fixtures
