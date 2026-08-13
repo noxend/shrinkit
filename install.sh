@@ -53,12 +53,12 @@ echo "==> Installed script: $SCRIPT_DST"
 # 3. the folders (processed/ and logs/ are hidden so the folder shows only settings + input + output)
 mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/.processed" "$BASE_DIR/.logs"
 
-# A first install gets both example presets; after that the folder is yours, and an empty one is
-# a deliberate choice rather than something to repopulate.
+# A first install gets all three example presets; after that the folder is yours, and an empty
+# one is a deliberate choice rather than something to repopulate.
 mkdir -p "$BASE_DIR/presets"
 if [[ -z "$(ls -A "$BASE_DIR/presets")" && ! -f "$BASE_DIR/settings.conf" ]]; then
-  cp "$REPO_DIR/presets/2x.conf" "$REPO_DIR/presets/tiny.conf" "$BASE_DIR/presets/"
-  echo "==> Installed the example presets: 2x, tiny"
+  cp "$REPO_DIR/presets/2x.conf" "$REPO_DIR/presets/hq.conf" "$REPO_DIR/presets/tiny.conf" "$BASE_DIR/presets/"
+  echo "==> Installed the example presets: 2x, hq, tiny"
 fi
 # "default" set nothing and only existed to hold a place in the menu; "2x" pins the speed it
 # always meant. Only retired if it is still setting-free, so an edited one is left alone.
@@ -74,6 +74,11 @@ fi
 if [[ -f "$BASE_DIR/presets/chat.conf" && ! -f "$BASE_DIR/presets/tiny.conf" ]]; then
   mv "$BASE_DIR/presets/chat.conf" "$BASE_DIR/presets/tiny.conf"
   echo "==> Renamed the 'chat' preset to 'tiny'"
+fi
+# "hq" is new since 2x/tiny existed; an install that predates it just does not have the file yet.
+if [[ ! -f "$BASE_DIR/presets/hq.conf" ]]; then
+  cp "$REPO_DIR/presets/hq.conf" "$BASE_DIR/presets/"
+  echo "==> Added the new 'hq' preset"
 fi
 
 # 4. the config; an existing settings.conf is never touched.
