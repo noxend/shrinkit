@@ -165,7 +165,6 @@ here will never leave a recording unprocessed.
 | `notify_sound` | `Glass`, `Ping`, `Pop`, `Hero` and the rest, or `none` | `Glass` |
 | `notify_start` | Also post a quiet banner when a file starts | `true` |
 | `copy_to_clipboard` | Put the finished file on the clipboard, ready to paste | `false` |
-| `check_updates` | Once a day, say if the repo has newer commits | `true` |
 | `output_dir` | Absolute path to send results somewhere else, a synced folder for instance | empty |
 
 Logs go to a hidden `.logs/` folder. The watched folder is fixed when you install, because launchd
