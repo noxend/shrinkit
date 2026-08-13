@@ -57,8 +57,7 @@ typeset -A DEFAULTS=(
   keep_original true        # move the source aside instead of deleting it
   keep_days 0               # prune .processed/ older than this many days, 0 keeps it forever
   notify true
-  notify_start true # also show a quiet banner when a file starts, not just when it finishes
-  notify_title "Video optimized"
+  notify_start true  # also show a quiet banner when a file starts, not just when it finishes
   notify_sound Glass # any /System/Library/Sounds name, or none
   copy_to_clipboard false
 )
@@ -143,7 +142,6 @@ validate_config() {
   is_bool "${CFG[notify_start]}" || reject notify_start "want true or false"
   is_bool "${CFG[copy_to_clipboard]}" || reject copy_to_clipboard "want true or false"
   [[ -n "${CFG[output_suffix]}" ]] || reject output_suffix "cannot be empty"
-  [[ -n "${CFG[notify_title]}" ]] || reject notify_title "cannot be empty"
 }
 
 resolve_output_suffix() {
@@ -155,7 +153,7 @@ resolve_output_suffix() {
 # Banner text and sound are configurable; the icon is not, macOS pins it to Script Editor's.
 notify() {
   [[ "${CFG[notify]}" == true ]] || return 0
-  local message="$1" title="${2:-${CFG[notify_title]}}" sound="${3-${CFG[notify_sound]}}"
+  local message="$1" title="${2:-shrinkit}" sound="${3-${CFG[notify_sound]}}"
   [[ "$sound" == none ]] && sound=""
   osascript -l JavaScript - "$title" "$message" "$sound" << 'JXA' > /dev/null 2>&1 || true
 function run(argv) {
