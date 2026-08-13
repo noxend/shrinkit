@@ -57,8 +57,8 @@ mkdir -p "$BASE_DIR/input" "$BASE_DIR/output" "$BASE_DIR/.processed" "$BASE_DIR/
 # a deliberate choice rather than something to repopulate.
 mkdir -p "$BASE_DIR/presets"
 if [[ -z "$(ls -A "$BASE_DIR/presets")" && ! -f "$BASE_DIR/settings.conf" ]]; then
-  cp "$REPO_DIR/presets/2x.conf" "$REPO_DIR/presets/chat.conf" "$BASE_DIR/presets/"
-  echo "==> Installed the example presets: 2x, chat"
+  cp "$REPO_DIR/presets/2x.conf" "$REPO_DIR/presets/tiny.conf" "$BASE_DIR/presets/"
+  echo "==> Installed the example presets: 2x, tiny"
 fi
 # "default" set nothing and only existed to hold a place in the menu; "2x" pins the speed it
 # always meant. Only retired if it is still setting-free, so an edited one is left alone.
@@ -67,6 +67,13 @@ if [[ -f "$BASE_DIR/presets/default.conf" ]] \
   rm -f "$BASE_DIR/presets/default.conf"
   [[ -f "$BASE_DIR/presets/2x.conf" ]] || cp "$REPO_DIR/presets/2x.conf" "$BASE_DIR/presets/"
   echo "==> Replaced the empty 'default' preset with '2x'"
+fi
+# "chat" is renamed "tiny": a name that says what the file becomes rather than where it is going.
+# Only touches an install that still has the old file, so a folder that was deliberately cleared
+# out stays that way.
+if [[ -f "$BASE_DIR/presets/chat.conf" && ! -f "$BASE_DIR/presets/tiny.conf" ]]; then
+  mv "$BASE_DIR/presets/chat.conf" "$BASE_DIR/presets/tiny.conf"
+  echo "==> Renamed the 'chat' preset to 'tiny'"
 fi
 
 # 4. the config; an existing settings.conf is never touched.

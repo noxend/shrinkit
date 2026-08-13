@@ -59,10 +59,10 @@ The original goes to a hidden `.processed/` folder, so the working folder holds 
 ## Right-click a video
 
 Most of the right-click menu is the list of your presets. Every file in `presets/` gets an entry
-named after it, so out of the box you get `shrinkit: 2x`, the everyday one, and `shrinkit: chat`,
-tuned for something going into a chat or a ticket. The result is named after the preset that ran,
-`clip-2x.mp4` or `clip-chat.mp4`, and lands beside the original, which stays where it is. You can
-select several files to do them together.
+named after it, so out of the box you get `shrinkit: 2x`, the everyday one, and `shrinkit: tiny`,
+as small as it gets. The result is named after the preset that ran, `clip-2x.mp4` or
+`clip-tiny.mp4`, and lands beside the original, which stays where it is. You can select several
+files to do them together.
 
 Add a preset and it becomes a new entry; the installer rebuilds the menu from `presets/` every
 time it runs. One entry isn't a preset: `shrinkit: mark cuts`, for marking a stretch to remove
@@ -121,7 +121,7 @@ leaves out stays as the config has it, so a preset only spells out what it chang
 file is named after the preset that made it, which is how you can tell two copies apart.
 
 ```bash
-shrinkit --preset chat recording.mov
+shrinkit --preset tiny recording.mov
 ```
 
 Copy a preset file to make your own, then give it a menu entry without reinstalling:
