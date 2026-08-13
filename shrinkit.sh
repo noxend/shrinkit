@@ -23,8 +23,6 @@ UPDATE_STAMP="$LOG_DIR/.last-update-check"
 CONFIG="$BASE_DIR/settings.conf"
 # named variations on the config, one file each
 PRESET_DIR="$BASE_DIR/presets"
-# converted by the installer
-LEGACY_CONFIGS=("$BASE_DIR/settings.jsonc" "$BASE_DIR/settings.txt")
 
 OUT_DIR="$BASE_DIR/output" # settings.output_dir can point this somewhere else
 
@@ -87,14 +85,8 @@ read_settings() {
 }
 
 read_config() {
-  local stale
-  if [[ ! -f "$CONFIG" ]]; then
-    for stale in "${LEGACY_CONFIGS[@]}"; do
-      [[ -f "$stale" ]] && log "found ${stale:t}; run install.sh to convert it to ${CONFIG:t}"
-    done
-    return 0
-  fi
-  read_settings "$CONFIG"
+  [[ -f "$CONFIG" ]] && read_settings "$CONFIG"
+  return 0
 }
 
 # A preset is the same file in presets/, read on top of the config. It is how one recording gets

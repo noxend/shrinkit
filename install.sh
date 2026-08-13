@@ -18,24 +18,6 @@ SCRIPT_DST="$BIN_DIR/shrinkit"
 LABEL="com.shrinkit"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
-# Old install (renamed from demo-video-optimizer) goes first, or two agents watch two folders.
-OLD_LABEL="com.demo-video-optimizer"
-OLD_BASE="$HOME/Movies/demo-recordings"
-launchctl bootout "gui/$(id -u)/$OLD_LABEL" 2> /dev/null || true
-rm -f "$HOME/Library/LaunchAgents/$OLD_LABEL.plist"
-rm -f "$BIN_DIR/demo-video-optimizer" "$BIN_DIR/optimize-demo-video.sh"
-[[ -L "$HOME/Desktop/demo-recordings" ]] && rm -f "$HOME/Desktop/demo-recordings"
-# Matched on the old install's own binary path, so your own menu entries are not swept up.
-for action in "$HOME/Library/Services"/*.workflow(N); do
-  grep -qE "$BIN_DIR/(demo-video-optimizer|optimize-demo-video\.sh)" \
-    "$action/Contents/document.wflow" 2> /dev/null && rm -rf "$action"
-done
-# Move the old data across, unless you set SHRINKIT_DIR yourself or something is already there.
-if [[ -z "${SHRINKIT_DIR+set}" && -d "$OLD_BASE" && ! -d "$BASE_DIR" ]]; then
-  mv "$OLD_BASE" "$BASE_DIR"
-  echo "==> Moved $OLD_BASE to $BASE_DIR"
-fi
-
 echo "==> Base folder: $BASE_DIR"
 
 # macOS keeps Desktop, Documents and Downloads behind a privacy wall (TCC). A background launchd
@@ -79,33 +61,10 @@ if [[ -z "$(ls -A "$BASE_DIR/presets" | grep -v '^default.conf$')" ]]; then
   echo "==> Installed the example preset: presets/chat.conf"
 fi
 
-# 4. the config, converted from the old formats once; an existing settings.conf is never touched.
+# 4. the config; an existing settings.conf is never touched.
 CONFIG="$BASE_DIR/settings.conf"
 if [[ -f "$CONFIG" ]]; then
   echo "==> Kept your existing settings"
-elif [[ -f "$BASE_DIR/settings.jsonc" ]]; then
-  # Via a temp file, so a failed conversion cannot leave an empty settings.conf behind.
-  CONVERTED="$(mktemp)"
-  if osascript -l JavaScript - "$BASE_DIR/settings.jsonc" > "$CONVERTED" << 'JXA' && [[ -s "$CONVERTED" ]]; then
-function run(argv) {
-  const raw = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(argv[0], 4, null)) || '';
-  const json = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[\s,{])\/\/.*$/gm, '$1');
-  const settings = JSON.parse(json);
-  return Object.keys(settings).map(function (k) { return k + ' = ' + settings[k] }).join('\n');
-}
-JXA
-    mv "$CONVERTED" "$CONFIG"
-    mv "$BASE_DIR/settings.jsonc" "$BASE_DIR/settings.jsonc.bak"
-    echo "==> Converted settings.jsonc to settings.conf (old file kept as settings.jsonc.bak)"
-  else
-    rm -f "$CONVERTED"
-    cp "$REPO_DIR/settings.conf" "$CONFIG"
-    echo "!! Could not read settings.jsonc, so it was left alone and a default settings.conf"
-    echo "!! was installed. Copy your values across by hand, then delete settings.jsonc."
-  fi
-elif [[ -f "$BASE_DIR/settings.txt" ]]; then
-  mv "$BASE_DIR/settings.txt" "$CONFIG"
-  echo "==> Renamed settings.txt to settings.conf"
 else
   cp "$REPO_DIR/settings.conf" "$CONFIG"
   echo "==> Installed default settings.conf"
@@ -152,7 +111,7 @@ PLIST_EOF
 echo "==> Installed launchd agent: $PLIST"
 
 # 6. Desktop shortcut to the working folder, which itself stays outside TCC-protected locations.
-if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
+if [[ "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
   LINK="$HOME/Desktop/${BASE_DIR:t}"
   if [[ -e "$LINK" && ! -L "$LINK" ]]; then
     echo "!! $LINK already exists as a real folder; skipping the Desktop shortcut."
@@ -163,25 +122,19 @@ if [[ "${DESKTOP_SHORTCUT:-1}" == 1 && "$BASE_DIR" != "$HOME/Desktop/"* ]]; then
 fi
 
 # 7. one right-click entry per preset; rebuilt fresh each run so a deleted preset leaves nothing.
-if [[ "${QUICK_ACTION:-1}" == 1 ]]; then
-  SERVICES_DIR="$HOME/Library/Services"
-  mkdir -p "$SERVICES_DIR"
-  # Entries these replaced, named one by one so nothing else in the menu is touched.
-  for RETIRED in "Shrink Video" "Shrink Video with" "shrinkit" "shrinkit presets"; do
-    rm -rf "$SERVICES_DIR/$RETIRED.workflow"
-  done
-  for STALE in "$SERVICES_DIR"/shrinkit:*.workflow(N); do rm -rf "$STALE"; done
+SERVICES_DIR="$HOME/Library/Services"
+mkdir -p "$SERVICES_DIR"
+for STALE in "$SERVICES_DIR"/shrinkit:*.workflow(N); do rm -rf "$STALE"; done
 
-  INSTALLED=()
-  for PRESET_PATH in "$BASE_DIR/presets"/*.conf(N.); do
-    PRESET_NAME="${PRESET_PATH:t:r}"
-    SHRINKIT_DIR="$BASE_DIR" SHRINKIT_REPO="$REPO_DIR" \
-      "$SCRIPT_DST" preset install "$PRESET_NAME" > /dev/null
-    INSTALLED+=("$PRESET_NAME")
-  done
-  SHRINKIT_DIR="$BASE_DIR" SHRINKIT_REPO="$REPO_DIR" "$SCRIPT_DST" mark-cuts --install > /dev/null
-  echo "==> Finder entries, one per preset, plus 'shrinkit: mark cuts': ${INSTALLED[*]}"
-fi
+INSTALLED=()
+for PRESET_PATH in "$BASE_DIR/presets"/*.conf(N.); do
+  PRESET_NAME="${PRESET_PATH:t:r}"
+  SHRINKIT_DIR="$BASE_DIR" SHRINKIT_REPO="$REPO_DIR" \
+    "$SCRIPT_DST" preset install "$PRESET_NAME" > /dev/null
+  INSTALLED+=("$PRESET_NAME")
+done
+SHRINKIT_DIR="$BASE_DIR" SHRINKIT_REPO="$REPO_DIR" "$SCRIPT_DST" mark-cuts --install > /dev/null
+echo "==> Finder entries, one per preset, plus 'shrinkit: mark cuts': ${INSTALLED[*]}"
 
 # 8. (re)load it
 launchctl bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
