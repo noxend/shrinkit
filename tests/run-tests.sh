@@ -42,20 +42,11 @@ FILTER="${1:-}"
 typeset -i PASSED=0 FAILED=0
 typeset -a FAILURES
 
-# A file, not an array: a sandbox is usually created inside a $(...) capture, which forks a
-# subshell, and an array append there would vanish with it. A file write survives.
-SANDBOX_MANIFEST="$(mktemp)"
-
-cleanup() {
-  local box
-  [[ -f "$SANDBOX_MANIFEST" ]] && while IFS= read -r box; do rm -rf "$box"; done < "$SANDBOX_MANIFEST"
-  rm -f "$SANDBOX_MANIFEST"
-}
-trap cleanup EXIT INT TERM
-
-track() {
-  print -r -- "$1" >> "$SANDBOX_MANIFEST"
-}
+# Every sandbox lives under one root, so cleanup is one rm -rf instead of tracking each path
+# individually -- which used to need a file, not an array, since a sandbox is usually created
+# inside a $(...) capture, a subshell an array append would never escape.
+TMPROOT="$(mktemp -d)"
+trap 'rm -rf "$TMPROOT"' EXIT INT TERM
 
 # --------------------------------------------------------------------- helpers
 
@@ -141,12 +132,9 @@ smaller_than() {
   [[ "$(stat -f%z "$1")" -lt "$(stat -f%z "$2")" ]]
 }
 
-# A tracked-for-cleanup temp dir.
+# A temp dir under TMPROOT, so it is cleaned up along with everything else.
 scratch() {
-  local dir
-  dir="$(mktemp -d)"
-  track "$dir"
-  print -r -- "$dir"
+  mktemp -d "$TMPROOT/tmp.XXXXXX"
 }
 
 # A fresh working folder plus the settings the test wants.
