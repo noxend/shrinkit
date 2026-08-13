@@ -59,10 +59,10 @@ The original goes to a hidden `.processed/` folder, so the working folder holds 
 ## Right-click a video
 
 Most of the right-click menu is the list of your presets. Every file in `presets/` gets an entry
-named after it, so out of the box you get `shrinkit: 2x`, the everyday one, and `shrinkit: tiny`,
-as small as it gets. The result is named after the preset that ran, `clip-2x.mp4` or
-`clip-tiny.mp4`, and lands beside the original, which stays where it is. You can select several
-files to do them together.
+named after it, so out of the box you get `shrinkit: 2x`, the everyday one, `shrinkit: hq`, sharper
+than the default for something like a PR, and `shrinkit: tiny`, as small as it gets. The result is
+named after the preset that ran, `clip-2x.mp4`, `clip-hq.mp4` or `clip-tiny.mp4`, and lands beside
+the original, which stays where it is. You can select several files to do them together.
 
 Add a preset and it becomes a new entry; the installer rebuilds the menu from `presets/` every
 time it runs. One entry isn't a preset: `shrinkit: mark cuts`, for marking a stretch to remove
