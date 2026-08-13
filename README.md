@@ -34,8 +34,7 @@ cd shrinkit
 
 The installer copies the script to `~/.local/bin/shrinkit`, creates the working folders under
 `~/Movies/shrinkit`, registers a launchd agent that watches `input/`, and puts a `shrinkit`
-shortcut on your Desktop. Run it again any time to update; it never overwrites your settings. Set
-`DESKTOP_SHORTCUT=0` to skip the shortcut and `QUICK_ACTION=0` to skip the right-click menu entry.
+shortcut on your Desktop. Run it again any time to update; it never overwrites your settings.
 
 For a different working folder:
 
@@ -174,10 +173,6 @@ wants an absolute path; to move it, run the installer again with `SHRINKIT_DIR`.
 
 System Settings > Login Items will list `shrinkit` from an unidentified developer. That is your own
 script rather than a signed application, so there is nothing to sign.
-
-If you used the tool before it was called shrinkit, `./install.sh` takes the old install apart,
-moves `~/Movies/demo-recordings` across, and converts `settings.jsonc` to the current format,
-keeping the old file as `settings.jsonc.bak`.
 
 ## Update and uninstall
 

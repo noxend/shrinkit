@@ -450,17 +450,6 @@ test_a_broken_line_spoils_only_itself() {
   check "and applies them" duration_near "$out" 4
 }
 
-test_an_old_json_config_is_reported() {
-  local box
-  box="$(sandbox)"
-  print '{ "speed": 3 }' > "$box/settings.jsonc"
-  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
-
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --no-notify --no-notify-start
-  check "says the format moved on" logged "$box" 'run install.sh to convert it'
-  check "and carries on with the defaults" exists "$box/output/clip-2x.mp4"
-}
-
 test_cuts_remove_the_marked_ranges() {
   local box out
   box="$(sandbox)"
@@ -1189,7 +1178,6 @@ TESTS=(
   test_ignores_things_that_are_not_videos
   test_the_output_appears_only_once_it_is_finished
   test_a_broken_line_spoils_only_itself
-  test_an_old_json_config_is_reported
   test_cuts_remove_the_marked_ranges
   test_cuts_accept_the_mm_ss_format
   test_cuts_keep_kept_audio_in_sync
