@@ -165,10 +165,10 @@ here will never leave a recording unprocessed.
 | `notify_sound` | `Glass`, `Ping`, `Pop`, `Hero` and the rest, or `none` | `Glass` |
 | `notify_start` | Also post a quiet banner when a file starts | `true` |
 | `copy_to_clipboard` | Put the finished file on the clipboard, ready to paste | `false` |
-| `output_dir` | Absolute path to send results somewhere else, a synced folder for instance | empty |
 
 Logs go to a hidden `.logs/` folder. The watched folder is fixed when you install, because launchd
-wants an absolute path; to move it, run the installer again with `SHRINKIT_DIR`.
+wants an absolute path; to move it, run the installer again with `SHRINKIT_DIR`. To have results
+land somewhere else, a synced folder for instance, replace `output/` with a symlink to it.
 
 System Settings > Login Items will list `shrinkit` from an unidentified developer. That is your own
 script rather than a signed application, so there is nothing to sign.

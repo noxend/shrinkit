@@ -23,7 +23,7 @@ CONFIG="$BASE_DIR/settings.conf"
 # named variations on the config, one file each
 PRESET_DIR="$BASE_DIR/presets"
 
-OUT_DIR="$BASE_DIR/output" # settings.output_dir can point this somewhere else
+OUT_DIR="$BASE_DIR/output"
 
 # First hit wins: whatever is on PATH, then the two usual Homebrew prefixes.
 find_tool() {
@@ -61,7 +61,6 @@ typeset -A DEFAULTS=(
   notify_title "Video optimized"
   notify_sound Glass # any /System/Library/Sounds name, or none
   copy_to_clipboard false
-  output_dir "" # empty means <base>/output
 )
 typeset -A CFG
 CFG=("${(@kv)DEFAULTS}")
@@ -149,23 +148,6 @@ validate_config() {
 
 resolve_output_suffix() {
   CFG[output_suffix]="${CFG[output_suffix]//\{speed\}/${CFG[speed]}}"
-}
-
-# output_dir may point anywhere, as long as it is an absolute path we can actually create.
-resolve_output_dir() {
-  local wanted="${CFG[output_dir]}"
-  if [[ -n "$wanted" ]]; then
-    if [[ "$wanted" == /* || "$wanted" == "~/"* ]]; then
-      OUT_DIR="${wanted/#\~/$HOME}"
-    else
-      log "ignoring output_dir='$wanted' (want an absolute path)"
-    fi
-  fi
-  mkdir -p "$OUT_DIR" 2> /dev/null || {
-    log "cannot create '$OUT_DIR', falling back to the default output folder"
-    OUT_DIR="$BASE_DIR/output"
-    mkdir -p "$OUT_DIR"
-  }
 }
 
 # --------------------------------------------------------------------- macOS niceties
@@ -988,7 +970,7 @@ main() {
     2) return 2 ;;
   esac
 
-  mkdir -p "$IN_DIR" "$DONE_DIR" "$LOG_DIR" "$PRESET_DIR"
+  mkdir -p "$IN_DIR" "$OUT_DIR" "$DONE_DIR" "$LOG_DIR" "$PRESET_DIR"
   read_config
   [[ -n "$PRESET" ]] && { read_preset "$PRESET" || return 2; }
   apply_overrides
@@ -1006,7 +988,6 @@ main() {
     return
   fi
 
-  resolve_output_dir
   acquire_lock || {
     log "another run has the lock, leaving this to it"
     return 0
