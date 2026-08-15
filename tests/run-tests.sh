@@ -537,6 +537,23 @@ test_cuts_reject_a_range_under_one_frame() {
   check "does not claim a cut happened" not_logged "$box" ', cut)'
 }
 
+# A range starting at or past the clip's real length cuts nothing (ffmpeg's own trim= just clamps
+# to the real end), and must be reported as such rather than as an applied cut -- otherwise a
+# mistyped or misjudged timestamp ships the source untouched while claiming it was redacted.
+test_cuts_reject_a_range_past_the_real_end() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '15-16' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  check "cuts nothing, the range starts past the clip's end" duration_near "$out" 12
+  check "says why in the log" logged "$box" "starts at or after the clip's real length"
+  check "does not claim a cut happened" logged "$box" "cut requested but none applied"
+}
+
 test_cuts_that_remove_everything_fail_instead_of_destroying_the_original() {
   local box
   box="$(sandbox)"
