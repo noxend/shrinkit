@@ -686,6 +686,21 @@ test_cuts_near_miss_filename_is_warned_about() {
   check "still shrinks the file" exists "$box/output/clip.mp4"
 }
 
+# A second, unrelated recording that merely shares the first few characters of its name (Finder's
+# own "clip.mov" / "clip 2.mov" duplicate naming is the everyday way to end up with this) must not
+# be mistaken for a typo'd sidecar meant for this one.
+test_cuts_unrelated_file_sharing_a_name_prefix_is_not_a_near_miss() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4' > "$box/input/clip 2.mov.cuts" # belongs to a different recording entirely
+
+  optimize "$box"
+  check "does not warn about the unrelated file" not_logged "$box" "found 'clip 2.mov.cuts'"
+  check "shrinks the file untouched, no cuts requested" duration_near "$box/output/clip.mp4" 12
+}
+
 test_cuts_rich_text_sidecar_is_logged_and_skipped() {
   local box
   box="$(sandbox)"

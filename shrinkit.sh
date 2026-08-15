@@ -246,10 +246,16 @@ parse_time() {
 
 # A stray *.cuts-looking file next to a video whose exact sidecar name is missing is usually a typo
 # (dropped extension, Finder tacking on .txt) rather than "no cuts wanted" -- worth a banner, since
-# that mistake would otherwise ship the source unredacted with nothing to show for it.
+# that mistake would otherwise ship the source unredacted with nothing to show for it. Anchored to
+# the video's own name, not a bare "starts with the same letters" prefix match: a plain prefix glob
+# also caught a second, unrelated recording sharing the first few characters of its name (Finder's
+# own "clip.mov" / "clip 2.mov" duplicate naming is the everyday way to hit that), warning about a
+# sidecar that was never meant for this video at all.
 warn_near_miss_cuts_file() {
   local src="$1" expected="${src:t}.cuts" stray
-  for stray in "${src:h}/${src:t:r}"*.cuts*(N); do
+  local -a strays
+  strays=("${src:h}/${src:t:r}.cuts"(N) "${src:h}/${expected}"*(N))
+  for stray in "${strays[@]}"; do
     [[ "${stray:t}" == "$expected" ]] && continue
     log "found '${stray:t}' next to ${src:t}, expected '${expected}' -- no cuts applied"
     notify "${src:t}: found '${stray:t}', expected '${expected}' -- no cuts applied"
