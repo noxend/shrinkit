@@ -90,8 +90,10 @@ mark what to remove, one range per line:
 
 ```
 # clip.mov.cuts
+0-0:20
 0:32-0:35
 1:10-1:12.5
+2:30-end
 ```
 
 Save it, then process the recording as usual: drop it into `input/` or right-click it and pick a
@@ -99,12 +101,18 @@ preset. Each range is removed entirely, not just skipped past on playback, since
 never written to the output at all. Good for cutting a secret out of a recording, a password typed
 into a form, a private chat glanced at mid-recording, and works just as well for plain shortening.
 
+`end` reaches the real length of the clip without you having to know it, so trimming the end is the
+same `.cuts` line as everything else, not a separate mechanism: `2:30-end` cuts from 2:30 on. `0` is
+already the start, so trimming the beginning needs nothing special: `0-0:20` cuts the first 20
+seconds.
+
 Times are `M:SS`, `M:SS.f`, or plain seconds. `#` starts a comment, a range under a tenth of a
-second is too short to reliably land on a real frame, and a line that does not parse is skipped
-rather than stopping the run. All three are logged, so check the log if a cut you expected does
-not show up in the result. If you edit the file in TextEdit rather than through the menu entry,
-save it as plain text (Format > Make Plain Text) with Smart Dashes off (Edit > Substitutions), or
-it will not parse as written.
+second is too short to reliably land on a real frame, a range starting at or past the clip's real
+length cuts nothing and is skipped rather than silently doing nothing while claiming success, and a
+line that does not parse is skipped rather than stopping the run. All of these are logged, so check
+the log if a cut you expected does not show up in the result. If you edit the file in TextEdit
+rather than through the menu entry, save it as plain text (Format > Make Plain Text) with Smart
+Dashes off (Edit > Substitutions), or it will not parse as written.
 
 Cutting needs a steady frame rate to land exactly where it is told to, so a recording gets
 resampled to `fps` (30 if `fps = 0`) before anything is removed, even when `fps = 0` would
