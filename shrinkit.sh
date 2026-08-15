@@ -263,11 +263,13 @@ warn_near_miss_cuts_file() {
   done
 }
 
-# A "start-end" line per range to cut, in <name>.cuts next to <name>. Prints the ranges as sorted,
-# merged "start end" pairs, one per line in seconds, or nothing if there is no sidecar file or no
-# valid line in it. A bad line is skipped and logged rather than spoiling the ones around it.
-# duration is the source's real length (video_duration()'s output), used only to catch a range that
-# starts at or past the real end -- a partial overrun still cuts something real and is left alone.
+# A "start-end" line per range to cut, in <name>.cuts next to <name>. "0-0:20" cuts the first 20s,
+# "2:30-end" cuts from 2:30 to the end -- "end" reaches the real length without knowing it. Prints
+# the ranges as sorted, merged "start end" pairs, one per line in seconds, or nothing if there is no
+# sidecar file or no valid line in it. A bad line is skipped and logged rather than spoiling the ones
+# around it. duration is the source's real length (video_duration()'s output), used to resolve "end"
+# and to catch a range that starts at or past the real end -- a partial overrun still cuts something
+# real and is left alone.
 read_cuts() {
   local src="$1" duration="$2" cuts_file="${src}.cuts" line shown start end
   local -a pairs
@@ -289,7 +291,13 @@ read_cuts() {
     start="$(trim "${line%%-*}")"
     end="$(trim "${line#*-}")"
     start="$(parse_time "$start")"
-    end="$(parse_time "$end")"
+    # "end" reaches the real length without knowing it -- a bare trailing dash would do the same
+    # and never be confused with a negative number (nothing follows it to negate), but a bare
+    # leading dash would: "-0:20" reads exactly like negative twenty seconds to anyone who has not
+    # read this file's own rules first. "0-0:20" already means "from the start" on its own, so the
+    # start side gets no shorthand at all, only the end side does, and it is a real word, not a
+    # punctuation trick.
+    [[ "${(L)end}" == end ]] && end="$duration" || end="$(parse_time "$end")"
     if [[ -z "$start" || -z "$end" ]] || ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b > a) }'; then
       # TextEdit's Smart Dashes turns a typed "-" into an en dash the split above never sees, so the
       # line reads as one blob with no separator at all -- worth naming, since it looks nothing like
@@ -809,6 +817,7 @@ seed_cuts_sidecar() {
   dur="$("$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$file" 2> /dev/null)"
   {
     print -r -- "# ${file:t}.cuts -- one range per line, e.g. 0:32-0:35 or plain seconds"
+    print -r -- "# 0-0:20 cuts the first 20s, 2:30-end cuts from 2:30 to the end"
     if is_num "$dur"; then
       mins=$((${dur%.*} / 60))
       secs=$((${dur%.*} % 60))

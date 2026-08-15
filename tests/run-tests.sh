@@ -585,6 +585,58 @@ test_cuts_that_remove_everything_fail_instead_of_destroying_the_original() {
   check "logs it as a failure, not a success" logged "$box" 'FAILED clip.mov'
 }
 
+test_cuts_zero_cuts_from_the_start() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '0-3' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  check "cuts the first 3 seconds" duration_near "$out" 9
+}
+
+test_cuts_end_reaches_the_real_length() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '9-end' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  check "cuts from 9s to the end" duration_near "$out" 9
+}
+
+test_cuts_end_is_not_case_sensitive() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '9-END' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  check "cuts from 9s to the end" duration_near "$out" 9
+}
+
+# A leading blank ("-0:20") is deliberately not a shorthand for "from the start": it reads exactly
+# like a negative number to anyone who has not read this file's own rules. "0-0:20" already does the
+# same job unambiguously, so a bare leading dash is left to fail like any other malformed line.
+test_cuts_leading_dash_is_not_a_shorthand() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '-3' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  check "cuts nothing, not read as -0:03 from the start" duration_near "$out" 12
+  check "logs it as malformed" logged "$box" "ignoring cut '-3'"
+}
+
 test_cuts_reject_a_malformed_end_like_a_stray_dash() {
   local box out
   box="$(sandbox)"
