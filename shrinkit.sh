@@ -260,8 +260,10 @@ warn_near_miss_cuts_file() {
 # A "start-end" line per range to cut, in <name>.cuts next to <name>. Prints the ranges as sorted,
 # merged "start end" pairs, one per line in seconds, or nothing if there is no sidecar file or no
 # valid line in it. A bad line is skipped and logged rather than spoiling the ones around it.
+# duration is the source's real length (video_duration()'s output), used only to catch a range that
+# starts at or past the real end -- a partial overrun still cuts something real and is left alone.
 read_cuts() {
-  local src="$1" cuts_file="${src}.cuts" line shown start end
+  local src="$1" duration="$2" cuts_file="${src}.cuts" line shown start end
   local -a pairs
   if [[ ! -f "$cuts_file" ]]; then
     warn_near_miss_cuts_file "$src"
@@ -297,6 +299,12 @@ read_cuts() {
     # double subtraction landing a hair under 0.1 for some perfectly ordinary decimal pairs.
     elif ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b - a >= 0.1 - 1e-9) }'; then
       log "ignoring cut '$shown' in ${cuts_file:t} (too short to reliably cut, want at least 0.1s)"
+    # Entirely past the end cuts nothing at all -- ffmpeg's own trim= just clamps to the real
+    # length, so without this check the range gets accepted, reported as "cut applied", and the
+    # source ships untouched. A range that only starts before the end and overruns past it is real
+    # and left alone; only "starts at or after the end" means nothing survives to be cut.
+    elif awk -v a="$start" -v b="$duration" 'BEGIN { exit !(a >= b) }'; then
+      log "ignoring cut '$shown' in ${cuts_file:t} (starts at or after the clip's real length, ${duration}s -- nothing to cut)"
     else
       pairs+=("$start $end")
     fi
@@ -512,7 +520,7 @@ shrink() {
   before="$(human_size "$src")"
   notify_start "${src:t:r}"
 
-  cuts="$(read_cuts "$src")"
+  cuts="$(read_cuts "$src" "$(video_duration "$src")")"
   rc=$?
   note="$(cuts_note "$src" "$cuts" "$rc")"
 
