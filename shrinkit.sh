@@ -536,9 +536,13 @@ shrink() {
 
   if [[ "$archive" == true ]]; then
     if [[ "${CFG[keep_original]}" == true ]]; then
-      # touch: mv keeps the file's own mtime, but keep_days counts from when it was archived.
-      mv "$src" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}"
-      [[ -f "${src}.cuts" ]] && mv "${src}.cuts" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}.cuts"
+      # touch: mv keeps the file's own mtime, but keep_days counts from when it was archived. The
+      # sidecar move is gated on the first mv succeeding, so a locked or permission-denied source
+      # cannot leave its .cuts sidecar archived while the video itself stays stuck in input/.
+      mv "$src" "$DONE_DIR/" && {
+        touch "$DONE_DIR/${src:t}"
+        [[ -f "${src}.cuts" ]] && mv "${src}.cuts" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}.cuts"
+      }
     else
       rm -f "$src" "${src}.cuts"
     fi

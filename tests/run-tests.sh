@@ -523,6 +523,24 @@ test_cuts_sidecar_is_deleted_with_the_original() {
   check "deletes the sidecar with it" missing "$box/input/clip.mov.cuts"
 }
 
+# A failed archive (locked/permission-denied source) must not let the sidecar move on its own --
+# otherwise the sidecar ends up archived while the video it belongs to is still stuck in input/.
+test_a_failed_archive_does_not_orphan_the_cuts_sidecar() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4' > "$box/input/clip.mov.cuts"
+  chflags uchg "$box/input/clip.mov"
+
+  optimize "$box"
+  chflags nouchg "$box/input/clip.mov"
+
+  check "leaves the source in place" exists "$box/input/clip.mov"
+  check "leaves the sidecar with it, not archived alone" exists "$box/input/clip.mov.cuts"
+  check "does not archive either one" missing "$box/.processed/clip.mov"
+}
+
 test_cuts_reject_a_range_under_one_frame() {
   local box out
   box="$(sandbox)"
