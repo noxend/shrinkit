@@ -126,7 +126,11 @@ result. If you edit the file in TextEdit rather than through the menu entry, sav
 written.
 
 `--cut` replaces the sidecar for that run rather than adding to it, the same way every other flag
-beats the config file, and says so in the log when there was one to ignore.
+beats the config file, and says so in the log when there was one to ignore. Unlike the other flags
+it needs the recording named on the same command line: a timestamp only means something in one
+particular file, so applying one to whatever happens to be sitting in `input/` is never what you
+meant. Name several files and the same ranges apply to all of them, sidecars included, so that is
+worth a second look before you do it.
 
 Cutting needs a steady frame rate to land exactly where it is told to, so a recording gets
 resampled to `fps` (30 if `fps = 0`) before anything is removed, even when `fps = 0` would

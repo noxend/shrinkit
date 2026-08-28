@@ -496,7 +496,10 @@ test_cuts_bad_line_spoils_only_itself() {
   optimize "$box"
   out="$box/output/clip.mp4"
   check "still applies the good range" duration_near "$out" 11
-  check "logs the bad one" logged "$box" "ignoring cut 'not-a-range'"
+  # Names the sidecar, not just the bad range: the flag path shares this rejection code and passes
+  # its own origin phrase in, so an assertion stopping at the range would pass either way round.
+  check "logs the bad one against the file it came from" \
+    logged "$box" "ignoring cut 'not-a-range' in clip.mov.cuts"
 }
 
 test_cuts_sidecar_is_archived_with_the_original() {
@@ -782,6 +785,23 @@ test_cut_flag_repeats_for_more_than_one_range() {
   check "cuts both ranges" duration_near "$out" 10
 }
 
+# The flag path has its own copy of the sort-and-merge pipeline, so it needs its own coverage of
+# ranges arriving out of order and overlapping; the sidecar's copy being correct says nothing here.
+test_cut_flag_sorts_and_merges_its_ranges() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
+  out="$work/clip.mp4"
+
+  # out of order, and the last two overlap into one 3-5 stretch
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" --cut 8-9 --cut 3-4.5 --cut 4-5 "$work/clip.mov"
+
+  check "merges the overlap and keeps the separate range" duration_near "$out" 9
+}
+
 test_cut_flag_reaches_the_edges_the_same_way_the_sidecar_does() {
   local box work out
   box="$(sandbox)"
@@ -827,14 +847,47 @@ test_cut_flag_rejects_a_bad_range_and_names_where_it_came_from() {
   check "does not claim a cut happened" logged "$box" 'cut requested but none applied'
 }
 
-test_cut_flag_with_no_range_is_refused() {
+# --cut with the filename forgotten used to fall through to folder-watch mode, cutting the same
+# seconds out of every queued recording, ignoring any sidecar they carried, and with
+# keep_original = false deleting each source and sidecar it had just overridden.
+test_cut_flag_with_no_file_is_refused() {
   local box code
+  box="$(sandbox)"
+  settings "$box" 'speed = 1' 'keep_original = false'
+  cp "$FIXTURES/colored.mov" "$box/input/queued.mov"
+  print -r -- '0-6' > "$box/input/queued.mov.cuts"
+
+  code=0
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 > /dev/null 2>&1 || code=$?
+
+  check "stops with a usage error" test "$code" = 2
+  check "leaves the queued recording alone" exists "$box/input/queued.mov"
+  check "and its sidecar with it" exists "$box/input/queued.mov.cuts"
+  check "writes nothing" empty_dir "$box/output"
+}
+
+test_cut_flag_with_no_range_is_refused() {
+  local box work code
   box="$(sandbox)"
   settings "$box" 'speed = 1'
 
   code=0
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut > /dev/null 2>&1 || code=$?
   check "stops with a usage error" test "$code" = 2
+
+  # An empty value is the same mistake one level up, a wrapper expanding a variable it never set.
+  # Letting it through would count as "cuts were asked for" and suppress the recording's own
+  # sidecar while adding no range to replace it.
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
+  print -r -- '3-4' > "$work/clip.mov.cuts"
+  code=0
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" --cut '' "$work/clip.mov" > /dev/null 2>&1 || code=$?
+
+  check "an empty range is refused too" test "$code" = 2
+  check "without touching the sidecar it would have suppressed" exists "$work/clip.mov.cuts"
+  check "and without writing an output" missing "$work/clip.mp4"
 }
 
 test_cuts_rich_text_sidecar_is_logged_and_skipped() {

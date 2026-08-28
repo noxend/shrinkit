@@ -888,7 +888,8 @@ touching the config. A true/false setting takes no value: --remove-audio turns
 it on, --no-remove-audio turns it off.
 
 --cut takes one range, and repeats for more: --cut 0:32-0:35 --cut 2:30-end.
-It replaces the .cuts sidecar for that run rather than adding to it.
+It replaces the .cuts sidecar for that run rather than adding to it, and it
+needs the file named, since a timestamp only means something in one recording.
 
 A preset is a file of the same settings in $PRESET_DIR.
 Use one for a run with --preset <name>, or turn it into its own right-click
@@ -931,7 +932,12 @@ parse_args() {
       # in a sidecar: one range per --cut, one range per line.
       --cut)
         shift
-        (($# > 0)) || {
+        # An empty value is refused rather than skipped: it still counts as "cuts were asked for",
+        # so letting it through would suppress the recording's own sidecar and then contribute no
+        # range to replace it. A wrapper expanding an unset variable is the way this actually
+        # happens. Command-line syntax is checked strictly here; the never-abort-on-one-bad-value
+        # convention covers settings and sidecar lines, not a malformed invocation.
+        [[ -n "${1-}" ]] || {
           print -u2 -r -- "--cut needs a range, e.g. --cut 0:32-0:35"
           return 2
         }
@@ -1010,6 +1016,16 @@ main() {
     1) return 0 ;;
     2) return 2 ;;
   esac
+
+  # A timestamp only means anything against one particular recording, so --cut with no file named
+  # is a forgotten argument rather than a queue-wide instruction. Left to fall through it would take
+  # the watch folder's whole backlog, cut the same seconds out of files that never asked for it,
+  # ignore any sidecar those files carried, and with keep_original = false delete every source and
+  # sidecar it just overrode. Every other flag is safe to apply queue-wide; this one is not.
+  if ((${#CUT_RANGES} > 0 && ${#FILES} == 0)); then
+    print -u2 -r -- "--cut needs the file to cut, e.g. shrinkit --cut 0:32-0:35 recording.mov"
+    return 2
+  fi
 
   mkdir -p "$IN_DIR" "$OUT_DIR" "$DONE_DIR" "$LOG_DIR" "$PRESET_DIR"
   read_config
