@@ -753,6 +753,90 @@ test_cuts_unrelated_file_sharing_a_name_prefix_is_not_a_near_miss() {
   check "shrinks the file untouched, no cuts requested" duration_near "$box/output/clip.mp4" 12
 }
 
+test_cut_flag_cuts_without_any_sidecar() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
+  out="$work/clip.mp4"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 "$work/clip.mov"
+
+  check "cuts the range it was given" duration_near "$out" 11
+  check "with no sidecar written anywhere" missing "$work/clip.mov.cuts"
+  check "and says a cut was applied" logged "$box" ', cut applied'
+}
+
+test_cut_flag_repeats_for_more_than_one_range() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
+  out="$work/clip.mp4"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" --cut 3-4 --cut 8-9 "$work/clip.mov"
+
+  check "cuts both ranges" duration_near "$out" 10
+}
+
+test_cut_flag_reaches_the_edges_the_same_way_the_sidecar_does() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
+  out="$work/clip.mp4"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 9-end "$work/clip.mov"
+
+  check "'end' means the real length here too" duration_near "$out" 9
+}
+
+# Every other flag beats the file it has an equivalent in, so --cut beats the sidecar rather than
+# adding to it. Silently applying both would be the surprise worth avoiding.
+test_cut_flag_replaces_the_sidecar() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
+  print -r -- '0-6' > "$work/clip.mov.cuts" # would leave 6s; the flag below leaves 11s
+  out="$work/clip.mp4"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 "$work/clip.mov"
+
+  check "applies the flag's range, not the sidecar's" duration_near "$out" 11
+  check "and says the sidecar was ignored" logged "$box" 'using --cut, ignoring clip.mov.cuts'
+}
+
+test_cut_flag_rejects_a_bad_range_and_names_where_it_came_from() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
+  out="$work/clip.mp4"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 20-25 "$work/clip.mov"
+
+  check "cuts nothing, the range is past the end" duration_near "$out" 12
+  check "blames the flag, not a sidecar" logged "$box" "ignoring cut '20-25' from --cut"
+  check "does not claim a cut happened" logged "$box" 'cut requested but none applied'
+}
+
+test_cut_flag_with_no_range_is_refused() {
+  local box code
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+
+  code=0
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut > /dev/null 2>&1 || code=$?
+  check "stops with a usage error" test "$code" = 2
+}
+
 test_cuts_rich_text_sidecar_is_logged_and_skipped() {
   local box
   box="$(sandbox)"
