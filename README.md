@@ -84,6 +84,16 @@ file.
 
 ## Cutting a stretch out of the middle
 
+From the command line, name the ranges with `--cut`, once each:
+
+```bash
+shrinkit --cut 0:32-0:35 --cut 2:30-end recording.mov
+```
+
+That is the whole feature for a one-off. The rest of this section is the other way in, a file you
+edit next to the recording, which is what the right-click menu uses and what survives being closed
+and come back to.
+
 Right-click a recording and choose `shrinkit: mark cuts`. It opens the recording, so you can find
 the moment, and a `<recording>.cuts` text file next to it (creating one the first time) where you
 mark what to remove, one range per line:
@@ -106,13 +116,17 @@ same `.cuts` line as everything else, not a separate mechanism: `2:30-end` cuts 
 already the start, so trimming the beginning needs nothing special: `0-0:20` cuts the first 20
 seconds.
 
-Times are `M:SS`, `M:SS.f`, or plain seconds. `#` starts a comment, a range under a tenth of a
-second is too short to reliably land on a real frame, a range starting at or past the clip's real
-length cuts nothing and is skipped rather than silently doing nothing while claiming success, and a
-line that does not parse is skipped rather than stopping the run. All of these are logged, so check
-the log if a cut you expected does not show up in the result. If you edit the file in TextEdit
-rather than through the menu entry, save it as plain text (Format > Make Plain Text) with Smart
-Dashes off (Edit > Substitutions), or it will not parse as written.
+Times are `M:SS`, `M:SS.f`, or plain seconds, in the file and in `--cut` alike. `#` starts a
+comment, a range under a tenth of a second is too short to reliably land on a real frame, a range
+starting at or past the clip's real length cuts nothing and is skipped rather than silently doing
+nothing while claiming success, and a line that does not parse is skipped rather than stopping the
+run. All of these are logged, so check the log if a cut you expected does not show up in the
+result. If you edit the file in TextEdit rather than through the menu entry, save it as plain text
+(Format > Make Plain Text) with Smart Dashes off (Edit > Substitutions), or it will not parse as
+written.
+
+`--cut` replaces the sidecar for that run rather than adding to it, the same way every other flag
+beats the config file, and says so in the log when there was one to ignore.
 
 Cutting needs a steady frame rate to land exactly where it is told to, so a recording gets
 resampled to `fps` (30 if `fps = 0`) before anything is removed, even when `fps = 0` would

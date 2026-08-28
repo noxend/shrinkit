@@ -263,16 +263,71 @@ warn_near_miss_cuts_file() {
   done
 }
 
-# A "start-end" line per range to cut, in <name>.cuts next to <name>. "0-0:20" cuts the first 20s,
-# "2:30-end" cuts from 2:30 to the end -- "end" reaches the real length without knowing it. Prints
-# the ranges as sorted, merged "start end" pairs, one per line in seconds, or nothing if there is no
-# sidecar file or no valid line in it. A bad line is skipped and logged rather than spoiling the ones
-# around it. duration is the source's real length (video_duration()'s output), used to resolve "end"
-# and to catch a range that starts at or past the real end -- a partial overrun still cuts something
-# real and is left alone.
+# One "start-end" range to a "start end" pair in seconds, or nothing plus a log line saying why it
+# was rejected. where names the range's origin for that log line, since a range reaches here either
+# from the sidecar file or from --cut on the command line. duration is the source's real length
+# (video_duration()'s output), used to resolve "end" and to catch a range that starts at or past it.
+parse_cut_range() {
+  local line="$1" duration="$2" where="$3" shown start end
+  shown="${line:0:80}"
+  start="$(trim "${line%%-*}")"
+  end="$(trim "${line#*-}")"
+  start="$(parse_time "$start")"
+  # "end" reaches the real length without knowing it -- a bare trailing dash would do the same
+  # and never be confused with a negative number (nothing follows it to negate), but a bare
+  # leading dash would: "-0:20" reads exactly like negative twenty seconds to anyone who has not
+  # read this file's own rules first. "0-0:20" already means "from the start" on its own, so the
+  # start side gets no shorthand at all, only the end side does, and it is a real word, not a
+  # punctuation trick.
+  [[ "${(L)end}" == end ]] && end="$duration" || end="$(parse_time "$end")"
+  if [[ -z "$start" || -z "$end" ]] || ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b > a) }'; then
+    # TextEdit's Smart Dashes turns a typed "-" into an en dash the split above never sees, so the
+    # line reads as one blob with no separator at all -- worth naming, since it looks nothing like
+    # a formatting mistake to whoever typed it.
+    if [[ "$line" == *[–—]* && "$line" != *-* ]]; then
+      log "ignoring cut '$shown' $where (looks like a smart dash -- turn off Smart Dashes in TextEdit's Edit > Substitutions, or retype the -)"
+    else
+      log "ignoring cut '$shown' $where (want start-end, end after start)"
+    fi
+    return 1
+  fi
+  # Under one frame interval at any fps this tool allows (fps <= 240, 1 frame = ~4ms) can match
+  # no real frame at all, cutting nothing while still being logged and reported as a success. The
+  # 1e-9 slack is so a range typed as exactly 0.1s (e.g. 6.0-6.1) is not rejected over IEEE-754
+  # double subtraction landing a hair under 0.1 for some perfectly ordinary decimal pairs.
+  if ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b - a >= 0.1 - 1e-9) }'; then
+    log "ignoring cut '$shown' $where (too short to reliably cut, want at least 0.1s)"
+    return 1
+  fi
+  # Entirely past the end cuts nothing at all -- ffmpeg's own trim= just clamps to the real
+  # length, so without this check the range gets accepted, reported as "cut applied", and the
+  # source ships untouched. A range that only starts before the end and overruns past it is real
+  # and left alone; only "starts at or after the end" means nothing survives to be cut.
+  if awk -v a="$start" -v b="$duration" 'BEGIN { exit !(a >= b) }'; then
+    log "ignoring cut '$shown' $where (starts at or after the clip's real length, ${duration}s -- nothing to cut)"
+    return 1
+  fi
+  print -r -- "$start $end"
+}
+
+# The ranges to cut, from --cut if any were named there and from <name>.cuts next to <name>
+# otherwise. Prints them as sorted, merged "start end" pairs, one per line in seconds, or nothing
+# if there is no sidecar file and no --cut, or nothing valid in either. A bad range is skipped and
+# logged rather than spoiling the ones around it.
 read_cuts() {
-  local src="$1" duration="$2" cuts_file="${src}.cuts" line shown start end
+  local src="$1" duration="$2" cuts_file="${src}.cuts" line pair
   local -a pairs
+  # --cut replaces the sidecar rather than adding to it, the same way every other flag beats the
+  # file it has an equivalent in. Naming ranges on the command line and silently getting the file's
+  # as well would be the worse surprise of the two, so the file is ignored out loud instead.
+  if ((${#CUT_RANGES} > 0)); then
+    [[ -f "$cuts_file" ]] && log "using --cut, ignoring ${cuts_file:t}"
+    for line in "${CUT_RANGES[@]}"; do
+      pair="$(parse_cut_range "$line" "$duration" "from --cut")" && pairs+=("$pair")
+    done
+    ((${#pairs} > 0)) && printf '%s\n' "${pairs[@]}" | sort -n -k1,1 | merge_cut_ranges
+    return 0
+  fi
   if [[ ! -f "$cuts_file" ]]; then
     warn_near_miss_cuts_file "$src"
     return 0
@@ -287,41 +342,7 @@ read_cuts() {
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="$(trim "${line%%\#*}")"
     [[ -z "$line" ]] && continue
-    shown="${line:0:80}"
-    start="$(trim "${line%%-*}")"
-    end="$(trim "${line#*-}")"
-    start="$(parse_time "$start")"
-    # "end" reaches the real length without knowing it -- a bare trailing dash would do the same
-    # and never be confused with a negative number (nothing follows it to negate), but a bare
-    # leading dash would: "-0:20" reads exactly like negative twenty seconds to anyone who has not
-    # read this file's own rules first. "0-0:20" already means "from the start" on its own, so the
-    # start side gets no shorthand at all, only the end side does, and it is a real word, not a
-    # punctuation trick.
-    [[ "${(L)end}" == end ]] && end="$duration" || end="$(parse_time "$end")"
-    if [[ -z "$start" || -z "$end" ]] || ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b > a) }'; then
-      # TextEdit's Smart Dashes turns a typed "-" into an en dash the split above never sees, so the
-      # line reads as one blob with no separator at all -- worth naming, since it looks nothing like
-      # a formatting mistake to whoever typed it.
-      if [[ "$line" == *[–—]* && "$line" != *-* ]]; then
-        log "ignoring cut '$shown' in ${cuts_file:t} (looks like a smart dash -- turn off Smart Dashes in TextEdit's Edit > Substitutions, or retype the -)"
-      else
-        log "ignoring cut '$shown' in ${cuts_file:t} (want start-end, end after start)"
-      fi
-    # Under one frame interval at any fps this tool allows (fps <= 240, 1 frame = ~4ms) can match
-    # no real frame at all, cutting nothing while still being logged and reported as a success. The
-    # 1e-9 slack is so a range typed as exactly 0.1s (e.g. 6.0-6.1) is not rejected over IEEE-754
-    # double subtraction landing a hair under 0.1 for some perfectly ordinary decimal pairs.
-    elif ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b - a >= 0.1 - 1e-9) }'; then
-      log "ignoring cut '$shown' in ${cuts_file:t} (too short to reliably cut, want at least 0.1s)"
-    # Entirely past the end cuts nothing at all -- ffmpeg's own trim= just clamps to the real
-    # length, so without this check the range gets accepted, reported as "cut applied", and the
-    # source ships untouched. A range that only starts before the end and overruns past it is real
-    # and left alone; only "starts at or after the end" means nothing survives to be cut.
-    elif awk -v a="$start" -v b="$duration" 'BEGIN { exit !(a >= b) }'; then
-      log "ignoring cut '$shown' in ${cuts_file:t} (starts at or after the clip's real length, ${duration}s -- nothing to cut)"
-    else
-      pairs+=("$start $end")
-    fi
+    pair="$(parse_cut_range "$line" "$duration" "in ${cuts_file:t}")" && pairs+=("$pair")
   done < "$cuts_file"
   # Always 0 past this point, whether or not any line produced a usable range: a bad line already
   # got its own log entry above, and cuts_note() needs a plain 0 to tell "no ranges parsed" apart
@@ -341,12 +362,14 @@ merge_cut_ranges() {
   '
 }
 
-# ", cut applied" once at least one range took; ", cut requested but none applied" when the sidecar
-# was there but every line in it was rejected -- empty otherwise (no sidecar, or read_cuts already
-# notified directly about a harder failure, like a sidecar it could not read at all).
+# ", cut applied" once at least one range took; ", cut requested but none applied" when a cut was
+# asked for, by sidecar or by --cut, and every range in it was rejected -- empty otherwise (nothing
+# asked for a cut, or read_cuts already notified directly about a harder failure, like a sidecar it
+# could not read at all).
 cuts_note() {
   local src="$1" cuts="$2" rc="$3"
-  [[ -f "${src}.cuts" && "$rc" -eq 0 ]] || return 0
+  [[ "$rc" -eq 0 ]] || return 0
+  [[ -f "${src}.cuts" ]] || ((${#CUT_RANGES} > 0)) || return 0
   [[ -n "$cuts" ]] && print -r -- ", cut applied" || print -r -- ", cut requested but none applied -- see the log"
 }
 
@@ -864,6 +887,9 @@ Every setting is also a flag, so --crf 24 or --speed 3 changes one run without
 touching the config. A true/false setting takes no value: --remove-audio turns
 it on, --no-remove-audio turns it off.
 
+--cut takes one range, and repeats for more: --cut 0:32-0:35 --cut 2:30-end.
+It replaces the .cuts sidecar for that run rather than adding to it.
+
 A preset is a file of the same settings in $PRESET_DIR.
 Use one for a run with --preset <name>, or turn it into its own right-click
 entry with 'preset install <name>'.
@@ -880,6 +906,7 @@ right-click 'shrinkit: mark cuts' entry.
 # Every setting doubles as a flag, so there is no explicit list of them here.
 typeset -A OVERRIDES
 typeset -a FILES
+typeset -a CUT_RANGES
 PRESET=""
 
 # 1 means there is nothing left to do (--help), 2 means the command line was wrong.
@@ -899,6 +926,16 @@ parse_args() {
           return 2
         }
         PRESET="$1"
+        ;;
+      # Repeatable, one range each, so several cuts read the same on the command line as they do
+      # in a sidecar: one range per --cut, one range per line.
+      --cut)
+        shift
+        (($# > 0)) || {
+          print -u2 -r -- "--cut needs a range, e.g. --cut 0:32-0:35"
+          return 2
+        }
+        CUT_RANGES+=("$1")
         ;;
       --no-*)
         key="${${arg#--no-}//-/_}"
