@@ -82,6 +82,9 @@ A true/false setting takes no value: `--remove-audio` turns it on and `--no-remo
 off. Name no files and the flags apply to whatever is sitting in `input/`. Flags beat the config
 file.
 
+One flag is not a setting: `--cut` takes a range to remove from the recording, and needs the file
+named. See below.
+
 ## Cutting a stretch out of the middle
 
 From the command line, name the ranges with `--cut`, once each:
