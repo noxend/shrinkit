@@ -22,8 +22,55 @@ export LC_NUMERIC=C
 
 # --------------------------------------------------------------------- where things live
 
+# The path to write down whenever this script has to name itself: in the launchd plist, in a Quick
+# Action's command, in the Full Disk Access instructions. ZSH_ARGZERO:A resolves every symlink, so
+# under Homebrew it always answers with the versioned Cellar path whichever route was used to run
+# it (measured: through bin/, through opt/, and directly). That path disappears on the next
+# `brew upgrade`, silently taking every Finder entry and the agent with it, so it is mapped back to
+# brew's own per-formula path, which is documented as surviving upgrades.
+self_path() {
+  local self="${ZSH_ARGZERO:A}"
+  [[ "$self" == */Cellar/shrinkit/*/bin/shrinkit ]] \
+    && print -r -- "${self%/Cellar/shrinkit/*}/opt/shrinkit/bin/shrinkit" \
+    || print -r -- "$self"
+}
+
+# Where presets/ and quick-action/ are read from: beside the script in a checkout, and under
+# share/shrinkit in a Homebrew keg. SHRINKIT_REPO still wins when it is set at all, so the test
+# suite's explicit empty value keeps meaning "no data directory to find".
+data_dir() {
+  [[ -n "${SHRINKIT_REPO+set}" ]] && {
+    print -r -- "$SHRINKIT_REPO"
+    return
+  }
+  local here="${ZSH_ARGZERO:A:h}"
+  [[ -d "$here/quick-action" ]] && {
+    print -r -- "$here"
+    return
+  }
+  print -r -- "${here:h}/share/shrinkit"
+}
+
 BASE_DIR="${SHRINKIT_DIR:-$HOME/Movies/shrinkit}"
-REPO_DIR="${SHRINKIT_REPO:-}" # set by the installer; where the Quick Action template lives
+SELF="$(self_path)"
+REPO_DIR="$(data_dir)" # where the Quick Action template and the stock presets live
+# Installed without a .sh extension so it reads as "shrinkit", not "zsh", in the
+# System Settings > Login Items background list.
+BIN_DIR="$HOME/.local/bin"
+
+# What this script is called from the outside: the path written into the launchd plist, into every
+# Quick Action, and into the Full Disk Access instructions. Read afresh each time one is written,
+# since setup makes the link a step before it builds them. A checkout is reached through the link
+# setup puts on the PATH, so the name stays "shrinkit" and a git pull needs no reinstall; a keg has
+# brew's own bin for that, and setup makes no link, so there self_path answers.
+registered_path() {
+  local link="$BIN_DIR/shrinkit"
+  [[ -L "$link" && "${link:A}" == "$SELF" ]] && {
+    print -r -- "$link"
+    return
+  }
+  print -r -- "$SELF"
+}
 
 IN_DIR="$BASE_DIR/input"        # the watched folder
 DONE_DIR="$BASE_DIR/.processed" # originals end up here after a good encode
@@ -854,7 +901,7 @@ quick_action_template() {
 install_quick_action() {
   local name="$1" command="$2" template action
   template="$(quick_action_template)" || {
-    print -u2 -r -- "cannot find a Quick Action to copy; run install.sh first"
+    print -u2 -r -- "cannot find a Quick Action to copy (looked in ${REPO_DIR:-<unset>}/quick-action)"
     return 1
   }
 
@@ -880,7 +927,7 @@ install_preset_action() {
     return 1
   }
   install_quick_action "$name" \
-    "SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" --preset \"$name\" \"\$@\""
+    "SHRINKIT_DIR=\"$BASE_DIR\" \"$(registered_path)\" --preset \"$name\" \"\$@\""
 }
 
 remove_preset_action() {
@@ -917,7 +964,7 @@ preset_command() {
 # (creating it first if needed) so a cut can be marked before a normal preset runs on the file.
 install_cuts_action() {
   install_quick_action "mark cuts" \
-    "SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" mark-cuts \"\$@\""
+    "SHRINKIT_DIR=\"$BASE_DIR\" \"$(registered_path)\" mark-cuts \"\$@\""
 }
 
 # Seeds a .cuts sidecar with a header comment and the recording's own length, if one is not there
@@ -968,7 +1015,7 @@ mark_cuts_command() {
 # instead of shrinking any of them.
 install_merge_action() {
   install_quick_action merge \
-    "SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" merge \"\$@\""
+    "SHRINKIT_DIR=\"$BASE_DIR\" \"$(registered_path)\" merge \"\$@\""
 }
 
 # When a recording was made, in epoch seconds. Its own creation_time first, which QuickTime writes

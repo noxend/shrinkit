@@ -76,6 +76,12 @@ missing() {
 empty_dir() {
   [[ -z "$(ls -A "$1" 2> /dev/null)" ]]
 }
+contains() {
+  [[ "$1" == *"$2"* ]]
+}
+lacks() {
+  [[ "$1" != *"$2"* ]]
+}
 logged() {
   grep -q -- "$2" "$1/.logs/optimizer.log"
 }
@@ -158,7 +164,9 @@ settings() {
   print -rl -- "notify = false" "$@" > "$box/settings.conf"
 }
 
-# Runs the script under test. SHRINKIT_REPO is blank so the update check stays out of it.
+# Runs the script under test. SHRINKIT_REPO is blank rather than unset: the script falls back to
+# finding its data beside itself, and these tests want neither the checkout's presets nor its
+# Quick Action template reachable.
 optimize() {
   SHRINKIT_DIR="$1" SHRINKIT_REPO="" zsh "$OPTIMIZER"
 }
@@ -1637,6 +1645,56 @@ test_preset_that_does_not_exist_is_refused() {
     zsh "$OPTIMIZER" preset install nope > /dev/null 2>&1 || code=$?
   check "refuses to build an action for it" test "$code" = 2
   check "and builds nothing" missing "$HOME/Library/Services/shrinkit: nope.workflow"
+}
+
+# A Homebrew-shaped install: the script in a versioned Cellar directory, its data where a keg puts
+# it, and the per-formula opt symlink brew keeps pointing at the current version.
+brew_keg() {
+  local box="$1" keg="$1/brew/Cellar/shrinkit/9.9"
+  mkdir -p "$keg/bin" "$keg/share/shrinkit" "$box/brew/opt" "$box/home"
+  cp "$OPTIMIZER" "$keg/bin/shrinkit"
+  chmod +x "$keg/bin/shrinkit"
+  cp -R "$REPO_DIR/quick-action" "$REPO_DIR/presets" "$keg/share/shrinkit/"
+  ln -sfn "$keg" "$box/brew/opt/shrinkit"
+  # The keg's presets are the stock copies setup seeds on a first install; an entry is built from
+  # the one in the working folder, so that is where this has to be.
+  mkdir -p "$box/presets"
+  cp "$REPO_DIR/presets/2x.conf" "$box/presets/"
+}
+
+# The command a Quick Action runs: where the script has to write its own path down.
+action_command() {
+  plutil -extract actions.0.action.ActionParameters.COMMAND_STRING raw -o - \
+    "$1/Contents/document.wflow" 2> /dev/null
+}
+
+test_a_keg_install_finds_its_template_without_a_checkout() {
+  local box cmd
+  box="$(scratch)"
+  brew_keg "$box"
+  settings "$box" 'speed = 2'
+
+  HOME="$box/home" SHRINKIT_DIR="$box" \
+    "$box/brew/opt/shrinkit/bin/shrinkit" preset install 2x > /dev/null 2>&1
+
+  cmd="$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")"
+  check "builds the entry with nothing handed in from outside" test -n "$cmd"
+}
+
+test_a_keg_install_writes_a_path_that_survives_an_upgrade() {
+  local box cmd
+  box="$(scratch)"
+  brew_keg "$box"
+  settings "$box" 'speed = 2'
+
+  HOME="$box/home" SHRINKIT_DIR="$box" \
+    "$box/brew/opt/shrinkit/bin/shrinkit" preset install 2x > /dev/null 2>&1
+  cmd="$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")"
+
+  # The Cellar path is what ZSH_ARGZERO:A answers however the script was reached, and it is gone
+  # after the next brew upgrade, taking every Finder entry with it and saying nothing.
+  check "names the per-formula path" contains "$cmd" "/opt/shrinkit/bin/shrinkit"
+  check "not the versioned one" lacks "$cmd" "/Cellar/"
 }
 
 # --------------------------------------------------------------------- merging
