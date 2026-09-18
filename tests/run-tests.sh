@@ -2288,6 +2288,54 @@ test_setup_replaces_a_link_left_by_an_older_install_with_the_copy() {
   check "and the copy runs" test -x "$link"
 }
 
+test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {
+  local box script out
+  box="$(scratch)"
+  setup_box "$box"
+  script="$(guarded_checkout "$box")"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$script" setup > /dev/null 2>&1
+  check "the copy is there to begin with" exists "$box/home/.local/share/shrinkit/lib/merge.zsh"
+
+  out="$(run_teardown "$box" "$box/work" 2>&1)"
+
+  # An uninstall that says it is finished while 48K of the tool sits under ~/.local is not one.
+  check "takes the parts with it" missing "$box/home/.local/share/shrinkit"
+  check "and the copy on the PATH" missing "$box/home/.local/bin/shrinkit"
+  check "and says where they went" contains "$out" "$box/home/.local/share/shrinkit"
+}
+
+test_teardown_under_a_keg_claims_no_path_entry_of_its_own() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+  brew_keg "$box"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$box/brew/opt/shrinkit/bin/shrinkit" setup > /dev/null 2>&1
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$box/brew/opt/shrinkit/bin/shrinkit" teardown 2>&1)"
+
+  # setup_bin makes no link under a keg, so naming one here taught anyone reading the output that
+  # the list is boilerplate rather than a report.
+  check "removes the agent" missing "$box/home/Library/LaunchAgents/com.shrinkit.plist"
+  check "and does not name a PATH entry it never made" lacks "$out" "the PATH link"
+  check "nor one under ~/.local at all" lacks "$out" "$box/home/.local/bin"
+  check "and leaves brew's own binary alone" exists "$box/brew/Cellar/shrinkit/9.9/bin/shrinkit"
+}
+
+test_teardown_with_nothing_installed_says_so() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+
+  out="$(run_teardown "$box" "$box/work" 2>&1)"
+
+  check "reports that there was nothing here" contains "$out" "Nothing to remove"
+  check "and still says what it left alone" contains "$out" "$box/work"
+}
+
 test_teardown_finds_the_folder_it_registered_without_being_told() {
   local box
   box="$(scratch)"

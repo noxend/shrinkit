@@ -57,6 +57,10 @@ REPO_DIR="$(data_dir)" # where the Quick Action template and the stock presets l
 # Installed without a .sh extension so it reads as "shrinkit", not "zsh", in the
 # System Settings > Login Items background list.
 BIN_DIR="$HOME/.local/bin"
+# Where setup puts lib/ and the data when it has to copy the tool out of a guarded checkout, laid
+# out the way a Homebrew prefix is. Named here rather than inside setup_bin, because teardown has
+# to remove exactly what setup wrote.
+SHARE_DIR="$HOME/.local/share/shrinkit"
 
 # What this script is called from the outside: the path written into the launchd plist, into every
 # Quick Action, and into the Full Disk Access instructions. Read afresh each time one is written,

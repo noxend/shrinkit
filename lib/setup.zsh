@@ -147,7 +147,7 @@ setup_actions() {
 # to, into a ~/.local laid out exactly like a Homebrew prefix, which lib_dir() and data_dir()
 # already know how to read.
 setup_bin() {
-  local link="$BIN_DIR/shrinkit" share="$HOME/.local/share/shrinkit"
+  local link="$BIN_DIR/shrinkit" share="$SHARE_DIR"
   [[ "$SELF" == */opt/shrinkit/bin/shrinkit ]] && return 0
   mkdir -p "$BIN_DIR"
 
@@ -256,28 +256,55 @@ registered_base() {
   [[ -n "$from_plist" ]] && print -r -- "$from_plist" || print -r -- "$BASE_DIR"
 }
 
+# Every branch below reports only what it actually found, because the shapes differ: a keg install
+# has no PATH entry of ours and no copy under ~/.local/share, and a base folder on the Desktop has
+# no shortcut. Claiming all of it every time taught anyone reading the output to ignore it.
 teardown_command() {
-  local base link action
+  local base link action entries=0
+  local -a removed
   base="$(registered_base)"
 
   "$LAUNCHCTL" bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
-  rm -f "$PLIST"
+  [[ -f "$PLIST" ]] && {
+    rm -f "$PLIST"
+    removed+=("the agent")
+  }
 
-  # brew puts nothing in ~/.local/bin, so whatever is here is setup's link or an older install's
-  # copy, and either way it is ours to remove. A keg's own binary belongs to brew uninstall.
+  # brew puts nothing in ~/.local, so whatever is here is setup's link, an older install's copy, or
+  # the parts that come with such a copy. A keg's own binary belongs to brew uninstall.
   link="$BIN_DIR/shrinkit"
-  [[ -e "$link" || -L "$link" ]] && rm -f "$link"
+  [[ -e "$link" || -L "$link" ]] && {
+    rm -f "$link"
+    removed+=("$link")
+  }
+  # Written by setup_bin when the checkout it ran from was privacy-protected. Left behind until
+  # now, which made an uninstall that said it was finished leave 48K of the tool on disk.
+  [[ -d "$SHARE_DIR" ]] && {
+    rm -rf "$SHARE_DIR"
+    removed+=("$SHARE_DIR")
+  }
 
   # Only ever a shortcut, never a real folder somebody put there.
-  [[ -L "$HOME/Desktop/${base:t}" ]] && rm -f "$HOME/Desktop/${base:t}"
+  [[ -L "$HOME/Desktop/${base:t}" ]] && {
+    rm -f "$HOME/Desktop/${base:t}"
+    removed+=("the Desktop shortcut")
+  }
 
   # The same entries setup builds and rebuilds, matched the same way, with the command they run
   # read as well so a menu entry of somebody else's is never swept up for its name alone.
   for action in "$SERVICES_DIR"/shrinkit:*.workflow(N); do
-    grep -q "SHRINKIT_DIR=" "$action/Contents/document.wflow" 2> /dev/null && rm -rf "$action"
+    grep -q "SHRINKIT_DIR=" "$action/Contents/document.wflow" 2> /dev/null && {
+      rm -rf "$action"
+      ((entries++))
+    }
   done
+  ((entries)) && removed+=("$entries Finder entries")
   /System/Library/CoreServices/pbs -update 2> /dev/null || true
 
-  print -r -- "Removed the agent, the PATH link, the Desktop shortcut, and the Finder entries."
+  if ((${#removed})); then
+    print -r -- "Removed: ${(j:, :)removed}."
+  else
+    print -r -- "Nothing to remove: no agent, no PATH entry, no shortcut and no Finder entries."
+  fi
   print -r -- "Left in place (delete by hand if you want): $base"
 }
