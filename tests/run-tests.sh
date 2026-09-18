@@ -1639,12 +1639,14 @@ test_preset_that_does_not_exist_is_refused() {
   check "stops rather than guessing" test "$code" = 2
   check "leaves the file alone" exists "$box/input/clip.mov"
 
-  # the same for the Quick Action side, which must not write into ~/Library/Services
+  # The same for the Quick Action side. HOME is the sandbox here: the assertion is about a folder
+  # the script must not write into, and pointing it at the real one makes a passing test depend on
+  # the developer's own machine and a failing one damage it.
   code=0
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+  HOME="$box/home" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" preset install nope > /dev/null 2>&1 || code=$?
   check "refuses to build an action for it" test "$code" = 2
-  check "and builds nothing" missing "$HOME/Library/Services/shrinkit: nope.workflow"
+  check "and builds nothing" missing "$box/home/Library/Services/shrinkit: nope.workflow"
 }
 
 # A Homebrew-shaped install: the script in a versioned Cellar directory, its data where a keg puts
@@ -1988,6 +1990,218 @@ test_a_comma_decimal_locale_does_not_move_a_fractional_cut() {
   out="$box/output/clip.mp4"
   check "cuts the fraction it was given, not the whole second" duration_near "$out" 5.8
   check "and reports the cut as applied" logged "$box" ', cut applied'
+}
+
+# --------------------------------------------------------------------- setup and teardown
+
+# A sandboxed HOME, a Desktop to put the shortcut on, and a launchctl that records what it was
+# asked for instead of doing it. The real one needs an Aqua session CI does not have, and on a
+# developer's machine a test would boot out the agent they are actually using.
+setup_box() {
+  local box="$1"
+  mkdir -p "$box/home/Desktop" "$box/bin"
+  cat > "$box/bin/launchctl" << STUB
+#!/bin/zsh
+print -r -- "\$@" >> "$box/launchctl.log"
+STUB
+  chmod +x "$box/bin/launchctl"
+}
+
+# run_setup <box> [base folder]. SHRINKIT_REPO is deliberately left unset: finding presets/ and
+# quick-action/ beside the script is the thing a Homebrew install depends on.
+run_setup() {
+  local box="$1" base="${2:-$1/work}"
+  HOME="$box/home" SHRINKIT_DIR="$base" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    zsh "$OPTIMIZER" setup
+}
+
+# run_teardown <box> [base folder]. With no base folder the variable is unset, which is how a
+# custom install is usually torn down: from a new shell that never exported it.
+run_teardown() {
+  local box="$1" base="${2:-}"
+  if [[ -n "$base" ]]; then
+    HOME="$box/home" SHRINKIT_DIR="$base" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+      zsh "$OPTIMIZER" teardown
+  else
+    HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" teardown
+  fi
+}
+
+plist_value() {
+  plutil -extract "$2" raw -o - "$1" 2> /dev/null
+}
+links_to() {
+  [[ -L "$1" && "${1:A}" == "${2:A}" ]]
+}
+is_dir() {
+  [[ -d "$1" && ! -L "$1" ]]
+}
+action_count() {
+  print -r -- "${#${(@f)$(print -rl -- "$1"/shrinkit:*.workflow(N))}}"
+}
+
+test_setup_registers_the_script_that_is_running() {
+  local box plist
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+
+  plist="$box/home/Library/LaunchAgents/com.shrinkit.plist"
+  check "writes the agent" exists "$plist"
+  check "watching the input folder" \
+    test "$(plist_value "$plist" WatchPaths.0)" = "$box/work/input"
+  check "carrying the working folder" \
+    test "$(plist_value "$plist" EnvironmentVariables.SHRINKIT_DIR)" = "$box/work"
+  # The installer used to copy the script and point the agent at the copy, so a git pull left the
+  # agent running yesterday's version with nothing anywhere to say so.
+  check "runs the link on the PATH" \
+    test "$(plist_value "$plist" ProgramArguments.0)" = "$box/home/.local/bin/shrinkit"
+  check "which is this very script" links_to "$box/home/.local/bin/shrinkit" "$OPTIMIZER"
+  # The agent and the menu entries have to name the same program, or an upgrade or a move fixes
+  # one and leaves the other pointing at nothing.
+  check "and the menu entries name it too" \
+    contains "$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")" \
+    "$box/home/.local/bin/shrinkit"
+  check "and hands the agent no data directory to go stale" \
+    test -z "$(plist_value "$plist" EnvironmentVariables.SHRINKIT_REPO)"
+}
+
+test_setup_makes_the_folders_and_loads_the_agent() {
+  local box dir
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+
+  for dir in input output .processed .logs presets; do
+    check "creates $dir/" test -d "$box/work/$dir"
+  done
+  check "installs the settings" exists "$box/work/settings.conf"
+  check "links the Desktop shortcut" links_to "$box/home/Desktop/work" "$box/work"
+  # Reloading rather than loading: bootstrap over an already-loaded label is an error, so a second
+  # setup would fail without the bootout in front of it.
+  check "boots the old agent out" grep -q "^bootout gui/$(id -u)/com.shrinkit$" "$box/launchctl.log"
+  check "then bootstraps the new one" \
+    grep -q "^bootstrap gui/$(id -u) $box/home/Library/LaunchAgents/com.shrinkit.plist$" "$box/launchctl.log"
+}
+
+test_setup_builds_one_entry_per_preset_and_sweeps_the_rest() {
+  local box services
+  box="$(scratch)"
+  setup_box "$box"
+  services="$box/home/Library/Services"
+  mkdir -p "$services"
+  cp -R "$REPO_DIR/quick-action/shrinkit.workflow" "$services/shrinkit: gone.workflow"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  # three stock presets, plus mark cuts and merge
+  check "one entry per preset plus the two that are not presets" \
+    test "$(action_count "$services")" = 5
+  check "a preset that no longer exists leaves no entry" missing "$services/shrinkit: gone.workflow"
+  check "and the preset entries are there" exists "$services/shrinkit: 2x.workflow/Contents/Info.plist"
+}
+
+test_setup_run_again_keeps_the_settings_and_the_presets() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+
+  print -r -- "crf = 19" >> "$box/work/settings.conf"
+  rm -f "$box/work/presets/tiny.conf"
+  run_setup "$box" > /dev/null 2>&1
+
+  check "never overwrites the settings" grep -q "crf = 19" "$box/work/settings.conf"
+  check "and does not repopulate a preset you deleted" missing "$box/work/presets/tiny.conf"
+  check "so its entry is gone too" missing "$box/home/Library/Services/shrinkit: tiny.workflow"
+}
+
+test_setup_renames_the_presets_that_were_renamed() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  mkdir -p "$box/work/presets"
+  print -r -- "crf = 32" > "$box/work/presets/chat.conf"
+  print -r -- "crf = 18" > "$box/work/presets/hq.conf"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  check "chat becomes tiny" exists "$box/work/presets/tiny.conf"
+  check "and is gone under the old name" missing "$box/work/presets/chat.conf"
+  check "hq becomes sharp" exists "$box/work/presets/sharp.conf"
+  check "keeping what was in it" grep -q "crf = 18" "$box/work/presets/sharp.conf"
+}
+
+test_setup_never_replaces_a_real_folder_on_the_desktop() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  mkdir -p "$box/home/Desktop/work"
+  print -r -- "mine" > "$box/home/Desktop/work/notes.txt"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  check "leaves the folder as it found it" is_dir "$box/home/Desktop/work"
+  check "with what was inside it" exists "$box/home/Desktop/work/notes.txt"
+}
+
+test_setup_replaces_an_older_installs_copy_with_a_link() {
+  local box link
+  box="$(scratch)"
+  setup_box "$box"
+  link="$box/home/.local/bin/shrinkit"
+  mkdir -p "$link:h"
+  print -r -- "#!/bin/zsh" > "$link"
+  chmod +x "$link"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  check "the stale copy becomes a link to the real script" links_to "$link" "$OPTIMIZER"
+}
+
+test_teardown_finds_the_folder_it_registered_without_being_told() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" "$box/elsewhere" > /dev/null 2>&1
+  check "the shortcut is there to begin with" links_to "$box/home/Desktop/elsewhere" "$box/elsewhere"
+
+  # No SHRINKIT_DIR: the plist it is about to delete is the only thing that still knows.
+  run_teardown "$box" > /dev/null 2>&1
+
+  check "removes the agent" missing "$box/home/Library/LaunchAgents/com.shrinkit.plist"
+  check "boots it out first" grep -q "^bootout gui/$(id -u)/com.shrinkit$" "$box/launchctl.log"
+  check "removes the PATH link" missing "$box/home/.local/bin/shrinkit"
+  check "removes that folder's Desktop shortcut" missing "$box/home/Desktop/elsewhere"
+  check "removes the Finder entries" test "$(action_count "$box/home/Library/Services")" = 0
+}
+
+test_teardown_leaves_the_recordings_and_the_settings_alone() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" "$box/elsewhere" > /dev/null 2>&1
+  print -r -- "crf = 19" >> "$box/elsewhere/settings.conf"
+  cp "$FIXTURES/silent.mov" "$box/elsewhere/input/clip.mov"
+
+  run_teardown "$box" > /dev/null 2>&1
+
+  check "keeps the settings" grep -q "crf = 19" "$box/elsewhere/settings.conf"
+  check "keeps what was waiting to be processed" exists "$box/elsewhere/input/clip.mov"
+  check "and the presets" exists "$box/elsewhere/presets/2x.conf"
+}
+
+test_teardown_never_takes_a_real_folder_off_the_desktop() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  rm -f "$box/home/Desktop/work"
+  mkdir -p "$box/home/Desktop/work"
+
+  run_teardown "$box" > /dev/null 2>&1
+
+  check "leaves it where it is" is_dir "$box/home/Desktop/work"
 }
 
 # --------------------------------------------------------------------- run them

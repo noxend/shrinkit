@@ -22,30 +22,36 @@ https://github.com/user-attachments/assets/651900d7-0171-4793-b6fd-5d1d5097ee98
 ## Requirements
 
 - macOS
-- [ffmpeg](https://ffmpeg.org). The installer offers to fetch it with [Homebrew](https://brew.sh)
-  if you do not have it.
+- [ffmpeg](https://ffmpeg.org). `setup` offers to fetch it with [Homebrew](https://brew.sh) if you
+  do not have it.
 
 ## Install
 
 ```bash
 git clone https://github.com/noxend/shrinkit.git
 cd shrinkit
-./install.sh
+./shrinkit.sh setup
 ```
 
-The installer copies the script to `~/.local/bin/shrinkit`, creates the working folders under
-`~/Movies/shrinkit`, registers a launchd agent that watches `input/`, and puts a `shrinkit`
-shortcut on your Desktop. Run it again any time to update; it never overwrites your settings.
+`setup` creates the working folders under `~/Movies/shrinkit`, registers a launchd agent that
+watches `input/`, builds the right-click entries, and puts a `shrinkit` shortcut on your Desktop
+and a `shrinkit` command on your PATH. Run it again any time; it never overwrites your settings.
+`./install.sh` still works and does exactly this.
 
 For a different working folder:
 
 ```bash
-SHRINKIT_DIR="$HOME/Movies/clips" ./install.sh
+SHRINKIT_DIR="$HOME/Movies/clips" ./shrinkit.sh setup
 ```
+
+The agent runs the checkout you set up from, rather than a copy of it, so `git pull` is picked up
+with nothing to reinstall. The price is that the checkout has to stay where it is: move or delete
+it and dropping a recording into `input/` quietly does nothing, because the agent has nothing left
+to run. Run `setup` again from the new location to fix that.
 
 `~/Desktop`, `~/Documents` and `~/Downloads` are guarded by macOS privacy protection, and a
 background job is refused there until you grant it Full Disk Access by hand. If you install into
-one of them the script prints the steps. Anywhere else, `~/Movies` included, needs nothing.
+one of them `setup` prints the steps. Anywhere else, `~/Movies` included, needs nothing.
 
 ## Use
 
@@ -66,8 +72,8 @@ result is named after the preset that ran, `clip-2x.mp4`, `clip-sharp.mp4` or `c
 lands beside the original, which stays where it is. You can select several files to do them
 together.
 
-Add a preset and it becomes a new entry; the installer rebuilds the menu from `presets/` every
-time it runs. Two entries aren't presets: `shrinkit: mark cuts`, for marking a stretch to remove
+Add a preset and it becomes a new entry; `setup` rebuilds the menu from `presets/` every time it
+runs. Two entries aren't presets: `shrinkit: mark cuts`, for marking a stretch to remove
 before shrinking, and `shrinkit: merge`, for joining several recordings into one. Both are below.
 
 ## One-off changes on the command line
@@ -239,7 +245,7 @@ here will never leave a recording unprocessed.
 | `copy_to_clipboard` | Put the finished file on the clipboard, ready to paste | `false` |
 
 Logs go to a hidden `.logs/` folder. The watched folder is fixed when you install, because launchd
-wants an absolute path; to move it, run the installer again with `SHRINKIT_DIR`. To have results
+wants an absolute path; to move it, run `setup` again with `SHRINKIT_DIR`. To have results
 land somewhere else, a synced folder for instance, replace `output/` with a symlink to it.
 
 System Settings > Login Items will list `shrinkit` from an unidentified developer. That is your own
@@ -248,11 +254,13 @@ script rather than a signed application, so there is nothing to sign.
 ## Update and uninstall
 
 ```bash
-./update.sh      # pull and reinstall; settings and recordings are untouched
-./uninstall.sh   # remove the agent, the script and the menu entries
+git pull              # the agent runs your checkout, so there is nothing to reinstall
+shrinkit teardown     # remove the agent, the PATH link, the shortcut and the menu entries
 ```
 
-Uninstalling leaves your recordings and settings where they are.
+Run `setup` again after a `git pull` only when the release notes say to, which means the agent or
+the menu entries themselves changed. Tearing down leaves your recordings and settings where they
+are.
 
 ## License
 
