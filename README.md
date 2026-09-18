@@ -49,6 +49,11 @@ with nothing to reinstall. The price is that the checkout has to stay where it i
 it and dropping a recording into `input/` quietly does nothing, because the agent has nothing left
 to run. Run `setup` again from the new location to fix that.
 
+A clone inside `~/Desktop`, `~/Documents` or `~/Downloads` is the exception. macOS guards those
+three, and neither the background agent nor a right-click entry can read a file in one, so `setup`
+copies the tool to `~/.local` instead of pointing at the clone and says so. Everything works the
+same afterwards, except that `git pull` no longer reaches the copy: run `setup` again after one.
+
 `~/Desktop`, `~/Documents` and `~/Downloads` are guarded by macOS privacy protection, and a
 background job is refused there until you grant it Full Disk Access by hand. If you install into
 one of them `setup` prints the steps. Anywhere else, `~/Movies` included, needs nothing.
