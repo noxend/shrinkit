@@ -6,8 +6,10 @@ end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-# shfmt reads these, so `shfmt -w .` formats every script the same way.
-[*.sh]
+# shfmt reads these, so `shfmt -w .` formats every script the same way. zsh is named as well as
+# sh: the parts under lib/ carry that extension, and without it they are formatted to shfmt's own
+# defaults while `shfmt -d .` still calls the result clean.
+[*.{sh,zsh}]
 indent_style = space
 indent_size = 2
 switch_case_indent = true
