@@ -762,12 +762,10 @@ quick_action_template() {
   return 1
 }
 
-install_preset_action() {
-  local name="$1" template action command
-  [[ -f "$(preset_file "$name")" ]] || {
-    print -u2 -r -- "no preset called '$name' (looked in $PRESET_DIR)"
-    return 1
-  }
+# One entry in the right-click menu: the template copied into ~/Library/Services, with the command
+# it runs and the name it shows replaced. Every entry differs only in those two.
+install_quick_action() {
+  local name="$1" command="$2" template action
   template="$(quick_action_template)" || {
     print -u2 -r -- "cannot find a Quick Action to copy; run install.sh first"
     return 1
@@ -778,7 +776,6 @@ install_preset_action() {
   rm -rf "$action"
   cp -R "$template" "$action"
 
-  command="SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" --preset \"$name\" \"\$@\""
   plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$command" \
     "$action/Contents/document.wflow"
   plutil -replace CFBundleName -string "shrinkit: $name" "$action/Contents/Info.plist"
@@ -787,6 +784,16 @@ install_preset_action() {
   /System/Library/CoreServices/pbs -update 2> /dev/null || true
 
   print -r -- "right-click a video > shrinkit: $name"
+}
+
+install_preset_action() {
+  local name="$1"
+  [[ -f "$(preset_file "$name")" ]] || {
+    print -u2 -r -- "no preset called '$name' (looked in $PRESET_DIR)"
+    return 1
+  }
+  install_quick_action "$name" \
+    "SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" --preset \"$name\" \"\$@\""
 }
 
 remove_preset_action() {
@@ -822,26 +829,8 @@ preset_command() {
 # A fixed Quick Action, not tied to any preset: it doesn't shrink anything, only opens the sidecar
 # (creating it first if needed) so a cut can be marked before a normal preset runs on the file.
 install_cuts_action() {
-  local template action command
-  template="$(quick_action_template)" || {
-    print -u2 -r -- "cannot find a Quick Action to copy; run install.sh first"
-    return 1
-  }
-
-  action="$SERVICES_DIR/shrinkit: mark cuts.workflow"
-  mkdir -p "$SERVICES_DIR"
-  rm -rf "$action"
-  cp -R "$template" "$action"
-
-  command="SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" mark-cuts \"\$@\""
-  plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$command" \
-    "$action/Contents/document.wflow"
-  plutil -replace CFBundleName -string "shrinkit: mark cuts" "$action/Contents/Info.plist"
-  plutil -replace NSServices.0.NSMenuItem.default -string "shrinkit: mark cuts" \
-    "$action/Contents/Info.plist"
-  /System/Library/CoreServices/pbs -update 2> /dev/null || true
-
-  print -r -- "right-click a video > shrinkit: mark cuts"
+  install_quick_action "mark cuts" \
+    "SHRINKIT_DIR=\"$BASE_DIR\" \"${ZSH_ARGZERO:A}\" mark-cuts \"\$@\""
 }
 
 # Seeds a .cuts sidecar with a header comment and the recording's own length, if one is not there
