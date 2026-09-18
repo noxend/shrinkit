@@ -2159,6 +2159,26 @@ test_setup_replaces_an_older_installs_copy_with_a_link() {
   check "the stale copy becomes a link to the real script" links_to "$link" "$OPTIMIZER"
 }
 
+test_setup_run_from_the_path_link_leaves_itself_runnable() {
+  local box link
+  box="$(scratch)"
+  setup_box "$box"
+  link="$box/home/.local/bin/shrinkit"
+  mkdir -p "${link:h}"
+  cp "$OPTIMIZER" "$link"
+  chmod +x "$link"
+  cp -R "$REPO_DIR/quick-action" "$REPO_DIR/presets" "$REPO_DIR/settings.conf" "${link:h}/"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$link" setup > /dev/null 2>&1
+
+  # The shape an install takes once its checkout is gone: this file is the only shrinkit left, and
+  # it is the one running. Relinking it over itself leaves a link pointing at its own name, and
+  # there is then no shrinkit at all.
+  check "the script it was run from survives" test -f "$link"
+  check "and is still a script" zsh -n "$link"
+}
+
 test_teardown_finds_the_folder_it_registered_without_being_told() {
   local box
   box="$(scratch)"

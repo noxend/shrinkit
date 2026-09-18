@@ -1457,8 +1457,11 @@ setup_bin_link() {
   local link="$BIN_DIR/shrinkit"
   [[ "$SELF" == */opt/shrinkit/bin/shrinkit ]] && return 0
   # An old install whose checkout is gone leaves this file as the only shrinkit there is, and it is
-  # then what is running: ln -sfn would unlink it and leave a link pointing at itself.
-  [[ "$link" == "$SELF" ]] && return 0
+  # then what is running: ln -sfn would unlink it and leave a link pointing at itself, which is the
+  # end of that install. Resolved on both sides, since $SELF is and $link is not: with a home
+  # directory behind a symlink of its own the two spell the same file differently, the guard misses,
+  # and the script deletes itself. Measured under /tmp, which is such a path on macOS.
+  [[ "${link:A}" == "$SELF" ]] && return 0
   mkdir -p "$BIN_DIR"
   # A file the user can see changes kind here, from a copy of the script to a link to it.
   [[ -f "$link" && ! -L "$link" ]] \
