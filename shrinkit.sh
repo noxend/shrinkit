@@ -166,6 +166,9 @@ typeset -A DEFAULTS=(
 )
 typeset -A CFG
 CFG=("${(@kv)DEFAULTS}")
+# What the config file asked for on a key whose value did not survive validation, so "config" can
+# show the value that is really in effect and still say what was in the file.
+typeset -A IGNORED
 
 trim() {
   print -r -- "${${1##[[:space:]]#}%%[[:space:]]#}"
@@ -179,7 +182,14 @@ read_settings() {
     [[ -z "$line" || "$line" == '#'* || "$line" != *=* ]] && continue
     key="${(L)${line%%=*}//[[:space:]]/}"
     value="$(trim "${line#*=}")"
-    [[ -n "${DEFAULTS[$key]+known}" ]] && CFG[$key]="${value//\"/}"
+    # A key that is not in DEFAULTS is dropped on purpose, which is what keeps a typo harmless.
+    # Logged all the same: a setting that used to work and quietly stopped, output_suffix say,
+    # otherwise leaves the file looking as if it still does something.
+    if [[ -n "${DEFAULTS[$key]+known}" ]]; then
+      CFG[$key]="${value//\"/}"
+    else
+      log "ignoring '$key' in ${1:t}: not a setting"
+    fi
   done < "$1"
 }
 
@@ -218,32 +228,74 @@ is_bool() {
   [[ "$1" == true || "$1" == false ]]
 }
 
-# Put one setting back to its default and say so, so a bad value never stops a run.
+# One key's rule, asked about one value, with the words that describe the rule living in the same
+# arm. Written this way so "config" can check a single value before writing it and before showing
+# it, without any of these ranges being spelled out in a second or third place. Prints the reason
+# and returns non-zero when the value does not fit; says nothing when it does.
+check_setting() {
+  local key="$1" value="$2" reason=
+  case "$key" in
+    speed)
+      reason="want a number above 0"
+      is_num "$value" && awk -v s="$value" 'BEGIN { exit !(s > 0) }' && return 0
+      ;;
+    fps)
+      # Capped, so a mistyped value cannot hang the encode.
+      reason="want 0-240"
+      is_int "$value" && ((value <= 240)) && return 0
+      ;;
+    crf)
+      reason="want 0-51"
+      is_int "$value" && ((value <= 51)) && return 0
+      ;;
+    max_height)
+      reason="want a whole number"
+      is_int "$value" && return 0
+      ;;
+    codec)
+      reason="want h264 or hevc"
+      [[ "$value" == h264 || "$value" == hevc ]] && return 0
+      ;;
+    keep_days)
+      # The digit count is bounded before the value ever reaches zsh arithmetic: a long enough
+      # digit string gets silently truncated there rather than rejected, and could slip through a
+      # bare <=3650 comparison at the wrong truncated value. Capped well short of where
+      # keep_days*86400 overflows and wraps the cutoff into the future, which would prune
+      # everything in .processed/ in one pass, freshly-archived files included.
+      reason="want 0-3650"
+      [[ "$value" =~ ^[0-9]{1,4}$ ]] && ((value <= 3650)) && return 0
+      ;;
+    remove_audio | keep_original | notify | notify_start | copy_to_clipboard)
+      reason="want true or false"
+      is_bool "$value" && return 0
+      ;;
+    *)
+      # notify_sound and anything added later. The sound is looked up by macOS at banner time and
+      # a miss is silent, so there is nothing there worth refusing; a new setting that does need a
+      # rule gets an arm of its own above.
+      return 0
+      ;;
+  esac
+  print -r -- "$reason"
+  return 1
+}
+
+# Put one setting back to its default and say so, so a bad value never stops a run. What the file
+# asked for is kept, because "config" has to be able to show both.
 reject() {
   local key="$1" reason="$2"
   log "ignoring $key='${CFG[$key]}' ($reason), using '${DEFAULTS[$key]}'"
+  IGNORED[$key]="${CFG[$key]}"
   CFG[$key]="${DEFAULTS[$key]}"
 }
 
+# Ordered, not the bare key expansion: an unordered loop would shuffle these log lines from one
+# run to the next for no reason.
 validate_config() {
-  is_num "${CFG[speed]}" && awk -v s="${CFG[speed]}" 'BEGIN { exit !(s > 0) }' \
-    || reject speed "want a number above 0"
-  # Capped, so a mistyped value cannot hang the encode.
-  is_int "${CFG[fps]}" && ((CFG[fps] <= 240)) || reject fps "want 0-240"
-  is_int "${CFG[crf]}" && ((CFG[crf] <= 51)) || reject crf "want 0-51"
-  is_int "${CFG[max_height]}" || reject max_height "want a whole number"
-  [[ "${CFG[codec]}" == h264 || "${CFG[codec]}" == hevc ]] || reject codec "want h264 or hevc"
-  is_bool "${CFG[remove_audio]}" || reject remove_audio "want true or false"
-  is_bool "${CFG[keep_original]}" || reject keep_original "want true or false"
-  # The digit count is bounded before the value ever reaches zsh arithmetic: a long enough digit
-  # string gets silently truncated there rather than rejected, and could slip through a bare
-  # <=3650 comparison at the wrong truncated value. Capped well short of where keep_days*86400
-  # overflows and wraps the cutoff into the future, which would prune everything in .processed/
-  # in one pass, freshly-archived files included.
-  [[ "${CFG[keep_days]}" =~ ^[0-9]{1,4}$ ]] && ((CFG[keep_days] <= 3650)) || reject keep_days "want 0-3650"
-  is_bool "${CFG[notify]}" || reject notify "want true or false"
-  is_bool "${CFG[notify_start]}" || reject notify_start "want true or false"
-  is_bool "${CFG[copy_to_clipboard]}" || reject copy_to_clipboard "want true or false"
+  local key reason
+  for key in "${(@ko)DEFAULTS}"; do
+    reason="$(check_setting "$key" "${CFG[$key]}")" || reject "$key" "$reason"
+  done
 }
 
 # What a shrunk <name>.mov is called: named after the preset that ran, so the file says which one
@@ -866,17 +918,33 @@ release_lock() {
 
 # --------------------------------------------------------------------- the config subcommand
 
+# What a run would use, not what the file says: validate_config has already put any value that does
+# not fit back to its default, and a key it had to reject says so on its own line. Printing the
+# file's own text here let a typo look live while every recording was encoded at the default.
 config_show() {
   local key
-  for key in "${(@ko)CFG}"; do print -r -- "$key = ${CFG[$key]}"; done
+  for key in "${(@ko)CFG}"; do
+    if [[ -n "${IGNORED[$key]+set}" ]]; then
+      print -r -- "$key = ${CFG[$key]}   (ignoring '${IGNORED[$key]}' in settings.conf)"
+    else
+      print -r -- "$key = ${CFG[$key]}"
+    fi
+  done
 }
 
 # Rewrites the one line in place so the comments around it survive; a setting the file never
 # mentioned is appended.
 config_set() {
-  local key="${(L)${1//-/_}}" value="$2" line tmp found=0
+  local key="${(L)${1//-/_}}" value="$2" line tmp found=0 reason
   [[ -n "${DEFAULTS[$key]+known}" ]] || {
     print -u2 -r -- "unknown setting: $1"
+    return 1
+  }
+  # The same rule a run applies, applied before the value reaches the file. Writing it first and
+  # rejecting it later left settings.conf holding a number no recording would ever be encoded at,
+  # while the command that wrote it said nothing.
+  reason="$(check_setting "$key" "$value")" || {
+    print -u2 -r -- "$key: $reason, not '$value'"
     return 1
   }
 
@@ -910,6 +978,7 @@ config_command() {
   case "${1-}" in
     "" | show)
       read_config
+      validate_config
       config_show
       ;;
     edit)

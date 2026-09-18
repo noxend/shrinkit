@@ -1556,6 +1556,62 @@ test_config_show_lists_what_is_in_effect() {
   check "and a setting the file never named" grep -q '^codec = h264$' <<< "$out"
 }
 
+test_config_show_reports_the_default_when_the_file_is_wrong() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'crf = banana'
+
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" config)"
+
+  # A run encodes this at 28 and logs why. Printing the file's own text here let the typo look
+  # live, which is the one thing this command exists to answer.
+  check "shows the value a run would use" grep -q '^crf = 28' <<< "$out"
+  check "and never the one that was refused" lacks "$out" "crf = banana"
+  check "and says what it is ignoring" contains "$out" "ignoring 'banana'"
+}
+
+test_config_set_refuses_a_value_outside_the_range() {
+  local box code=0 out
+  box="$(sandbox)"
+  settings "$box" 'crf = 31'
+
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" config crf 99 2>&1)" || code=$?
+
+  # crf stops at 51. Writing 99 and rejecting it on the next run left the file holding a number no
+  # recording would ever be encoded at.
+  check "stops rather than writing it" test "$code" = 2
+  check "and names the range" contains "$out" "want 0-51"
+  check "and leaves the file as it was" grep -q '^crf = 31$' "$box/settings.conf"
+}
+
+test_a_setting_that_is_not_one_leaves_a_line_in_the_log() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'crf = 31' 'output_suffix = -2x'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" > /dev/null 2>&1
+
+  # output_suffix was a setting once. Dropping it silently left a config file that looked as if it
+  # still did something, and an output named by rules nobody could find.
+  check "names the key it dropped" logged "$box" "ignoring 'output_suffix'"
+  check "and the file it came from" logged "$box" "settings.conf"
+  check "while the run itself goes through" exists "$box/output/clip.mp4"
+}
+
+test_a_preset_key_that_is_not_a_setting_is_logged_too() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'crf = 31'
+  mkdir -p "$box/presets"
+  print -rl -- 'crf = 20' 'output_suffix = -hq' > "$box/presets/sharp.conf"
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --preset sharp > /dev/null 2>&1
+
+  check "a preset goes through the same reader" logged "$box" "ignoring 'output_suffix' in sharp.conf"
+}
+
 test_config_set_edits_the_line_in_place() {
   local box
   box="$(sandbox)"
