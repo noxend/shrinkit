@@ -2179,6 +2179,26 @@ test_setup_run_from_the_path_link_leaves_itself_runnable() {
   check "and is still a script" zsh -n "$link"
 }
 
+test_setup_points_the_privacy_grant_at_the_registered_binary() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+
+  # Desktop, Documents and Downloads are the three macOS refuses a background job in until the
+  # binary is granted Full Disk Access by hand.
+  out="$(run_setup "$box" "$box/home/Desktop/clips" 2>&1)"
+
+  check "says the one-time step is needed" contains "$out" "Full Disk Access"
+  # Scoped to the line that carries the path to paste. Asserting against the whole output passes on
+  # the "On your PATH" line setup prints earlier, whatever the note itself says.
+  # The grant is per binary path. A note naming anything but the path the agent actually runs sends
+  # the user to grant access to a file that is never the one refused.
+  check "and names the path the agent runs" \
+    contains "$(print -r -- "$out" | grep 'paste:')" "$box/home/.local/bin/shrinkit"
+  check "no shortcut to a folder already on the Desktop" \
+    missing "$box/home/Desktop/clips/clips"
+}
+
 test_teardown_finds_the_folder_it_registered_without_being_told() {
   local box
   box="$(scratch)"
