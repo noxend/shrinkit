@@ -294,11 +294,13 @@ warn_near_miss_cuts_file() {
 }
 
 # One "start-end" range to a "start end" pair in seconds, or nothing plus a log line saying why it
-# was rejected. where names the range's origin for that log line, since a range reaches here either
-# from the sidecar file or from --cut on the command line. duration is the source's real length
-# (video_duration()'s output), used to resolve "end" and to catch a range that starts at or past it.
-parse_cut_range() {
-  local line="$1" duration="$2" where="$3" shown start end
+# was rejected. where names the range's origin for that log line, since a range reaches here from
+# the sidecar file, from --cut or from --keep. kind is "cut" or "keep", and changes only how a
+# rejection reads: a range is a range, and parses the same either way. duration is the source's
+# real length (video_duration()'s output), used to resolve "end" and to catch a range that starts
+# at or past it.
+parse_range() {
+  local line="$1" duration="$2" where="$3" kind="$4" shown start end
   shown="${line:0:80}"
   start="$(trim "${line%%-*}")"
   end="$(trim "${line#*-}")"
@@ -315,9 +317,9 @@ parse_cut_range() {
     # line reads as one blob with no separator at all -- worth naming, since it looks nothing like
     # a formatting mistake to whoever typed it.
     if [[ "$line" == *[–—]* && "$line" != *-* ]]; then
-      log "ignoring cut '$shown' $where (looks like a smart dash -- turn off Smart Dashes in TextEdit's Edit > Substitutions, or retype the -)"
+      log "ignoring $kind '$shown' $where (looks like a smart dash -- turn off Smart Dashes in TextEdit's Edit > Substitutions, or retype the -)"
     else
-      log "ignoring cut '$shown' $where (want start-end, end after start)"
+      log "ignoring $kind '$shown' $where (want start-end, end after start)"
     fi
     return 1
   fi
@@ -326,34 +328,57 @@ parse_cut_range() {
   # 1e-9 slack is so a range typed as exactly 0.1s (e.g. 6.0-6.1) is not rejected over IEEE-754
   # double subtraction landing a hair under 0.1 for some perfectly ordinary decimal pairs.
   if ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b - a >= 0.1 - 1e-9) }'; then
-    log "ignoring cut '$shown' $where (too short to reliably cut, want at least 0.1s)"
+    log "ignoring $kind '$shown' $where (too short to reliably $kind, want at least 0.1s)"
     return 1
   fi
   # Entirely past the end cuts nothing at all -- ffmpeg's own trim= just clamps to the real
   # length, so without this check the range gets accepted, reported as "cut applied", and the
   # source ships untouched. A range that only starts before the end and overruns past it is real
-  # and left alone; only "starts at or after the end" means nothing survives to be cut.
+  # and left alone; only "starts at or after the end" means nothing survives to be cut. A keep
+  # range out there is the same mistake seen from the other side: it selects no footage at all.
   if awk -v a="$start" -v b="$duration" 'BEGIN { exit !(a >= b) }'; then
-    log "ignoring cut '$shown' $where (starts at or after the clip's real length, ${duration}s -- nothing to cut)"
+    local outcome="nothing to cut"
+    [[ "$kind" == keep ]] && outcome="no footage there to keep"
+    log "ignoring $kind '$shown' $where (starts at or after the clip's real length, ${duration}s -- $outcome)"
     return 1
   fi
   print -r -- "$start $end"
 }
 
-# The ranges to cut, from --cut if any were named there and from <name>.cuts next to <name>
-# otherwise. Prints them as sorted, merged "start end" pairs, one per line in seconds, or nothing
-# if there is no sidecar file and no --cut, or nothing valid in either. A bad range is skipped and
-# logged rather than spoiling the ones around it.
+# The ranges to cut, from --keep or --cut if any were named there and from <name>.cuts next to
+# <name> otherwise. Prints them as sorted, merged "start end" pairs, one per line in seconds, or
+# nothing if there is no sidecar file and neither flag, or nothing valid in any of them. A bad
+# range is skipped and logged rather than spoiling the ones around it.
 read_cuts() {
   local src="$1" duration="$2" cuts_file="${src}.cuts" line pair
   local -a pairs
+  # --keep names the footage to survive, so the ranges to cut are what it leaves out: the same
+  # pairs, complemented against the real length. Everything downstream of here is the cut path
+  # unchanged, since a keep is only ever a cut described from the other side.
+  if ((${#KEEP_RANGES} > 0)); then
+    [[ -f "$cuts_file" ]] && log "using --keep, ignoring ${cuts_file:t}"
+    for line in "${KEEP_RANGES[@]}"; do
+      pair="$(parse_range "$line" "$duration" "from --keep" keep)" && pairs+=("$pair")
+    done
+    ((${#pairs} > 0)) || return 0
+    local complemented
+    complemented="$(printf '%s\n' "${pairs[@]}" | sort -n -k1,1 | merge_cut_ranges \
+      | complement_ranges "$duration" | drop_uncuttable_gaps)"
+    [[ -n "$complemented" ]] && {
+      print -r -- "$complemented"
+      return 0
+    }
+    # Every range was good, they just leave nothing between them to cut. 2, since cuts_note() would
+    # otherwise read the empty output as "every range was rejected" and send the user to the log.
+    return 2
+  fi
   # --cut replaces the sidecar rather than adding to it, the same way every other flag beats the
   # file it has an equivalent in. Naming ranges on the command line and silently getting the file's
   # as well would be the worse surprise of the two, so the file is ignored out loud instead.
   if ((${#CUT_RANGES} > 0)); then
     [[ -f "$cuts_file" ]] && log "using --cut, ignoring ${cuts_file:t}"
     for line in "${CUT_RANGES[@]}"; do
-      pair="$(parse_cut_range "$line" "$duration" "from --cut")" && pairs+=("$pair")
+      pair="$(parse_range "$line" "$duration" "from --cut" cut)" && pairs+=("$pair")
     done
     ((${#pairs} > 0)) && printf '%s\n' "${pairs[@]}" | sort -n -k1,1 | merge_cut_ranges
     return 0
@@ -372,7 +397,7 @@ read_cuts() {
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="$(trim "${line%%\#*}")"
     [[ -z "$line" ]] && continue
-    pair="$(parse_cut_range "$line" "$duration" "in ${cuts_file:t}")" && pairs+=("$pair")
+    pair="$(parse_range "$line" "$duration" "in ${cuts_file:t}" cut)" && pairs+=("$pair")
   done < "$cuts_file"
   # Always 0 past this point, whether or not any line produced a usable range: a bad line already
   # got its own log entry above, and cuts_note() needs a plain 0 to tell "no ranges parsed" apart
@@ -393,29 +418,64 @@ merge_cut_ranges() {
 }
 
 # ", cut applied" once at least one range took; ", cut requested but none applied" when a cut was
-# asked for, by sidecar or by --cut, and every range in it was rejected -- empty otherwise (nothing
-# asked for a cut, or read_cuts already notified directly about a harder failure, like a sidecar it
-# could not read at all).
+# asked for, by sidecar, by --cut or by --keep, and every range in it was rejected -- empty
+# otherwise (nothing asked for a cut, or read_cuts already notified directly about a harder
+# failure, like a sidecar it could not read at all).
 cuts_note() {
-  local src="$1" cuts="$2" rc="$3"
+  local src="$1" cuts="$2" rc="$3" asked=cut
+  # 2 is read_cuts() saying every --keep range was good and together they cover the whole clip.
+  # Nothing is left to cut, and nothing went wrong, so it must not read like a rejected range.
+  [[ "$rc" -eq 2 ]] && {
+    print -r -- ", kept the whole clip, nothing to cut"
+    return 0
+  }
   [[ "$rc" -eq 0 ]] || return 0
-  [[ -f "${src}.cuts" ]] || ((${#CUT_RANGES} > 0)) || return 0
-  [[ -n "$cuts" ]] && print -r -- ", cut applied" || print -r -- ", cut requested but none applied -- see the log"
+  ((${#KEEP_RANGES} > 0)) && asked=keep
+  [[ -f "${src}.cuts" ]] || ((${#CUT_RANGES} > 0)) || ((${#KEEP_RANGES} > 0)) || return 0
+  [[ -n "$cuts" ]] && print -r -- ", cut applied" || print -r -- ", $asked requested but none applied -- see the log"
 }
 
-# Cut ranges (read_cuts()'s output) and the source's real duration in, on stdin -> the
-# complementary "start end" pairs to KEEP, same format, except the last one's end is left empty to
-# mean "through the end of the clip". Bounded by the real duration so a cut reaching at or past it
-# never adds an empty trailing stretch: concat tolerates one, but fps= downstream of it does not --
-# measured, it stretched a 6.9s result out to 9.3s instead of leaving it alone.
-keep_ranges() {
-  local duration="$1" start end prev=0
+# Cut pairs on stdin -> the same pairs, minus any too short to land on a real frame. The gaps
+# between --keep ranges are cut ranges nobody typed, so they never passed parse_range's own
+# minimum-length check: two keeps a few milliseconds apart come out as a cut that removes no frame
+# at all while still being reported as a cut applied, which is the outcome that check exists to
+# prevent. Dropping the gap joins the two keeps, which is what ranges that close together mean.
+drop_uncuttable_gaps() {
+  local start end
+  while IFS=' ' read -r start end; do
+    [[ -n "$start" ]] || continue
+    if awk -v a="$start" -v b="$end" 'BEGIN { exit !(b - a >= 0.1 - 1e-9) }'; then
+      print -r -- "$start $end"
+    else
+      log "joining the keeps around ${start}-${end}: the gap between them is under the 0.1s a cut needs"
+    fi
+  done
+}
+
+# Sorted, merged "start end" pairs on stdin and the source's real duration in -> the stretches they
+# leave out, same format, bounded by the real duration. Cut and keep are each other's complement,
+# so this runs both ways round: cut ranges in gives the stretches to keep, keep ranges in gives the
+# ranges to cut. With "open-tail", a stretch that runs to the real end is printed with no end of
+# its own, which is what the filter graph wants and what a range fed back through here is not.
+complement_ranges() {
+  local duration="$1" tail_style="${2-}" start end prev=0
   while IFS=' ' read -r start end; do
     [[ -n "$start" ]] || continue
     awk -v a="$prev" -v b="$start" 'BEGIN { exit !(b > a) }' && print -r -- "$prev $start"
     prev="$end"
   done
-  awk -v a="$prev" -v b="$duration" 'BEGIN { exit !(b > a) }' && print -r -- "$prev "
+  if awk -v a="$prev" -v b="$duration" 'BEGIN { exit !(b > a) }'; then
+    [[ "$tail_style" == open-tail ]] && print -r -- "$prev " || print -r -- "$prev $duration"
+  fi
+}
+
+# The stretches to KEEP, from the cut ranges: complement_ranges() with the trailing stretch left
+# open, so trim= reads it as "through the end of the clip" rather than as a timestamp of its own.
+# Bounded by the real duration either way, so a cut reaching at or past it never adds an empty
+# trailing stretch: concat tolerates one, but fps= downstream of it does not -- measured, it
+# stretched a 6.9s result out to 9.3s instead of leaving it alone.
+keep_ranges() {
+  complement_ranges "$1" open-tail
 }
 
 # Builds the -filter_complex graph for a set of cut ranges: each surviving stretch is trimmed and
@@ -529,6 +589,10 @@ encode() {
       log "FAILED ${src:t}: nothing was left to encode (a cut may remove the whole clip)"
       return 1
     fi
+    # The one part of a cut run the log would otherwise never show: ffmpeg echoes its inputs and
+    # its stream mapping, never the graph it was handed, so a cut landing somewhere unexpected
+    # cannot be told from a graph built wrong.
+    log "graph  ${src:t}: $graph"
     filter_args=(-filter_complex "$graph" -map '[vout]')
     if [[ "$keep_audio" == true ]]; then
       filter_args+=(-map '[aout]')
@@ -1209,8 +1273,11 @@ touching the config. A true/false setting takes no value: --remove-audio turns
 it on, --no-remove-audio turns it off.
 
 --cut takes one range, and repeats for more: --cut 0:32-0:35 --cut 2:30-end.
-It replaces the .cuts sidecar for that run rather than adding to it, and it
-needs the file named, since a timestamp only means something in one recording.
+--keep is the same edit from the other side: it names the footage to survive
+and cuts everything else, so --keep 1:00-2:00 leaves exactly that minute.
+Use one or the other, not both. Either replaces the .cuts sidecar for that
+run rather than adding to it, and either needs the file named, since a
+timestamp only means something in one recording.
 
 A preset is a file of the same settings in $PRESET_DIR.
 Use one for a run with --preset <name>, or turn it into its own right-click
@@ -1235,11 +1302,12 @@ right-click 'shrinkit: merge' entry.
 typeset -A OVERRIDES
 typeset -a FILES
 typeset -a CUT_RANGES
+typeset -a KEEP_RANGES
 PRESET=""
 
 # 1 means there is nothing left to do (--help), 2 means the command line was wrong.
 parse_args() {
-  local arg key
+  local arg key flag
   while (($# > 0)); do
     arg="$1"
     case "$arg" in
@@ -1255,20 +1323,23 @@ parse_args() {
         }
         PRESET="$1"
         ;;
-      # Repeatable, one range each, so several cuts read the same on the command line as they do
-      # in a sidecar: one range per --cut, one range per line.
-      --cut)
+      # Both repeatable, one range each, so several ranges read the same on the command line as
+      # they do in a sidecar: one range per flag, one range per line. --keep is the same argument
+      # seen from the other side, so it is parsed the same way and told apart only at the end.
+      --cut | --keep)
+        flag="$arg"
         shift
-        # An empty value is refused rather than skipped: it still counts as "cuts were asked for",
-        # so letting it through would suppress the recording's own sidecar and then contribute no
-        # range to replace it. A wrapper expanding an unset variable is the way this actually
-        # happens. Command-line syntax is checked strictly here; the never-abort-on-one-bad-value
-        # convention covers settings and sidecar lines, not a malformed invocation.
+        # An empty value is refused rather than skipped: it still counts as "ranges were asked
+        # for", so letting it through would suppress the recording's own sidecar and then
+        # contribute no range to replace it. A wrapper expanding an unset variable is the way this
+        # actually happens. Command-line syntax is checked strictly here; the
+        # never-abort-on-one-bad-value convention covers settings and sidecar lines, not a
+        # malformed invocation.
         [[ -n "${1-}" ]] || {
-          print -u2 -r -- "--cut needs a range, e.g. --cut 0:32-0:35"
+          print -u2 -r -- "$flag needs a range, e.g. $flag 0:32-0:35"
           return 2
         }
-        CUT_RANGES+=("$1")
+        [[ "$flag" == --cut ]] && CUT_RANGES+=("$1") || KEEP_RANGES+=("$1")
         ;;
       --no-*)
         key="${${arg#--no-}//-/_}"
@@ -1349,13 +1420,24 @@ main() {
     2) return 2 ;;
   esac
 
-  # A timestamp only means anything against one particular recording, so --cut with no file named
-  # is a forgotten argument rather than a queue-wide instruction. Left to fall through it would take
-  # the watch folder's whole backlog, cut the same seconds out of files that never asked for it,
-  # ignore any sidecar those files carried, and with keep_original = false delete every source and
-  # sidecar it just overrode. Every other flag is safe to apply queue-wide; this one is not.
-  if ((${#CUT_RANGES} > 0 && ${#FILES} == 0)); then
-    print -u2 -r -- "--cut needs the file to cut, e.g. shrinkit --cut 0:32-0:35 recording.mov"
+  # Naming both is a mistake, not a preference to resolve: they describe the same edit from
+  # opposite sides, and silently letting one win would cut footage the other line asked to keep.
+  if ((${#CUT_RANGES} > 0 && ${#KEEP_RANGES} > 0)); then
+    print -u2 -r -- "--cut and --keep are the same edit from opposite sides; use one or the other"
+    return 2
+  fi
+
+  # A timestamp only means anything against one particular recording, so --cut or --keep with no
+  # file named is a forgotten argument rather than a queue-wide instruction. Left to fall through it
+  # would take the watch folder's whole backlog, cut the same seconds out of files that never asked
+  # for it, ignore any sidecar those files carried, and with keep_original = false delete every
+  # source and sidecar it just overrode. Every other flag is safe to apply queue-wide; these are not.
+  if ((${#CUT_RANGES} + ${#KEEP_RANGES} > 0 && ${#FILES} == 0)); then
+    if ((${#KEEP_RANGES} > 0)); then
+      print -u2 -r -- "--keep needs the file to keep from, e.g. shrinkit --keep 1:00-2:00 recording.mov"
+    else
+      print -u2 -r -- "--cut needs the file to cut, e.g. shrinkit --cut 0:32-0:35 recording.mov"
+    fi
     return 2
   fi
 

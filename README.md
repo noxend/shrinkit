@@ -83,8 +83,8 @@ A true/false setting takes no value: `--remove-audio` turns it on and `--no-remo
 off. Name no files and the flags apply to whatever is sitting in `input/`. Flags beat the config
 file.
 
-One flag is not a setting: `--cut` takes a range to remove from the recording, and needs the file
-named. See below.
+Two flags are not settings: `--cut` takes a range to remove from the recording and `--keep` takes
+the footage to leave in. Both need the file named. See below.
 
 ## Cutting a stretch out of the middle
 
@@ -93,6 +93,18 @@ From the command line, name the ranges with `--cut`, once each:
 ```bash
 shrinkit --cut 0:32-0:35 --cut 2:30-end recording.mov
 ```
+
+When it is easier to say what stays than what goes, `--keep` is the same edit from the other side:
+it names the footage to survive, and everything outside those ranges is cut.
+
+```bash
+shrinkit --keep 1:00-2:00 recording.mov
+```
+
+One command line takes one or the other, not both. Everything else in this section holds for both:
+the same time formats, the same `end` and `0`, the same replacement of the sidecar. A `--keep` that
+covers the whole recording leaves it whole and says so, rather than reporting a cut that never
+happened. The sidecar stays a list of cuts either way; there is no keep file.
 
 That is the whole feature for a one-off. The rest of this section is the other way in, a file you
 edit next to the recording, which is what the right-click menu uses and what survives being closed
@@ -120,21 +132,22 @@ same `.cuts` line as everything else, not a separate mechanism: `2:30-end` cuts 
 already the start, so trimming the beginning needs nothing special: `0-0:20` cuts the first 20
 seconds.
 
-Times are `M:SS`, `M:SS.f`, or plain seconds, in the file and in `--cut` alike. `#` starts a
-comment, a range under a tenth of a second is too short to reliably land on a real frame, a range
-starting at or past the clip's real length cuts nothing and is skipped rather than silently doing
-nothing while claiming success, and a line that does not parse is skipped rather than stopping the
-run. All of these are logged, so check the log if a cut you expected does not show up in the
-result. If you edit the file in TextEdit rather than through the menu entry, save it as plain text
-(Format > Make Plain Text) with Smart Dashes off (Edit > Substitutions), or it will not parse as
-written.
+Times are `M:SS`, `M:SS.f`, or plain seconds, in the file and in `--cut` or `--keep` alike. `#`
+starts a comment, a range under a tenth of a second is too short to reliably land on a real frame,
+a range starting at or past the clip's real length selects nothing at all and is skipped rather
+than silently doing nothing while claiming success, and a line that does not parse is skipped
+rather than stopping the run. Two `--keep` ranges closer together than a tenth of a second are
+joined for the same reason: the cut between them would land on no frame. All of these are logged,
+so check the log if a cut you expected does not show up in the result. If you edit the file in
+TextEdit rather than through the menu entry, save it as plain text (Format > Make Plain Text) with
+Smart Dashes off (Edit > Substitutions), or it will not parse as written.
 
-`--cut` replaces the sidecar for that run rather than adding to it, the same way every other flag
-beats the config file, and says so in the log when there was one to ignore. Unlike the other flags
-it needs the recording named on the same command line: a timestamp only means something in one
-particular file, so applying one to whatever happens to be sitting in `input/` is never what you
-meant. Name several files and the same ranges apply to all of them, sidecars included, so that is
-worth a second look before you do it.
+`--cut` and `--keep` replace the sidecar for that run rather than adding to it, the same way every
+other flag beats the config file, and say so in the log when there was one to ignore. Unlike the
+other flags they need the recording named on the same command line: a timestamp only means
+something in one particular file, so applying one to whatever happens to be sitting in `input/` is
+never what you meant. Name several files and the same ranges apply to all of them, sidecars
+included, so that is worth a second look before you do it.
 
 Cutting needs a steady frame rate to land exactly where it is told to, so a recording gets
 resampled to `fps` (30 if `fps = 0`) before anything is removed, even when `fps = 0` would
