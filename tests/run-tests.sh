@@ -1584,6 +1584,25 @@ test_config_set_refuses_a_value_outside_the_range() {
   check "and leaves the file as it was" grep -q '^crf = 31$' "$box/settings.conf"
 }
 
+test_config_set_refuses_a_number_too_long_for_arithmetic() {
+  local box code out key
+  box="$(sandbox)"
+  settings "$box" 'crf = 31' 'fps = 30'
+
+  # zsh truncates a digit string past 19 places to something negative, so a bare <= comparison
+  # passes it and prints its own diagnostic doing so. Both reached the user: the command reported
+  # success on a value no run can use, with "number truncated after 19 digits" above it.
+  for key in crf fps; do
+    code=0
+    out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+      zsh "$OPTIMIZER" config "$key" 99999999999999999999 2>&1)" || code=$?
+    check "$key stops rather than writing it" test "$code" = 2
+    check "and leaks no zsh diagnostic" lacks "$out" "truncated"
+  done
+  check "the file keeps the value it had" grep -q '^crf = 31$' "$box/settings.conf"
+  check "and the other one too" grep -q '^fps = 30$' "$box/settings.conf"
+}
+
 test_a_setting_that_is_not_one_leaves_a_line_in_the_log() {
   local box
   box="$(sandbox)"
@@ -2074,9 +2093,19 @@ test_a_comma_decimal_locale_does_not_move_a_fractional_cut() {
 setup_box() {
   local box="$1"
   mkdir -p "$box/home/Desktop" "$box/bin"
+  # Records what it was asked for, and answers bootout the way launchd does: non-zero when the
+  # service was never loaded. teardown reads that status to tell "there was no agent" from "there
+  # was one and it is gone", so a stub that always succeeded would hide the difference.
   cat > "$box/bin/launchctl" << STUB
 #!/bin/zsh
 print -r -- "\$@" >> "$box/launchctl.log"
+case "\$1" in
+  bootstrap) : > "$box/loaded" ;;
+  bootout)
+    [[ -f "$box/loaded" ]] || exit 3
+    rm -f "$box/loaded"
+    ;;
+esac
 STUB
   chmod +x "$box/bin/launchctl"
 }
@@ -2360,6 +2389,10 @@ test_setup_says_when_another_shrinkit_answers_on_the_path() {
   check "and the one the agent will run" \
     contains "$out" "now run $box/home/.local/bin/shrinkit"
   check "and says both are in play" contains "$out" "Two installs are in play"
+  # teardown clears ~/.local whichever binary runs it, so telling anyone to tear down "the one you
+  # do not want" sends them to delete the install they meant to keep.
+  check "and never offers to tear down one of them" lacks "$out" "do not want"
+  check "but says to set up the one to keep" contains "$out" "run 'setup'"
 }
 
 test_setup_stays_quiet_when_the_path_agrees_with_what_it_registered() {
@@ -2371,6 +2404,25 @@ test_setup_stays_quiet_when_the_path_agrees_with_what_it_registered() {
     SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" setup 2>&1)"
 
   check "says nothing about a second install" lacks "$out" "Two installs"
+  # Pins the quiet branch rather than just the absence of a word: a warning that crashed, or a
+  # setup that stopped before reaching it, would read as silence too.
+  check "and got to the end of setup" contains "$out" "Done."
+}
+
+test_teardown_reports_an_agent_it_unloaded_without_a_plist() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  # The plist deleted by hand, the agent left bootstrapped. Reporting off the file alone said
+  # there was no agent in the same breath as unloading one.
+  rm -f "$box/home/Library/LaunchAgents/com.shrinkit.plist"
+
+  out="$(run_teardown "$box" 2>&1)"
+
+  check "boots it out" grep -q "^bootout gui/$(id -u)/com.shrinkit$" "$box/launchctl.log"
+  check "and says the agent went" contains "$out" "the agent"
+  check "rather than claiming there was none" lacks "$out" "Nothing to remove"
 }
 
 test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {

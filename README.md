@@ -282,8 +282,15 @@ it back and undo it in order:
 brew install shrinkit && shrinkit teardown && brew uninstall shrinkit
 ```
 
-Or, by hand, remove `~/Library/LaunchAgents/com.shrinkit.plist`, the five
-`~/Library/Services/shrinkit: *.workflow` bundles and the `shrinkit` shortcut on your Desktop.
+Or by hand. Deleting the plist does not unload an agent that is already running, so the unload
+comes first:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.shrinkit"
+rm -f ~/Library/LaunchAgents/com.shrinkit.plist ~/Desktop/shrinkit
+rm -rf ~/Library/Services/shrinkit:*.workflow ~/.local/bin/shrinkit ~/.local/share/shrinkit
+/System/Library/CoreServices/pbs -update
+```
 
 ## License
 

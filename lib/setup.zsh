@@ -196,7 +196,12 @@ warn_about_another_shrinkit() {
   print -r -- ""
   print -r -- "!! 'shrinkit' on your PATH is $onpath"
   print -r -- "   but the agent and the Finder entries now run $registered."
-  print -r -- "   Two installs are in play; run teardown from the one you do not want."
+  # Not "tear down the one you do not want": teardown unregisters whatever is registered and
+  # clears ~/.local whichever binary runs it, so following that from the keg deletes the checkout
+  # install instead of the keg. It cannot act on a preference, so it must not be offered one.
+  print -r -- "   Two installs are in play. 'shrinkit teardown' unregisters the agent and the menu"
+  print -r -- "   entries and clears ~/.local whichever one you run it from; afterwards run 'setup'"
+  print -r -- "   again from the one you mean to keep."
 }
 
 setup_agent() {
@@ -276,15 +281,20 @@ registered_base() {
 # has no PATH entry of ours and no copy under ~/.local/share, and a base folder on the Desktop has
 # no shortcut. Claiming all of it every time taught anyone reading the output to ignore it.
 teardown_command() {
-  local base link action entries=0
+  local base link action entries=0 unloaded=0 had_plist=0
   local -a removed
   base="$(registered_base)"
 
-  "$LAUNCHCTL" bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
+  # launchd refuses to boot out a service it never loaded, so the status says whether one was
+  # running. Read rather than swallowed: with the plist deleted by hand and the agent still
+  # bootstrapped, reporting off the file alone claimed there was no agent in the same breath as
+  # unloading one.
+  "$LAUNCHCTL" bootout "gui/$(id -u)/$LABEL" 2> /dev/null && unloaded=1
   [[ -f "$PLIST" ]] && {
     rm -f "$PLIST"
-    removed+=("the agent")
+    had_plist=1
   }
+  ((unloaded || had_plist)) && removed+=("the agent")
 
   # brew puts nothing in ~/.local, so whatever is here is setup's link, an older install's copy, or
   # the parts that come with such a copy. A keg's own binary belongs to brew uninstall.

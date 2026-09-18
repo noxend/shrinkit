@@ -240,13 +240,16 @@ check_setting() {
       is_num "$value" && awk -v s="$value" 'BEGIN { exit !(s > 0) }' && return 0
       ;;
     fps)
-      # Capped, so a mistyped value cannot hang the encode.
+      # Capped, so a mistyped value cannot hang the encode. Digit count bounded first for the same
+      # reason keep_days bounds it below: zsh arithmetic truncates a long enough digit string to
+      # something negative and prints its own diagnostic doing it, so a bare comparison both passes
+      # the value and leaks "number truncated after 19 digits" to whoever ran the command.
       reason="want 0-240"
-      is_int "$value" && ((value <= 240)) && return 0
+      [[ "$value" =~ ^[0-9]{1,4}$ ]] && ((value <= 240)) && return 0
       ;;
     crf)
       reason="want 0-51"
-      is_int "$value" && ((value <= 51)) && return 0
+      [[ "$value" =~ ^[0-9]{1,4}$ ]] && ((value <= 51)) && return 0
       ;;
     max_height)
       reason="want a whole number"
