@@ -1656,7 +1656,9 @@ brew_keg() {
   mkdir -p "$keg/bin" "$keg/share/shrinkit" "$box/brew/opt" "$box/home"
   cp "$OPTIMIZER" "$keg/bin/shrinkit"
   chmod +x "$keg/bin/shrinkit"
-  cp -R "$REPO_DIR/quick-action" "$REPO_DIR/presets" "$keg/share/shrinkit/"
+  # lib/ goes in beside the data: the script reads it back as <keg>/share/shrinkit/lib, and the
+  # formula has to install it or nothing runs at all.
+  cp -R "$REPO_DIR/quick-action" "$REPO_DIR/presets" "$REPO_DIR/lib" "$keg/share/shrinkit/"
   ln -sfn "$keg" "$box/brew/opt/shrinkit"
   # The keg's presets are the stock copies setup seeds on a first install; an entry is built from
   # the one in the working folder, so that is where this has to be.
@@ -1668,6 +1670,22 @@ brew_keg() {
 action_command() {
   plutil -extract actions.0.action.ActionParameters.COMMAND_STRING raw -o - \
     "$1/Contents/document.wflow" 2> /dev/null
+}
+
+test_a_part_that_cannot_be_read_stops_the_run_and_says_so() {
+  local box out code
+  box="$(scratch)"
+  brew_keg "$box"
+  rm -f "$box/brew/Cellar/shrinkit/9.9/share/shrinkit/lib/merge.zsh"
+
+  code=0
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box" \
+    "$box/brew/opt/shrinkit/bin/shrinkit" --help 2>&1)" || code=$?
+
+  # A packaging mistake, not a missing feature: carrying on would fail later somewhere that reads
+  # as a bug in whatever the user was actually doing.
+  check "stops rather than running without it" test "$code" = 1
+  check "and names the file it could not read" contains "$out" "merge.zsh"
 }
 
 test_a_keg_install_finds_its_template_without_a_checkout() {
