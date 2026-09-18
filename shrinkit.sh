@@ -282,7 +282,10 @@ parse_time() {
 # own "clip.mov" / "clip 2.mov" duplicate naming is the everyday way to hit that), warning about a
 # sidecar that was never meant for this video at all.
 warn_near_miss_cuts_file() {
-  local src="$1" expected="${src:t}.cuts" stray
+  # Split, not one local: zsh expands the whole line before src is local, so "${src:t}" on it would
+  # read the caller's src, silently, whenever the caller happens to have one.
+  local src="$1" stray
+  local expected="${src:t}.cuts"
   local -a strays
   strays=("${src:h}/${src:t:r}.cuts"(N) "${src:h}/${expected}"*(N))
   for stray in "${strays[@]}"; do
@@ -350,7 +353,9 @@ parse_range() {
 # nothing if there is no sidecar file and neither flag, or nothing valid in any of them. A bad
 # range is skipped and logged rather than spoiling the ones around it.
 read_cuts() {
-  local src="$1" duration="$2" cuts_file="${src}.cuts" line pair
+  # cuts_file on its own line: see warn_near_miss_cuts_file() above.
+  local src="$1" duration="$2" line pair
+  local cuts_file="${src}.cuts"
   local -a pairs
   # --keep names the footage to survive, so the ranges to cut are what it leaves out: the same
   # pairs, complemented against the real length. Everything downstream of here is the cut path
@@ -918,7 +923,9 @@ install_cuts_action() {
 # Seeds a .cuts sidecar with a header comment and the recording's own length, if one is not there
 # yet; leaves an existing sidecar's content untouched so a second range can be added to it.
 seed_cuts_sidecar() {
-  local file="$1" sidecar="${file}.cuts" dur mins secs
+  # sidecar on its own line: see warn_near_miss_cuts_file() above.
+  local file="$1" dur mins secs
+  local sidecar="${file}.cuts"
   [[ -f "$sidecar" ]] && return 0
   dur="$("$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$file" 2> /dev/null)"
   {

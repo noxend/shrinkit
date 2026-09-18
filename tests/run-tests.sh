@@ -927,6 +927,32 @@ test_cut_flag_with_no_range_is_refused() {
   check "and without writing an output" missing "$work/clip.mp4"
 }
 
+# zsh expands a whole `local` line before any of its names becomes local, so a second assignment
+# on that line that reads the first gets the CALLER's variable of that name, silently, or aborts
+# the function under set -u when the caller has none. Proved, not reasoned:
+#   zsh -c 'set -u; src=/OUTER; f() { local src="$1" cf="${src}.cuts"; print $cf }; f /ARG'
+# prints /OUTER.cuts. The three places this file had all worked only because every caller happened
+# to have the same variable set to the same value, which the next caller has no reason to.
+test_no_local_line_reads_a_name_it_declares() {
+  local -a lines names
+  local line name bad=""
+  lines=("${(@f)$(grep -n '^[[:space:]]*local .*=' "$OPTIMIZER")}")
+  for line in "${lines[@]}"; do
+    # Only assignments with a space in front of them: it keeps "concat=n=${n}" inside a filter
+    # graph string from reading as a declaration of n.
+    # sed, not tr: tr -d '[:space:]' eats the newlines between the matches too, and the names come
+    # back as one run-together string that matches nothing.
+    names=("${(@f)$(print -r -- "$line" | grep -o '[[:space:]][a-zA-Z_][a-zA-Z0-9_]*=' | sed 's/[^A-Za-z0-9_]//g')}")
+    for name in "${names[@]}"; do
+      [[ -n "$name" ]] || continue
+      [[ "$line" == *"\${$name"* || "$line" == *"\$$name"* ]] && bad="${bad}${line}"$'\n'
+    done
+  done
+  check "no local line reads a name it declares on the same line" test -z "$bad"
+  [[ -n "$bad" ]] && print -r -- "$bad"
+  return 0
+}
+
 # The keep segment after the last cut is written open, trim=start=4 with no end of its own, and
 # nothing about the finished file can show that: closing it to the probed length encodes the same
 # frames on a clip whose probed length is exact. Only the graph says which one was built, and the
