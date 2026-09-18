@@ -11,8 +11,9 @@ message, and too slow to sit through. Playing it back at 2x and re-encoding it a
 deals with both at once.
 
 The encoding is ffmpeg. A launchd agent watches the folder for you, so the whole thing runs without
-an app to open. Every part of it is configurable, and it can also cut a stretch out of the middle,
-to shorten a recording or redact something in it.
+an app to open. Every part of it is configurable. It can cut a stretch out of the middle, to
+shorten a recording or redact something in it, and it can join several takes into one before any
+of that.
 
 ## Demo
 
@@ -66,8 +67,8 @@ lands beside the original, which stays where it is. You can select several files
 together.
 
 Add a preset and it becomes a new entry; the installer rebuilds the menu from `presets/` every
-time it runs. One entry isn't a preset: `shrinkit: mark cuts`, for marking a stretch to remove
-before shrinking (see below).
+time it runs. Two entries aren't presets: `shrinkit: mark cuts`, for marking a stretch to remove
+before shrinking, and `shrinkit: merge`, for joining several recordings into one. Both are below.
 
 ## One-off changes on the command line
 
@@ -143,6 +144,37 @@ Dropping a recording into `input/` files the `.cuts` sidecar away with the origi
 processing is done. Right-clicking a file directly leaves both in place, the same way it leaves
 the recording itself in place. Once you have the result, check it and clean up the source
 yourself.
+
+## Joining several recordings into one
+
+A demo recorded in two takes, or a bug that takes a couple of clips to show, goes together in one
+step. Select the recordings in Finder, right-click, and pick `shrinkit: merge`. The joined file
+lands beside the first clip and is named after it, `<first clip>-merged.mov`, and the recordings
+themselves stay where they are.
+
+```bash
+shrinkit merge "1 intro.mov" "2 bug.mov"
+```
+
+Merging does not shrink. What comes out is an ordinary recording, so run a preset on it afterwards
+or drop it into `input/`, the same as anything else.
+
+The takes are joined in the order they were shot: a screen recording carries the moment it started
+inside it, so nothing has to be renamed or arranged for that to come out right. For a different
+order, number the names, `1 intro.mov`, `2 bug.mov`, `3 fix.mov`. Numbered takes lead, by their
+number, and anything left unnumbered follows in the order it was recorded.
+
+The number has to be followed by a space, or be the whole name, `1.mov`. Any other separator
+belongs to a date as readily as to a take, and `12-01-2026 demo.mov` taken for take 12 would join
+a set backwards; left unnumbered it still lands in the place it was recorded in. Three digits is
+the most a take number can have, so `2026 review.mov` is a name too.
+
+Recordings that agree on size, codec and sound are joined without being re-encoded, which is quick,
+leaves the picture exactly as the recorder made it, and keeps the first take's own extension. A
+take carrying two sound tracks, system audio and a microphone, keeps both. Recordings that do not
+agree are re-encoded to match instead and come out as `.mp4`: the smaller ones are padded into the
+largest frame of the set, a take with no sound is given silence when another take has some, and a
+take with two sound tracks is down to one. The log says which of the two ran.
 
 ## Presets
 
