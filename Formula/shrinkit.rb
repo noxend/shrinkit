@@ -25,6 +25,11 @@ class Shrinkit < Formula
 
       brew cannot run anything before uninstalling, so undo that yourself first:
         shrinkit teardown
+
+      Uninstalled without it? The agent and the Finder entries are still registered
+      against a path that is gone, and nothing is left to remove them. Put it back
+      and undo it in order:
+        brew install shrinkit && shrinkit teardown && brew uninstall shrinkit
     EOS
   end
 

@@ -184,6 +184,21 @@ setup_bin() {
   print -r -- "==> On your PATH: $link -> $SELF"
 }
 
+# Two installs answering to one command name: a Homebrew keg sits on the PATH ahead of ~/.local/bin
+# on a default macOS setup, so installing one while the other is registered splits the tool across
+# its entry points. The agent and the Finder entries keep running the path in the plist while the
+# terminal runs the other one, and nothing anywhere says so. Neither install can safely remove the
+# other, so this only reports it.
+warn_about_another_shrinkit() {
+  local registered="$1" onpath
+  onpath="$(command -v shrinkit 2> /dev/null)" || return 0
+  [[ -n "$onpath" && "${onpath:A}" != "${registered:A}" ]] || return 0
+  print -r -- ""
+  print -r -- "!! 'shrinkit' on your PATH is $onpath"
+  print -r -- "   but the agent and the Finder entries now run $registered."
+  print -r -- "   Two installs are in play; run teardown from the one you do not want."
+}
+
 setup_agent() {
   "$LAUNCHCTL" bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
   "$LAUNCHCTL" bootstrap "gui/$(id -u)" "$PLIST"
@@ -243,6 +258,7 @@ setup_command() {
   print -r -- "  - drop recordings into  $IN_DIR"
   print -r -- "  - pick up results from  $OUT_DIR"
   print -r -- "  - change behaviour by editing  $CONFIG"
+  warn_about_another_shrinkit "$program"
   needs_full_disk_access && full_disk_access_note "$program"
   return 0
 }

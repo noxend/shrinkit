@@ -260,12 +260,30 @@ script rather than a signed application, so there is nothing to sign.
 
 ```bash
 git pull              # the agent runs your checkout, so there is nothing to reinstall
-shrinkit teardown     # remove the agent, the PATH link, the shortcut and the menu entries
+shrinkit teardown     # remove the agent, the PATH entry, the shortcut and the menu entries
 ```
 
 Run `setup` again after a `git pull` only when the release notes say to, which means the agent or
-the menu entries themselves changed. Tearing down leaves your recordings and settings where they
-are.
+the menu entries themselves changed. A clone in one of the three guarded folders always needs it,
+since there the copy is what runs. Tearing down leaves your recordings and settings where they are.
+
+Under Homebrew the order matters, because `brew` cannot run anything before it deletes the keg:
+
+```bash
+shrinkit teardown
+brew uninstall shrinkit
+```
+
+The other way round leaves the agent and the five right-click entries pointing at a path that no
+longer exists, and no `shrinkit` left to run `teardown` with. Every entry then fails silently. Put
+it back and undo it in order:
+
+```bash
+brew install shrinkit && shrinkit teardown && brew uninstall shrinkit
+```
+
+Or, by hand, remove `~/Library/LaunchAgents/com.shrinkit.plist`, the five
+`~/Library/Services/shrinkit: *.workflow` bundles and the `shrinkit` shortcut on your Desktop.
 
 ## License
 

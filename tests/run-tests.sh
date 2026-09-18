@@ -2344,6 +2344,35 @@ test_setup_replaces_a_link_left_by_an_older_install_with_the_copy() {
   check "and the copy runs" test -x "$link"
 }
 
+test_setup_says_when_another_shrinkit_answers_on_the_path() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+  mkdir -p "$box/otherbin"
+  print -r -- '#!/bin/zsh' > "$box/otherbin/shrinkit"
+  chmod +x "$box/otherbin/shrinkit"
+
+  # What a keg does on a default macOS PATH, where /opt/homebrew/bin comes before ~/.local/bin.
+  out="$(PATH="$box/otherbin:$PATH" HOME="$box/home" SHRINKIT_DIR="$box/work" \
+    SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" setup 2>&1)"
+
+  check "names the one the terminal would run" contains "$out" "$box/otherbin/shrinkit"
+  check "and the one the agent will run" \
+    contains "$out" "now run $box/home/.local/bin/shrinkit"
+  check "and says both are in play" contains "$out" "Two installs are in play"
+}
+
+test_setup_stays_quiet_when_the_path_agrees_with_what_it_registered() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+
+  out="$(PATH="$box/home/.local/bin:$PATH" HOME="$box/home" SHRINKIT_DIR="$box/work" \
+    SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" setup 2>&1)"
+
+  check "says nothing about a second install" lacks "$out" "Two installs"
+}
+
 test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {
   local box script out
   box="$(scratch)"
