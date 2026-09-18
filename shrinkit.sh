@@ -8,6 +8,18 @@
 set -u
 setopt extended_glob
 
+# Every number this script hands to ffmpeg goes through awk, and awk both prints and reads floats
+# through the locale: on a machine set to a comma decimal separator, atempo_chain built
+# "atempo=1,5000", which ffmpeg read as a filter named 5000, and parse_time read "0:03.5" back as
+# plain 3, moving a cut half a second without a word about it. Only the numeric category is pinned,
+# so non-ASCII file names keep working. LC_ALL would beat it, so it is moved down to LANG, which
+# loses to both, rather than dropped.
+if [[ -n "${LC_ALL-}" ]]; then
+  export LANG="$LC_ALL"
+  unset LC_ALL
+fi
+export LC_NUMERIC=C
+
 # --------------------------------------------------------------------- where things live
 
 BASE_DIR="${SHRINKIT_DIR:-$HOME/Movies/shrinkit}"
