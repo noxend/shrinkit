@@ -63,12 +63,29 @@ BIN_DIR="$HOME/.local/bin"
 # since setup makes the link a step before it builds them. A checkout is reached through the link
 # setup puts on the PATH, so the name stays "shrinkit" and a git pull needs no reinstall; a keg has
 # brew's own bin for that, and setup makes no link, so there self_path answers.
+# macOS keeps Desktop, Documents and Downloads behind a privacy wall. Nothing running without that
+# grant can read a file inside one, which covers the launchd agent and every Finder entry.
+# Both sides resolved, since the caller's path usually is and $HOME usually is not: a home
+# directory behind a symlink of its own spells the same folder two ways and the guard misses,
+# which is the mistake setup_bin already carries its own comment about.
+guarded_path() {
+  local here="${1:A}" home="${HOME:A}"
+  case "$here" in
+    "$home/Desktop" | "$home/Documents" | "$home/Downloads") return 0 ;;
+    "$home/Desktop"/* | "$home/Documents"/* | "$home/Downloads"/*) return 0 ;;
+  esac
+  return 1
+}
+
 registered_path() {
   local link="$BIN_DIR/shrinkit"
-  [[ -L "$link" && "${link:A}" == "$SELF" ]] && {
+  # The PATH entry when it is this script, and also when this script sits where the agent and the
+  # Finder entries cannot read it: there setup leaves a copy rather than a link, so the two are no
+  # longer the same file and naming $SELF would register something nothing can open.
+  if [[ -x "$link" ]] && { [[ "${link:A}" == "$SELF" ]] || guarded_path "$SELF"; }; then
     print -r -- "$link"
     return
-  }
+  fi
   print -r -- "$SELF"
 }
 

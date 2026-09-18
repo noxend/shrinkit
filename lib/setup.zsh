@@ -11,14 +11,8 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 # would boot out the agent they are actually using.
 LAUNCHCTL="${SHRINKIT_LAUNCHCTL:-launchctl}"
 
-# macOS keeps Desktop, Documents and Downloads behind a privacy wall. A launchd job is refused
-# there, silently and with no prompt, until it is granted Full Disk Access by hand.
 needs_full_disk_access() {
-  case "$BASE_DIR" in
-    "$HOME/Desktop" | "$HOME/Documents" | "$HOME/Downloads") return 0 ;;
-    "$HOME/Desktop"/* | "$HOME/Documents"/* | "$HOME/Downloads"/*) return 0 ;;
-  esac
-  return 1
+  guarded_path "$BASE_DIR"
 }
 
 # processed/ and logs/ are hidden, so the working folder shows only settings, presets, input and
@@ -145,16 +139,44 @@ setup_actions() {
 # up without anyone remembering to reinstall. The symlink is what the agent and the menu entries
 # name, which keeps "shrinkit" on the PATH and keeps Login Items reading "shrinkit" rather than
 # "shrinkit.sh". A keg needs none of it: brew puts its own shrinkit on the PATH.
-setup_bin_link() {
-  local link="$BIN_DIR/shrinkit"
+# A checkout inside Desktop, Documents or Downloads cannot be reached by the agent or by a Finder
+# entry at all, link or no link: both run without the privacy grant that a folder there needs, and
+# zsh reports "can't open input file". Measured on a checkout in ~/Desktop, where a dropped
+# recording sat in input/ untouched and the right-click entry failed, while the same install run
+# from outside processed it within seconds. So a guarded checkout is copied out instead of linked
+# to, into a ~/.local laid out exactly like a Homebrew prefix, which lib_dir() and data_dir()
+# already know how to read.
+setup_bin() {
+  local link="$BIN_DIR/shrinkit" share="$HOME/.local/share/shrinkit"
   [[ "$SELF" == */opt/shrinkit/bin/shrinkit ]] && return 0
+  mkdir -p "$BIN_DIR"
+
+  if guarded_path "$SELF"; then
+    rm -rf "$share"
+    mkdir -p "$share"
+    # rm first: cp onto an existing symlink writes through it to whatever it points at, leaving
+    # the link in place and the copy somewhere nobody asked for. That is the shape an upgrade from
+    # the version that linked always takes.
+    rm -f "$link"
+    cp "$SELF" "$link" && chmod +x "$link" || {
+      print -u2 -r -- "!! could not copy the script to $link"
+      return 1
+    }
+    cp -R "$LIB_DIR" "$share/lib" || return 1
+    cp -R "$REPO_DIR/presets" "$REPO_DIR/quick-action" "$REPO_DIR/settings.conf" "$share/" || return 1
+    print -r -- "==> Copied to $link, since $SELF is in a privacy-protected folder"
+    print -r -- "    A git pull there no longer reaches the installed copy; run setup again after one."
+    return 0
+  fi
+
   # An old install whose checkout is gone leaves this file as the only shrinkit there is, and it is
   # then what is running: ln -sfn would unlink it and leave a link pointing at itself, which is the
   # end of that install. Resolved on both sides, since $SELF is and $link is not: with a home
   # directory behind a symlink of its own the two spell the same file differently, the guard misses,
-  # and the script deletes itself. Measured under /tmp, which is such a path on macOS.
+  # and the script deletes itself. Measured under /tmp, which is such a path on macOS. Below the
+  # guarded branch, not above it: a link already pointing at a guarded checkout is exactly what an
+  # upgrade from the version that always linked arrives with, and it still has to become a copy.
   [[ "${link:A}" == "$SELF" ]] && return 0
-  mkdir -p "$BIN_DIR"
   # A file the user can see changes kind here, from a copy of the script to a link to it.
   [[ -f "$link" && ! -L "$link" ]] \
     && print -r -- "==> Replacing the copy at $link with a link to this script"
@@ -207,7 +229,7 @@ setup_command() {
   setup_folders
   setup_presets
   setup_config
-  setup_bin_link
+  setup_bin
   # After the symlink, since that is the path the agent and the entries are told to run.
   local program
   program="$(registered_path)"

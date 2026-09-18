@@ -2217,6 +2217,77 @@ test_setup_points_the_privacy_grant_at_the_registered_binary() {
     missing "$box/home/Desktop/clips/clips"
 }
 
+# A checkout inside Desktop, Documents or Downloads, which is where people put a clone often
+# enough that this is the common case rather than an edge one.
+guarded_checkout() {
+  local box="$1" where="$1/home/Desktop/repos/shrinkit"
+  mkdir -p "${where:h}"
+  cp "$OPTIMIZER" "$where/../shrinkit.sh" 2> /dev/null
+  mkdir -p "$where"
+  cp "$OPTIMIZER" "$where/shrinkit.sh"
+  chmod +x "$where/shrinkit.sh"
+  cp -R "$REPO_DIR/lib" "$REPO_DIR/presets" "$REPO_DIR/quick-action" "$REPO_DIR/settings.conf" "$where/"
+  print -r -- "$where/shrinkit.sh"
+}
+
+test_setup_copies_a_checkout_out_of_a_privacy_protected_folder() {
+  local box script
+  box="$(scratch)"
+  setup_box "$box"
+  script="$(guarded_checkout "$box")"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$script" setup > /dev/null 2>&1
+
+  # Neither the agent nor a Finder entry can read a file in there, link or no link: zsh answers
+  # "can't open input file" and nothing says why. Measured on a real checkout in ~/Desktop, where a
+  # dropped recording sat unprocessed until the same install ran from outside.
+  check "leaves a real file on the PATH, not a link into the folder" \
+    test -f "$box/home/.local/bin/shrinkit" -a ! -L "$box/home/.local/bin/shrinkit"
+  check "with the parts beside it, laid out like a prefix" \
+    test -f "$box/home/.local/share/shrinkit/lib/merge.zsh"
+  check "and the data too" test -f "$box/home/.local/share/shrinkit/quick-action/shrinkit.workflow/Contents/Info.plist"
+}
+
+test_setup_points_the_agent_and_the_entries_at_the_copy() {
+  local box script plist
+  box="$(scratch)"
+  setup_box "$box"
+  script="$(guarded_checkout "$box")"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$script" setup > /dev/null 2>&1
+
+  plist="$box/home/Library/LaunchAgents/com.shrinkit.plist"
+  check "the agent runs the copy" \
+    test "$(plist_value "$plist" ProgramArguments.0)" = "$box/home/.local/bin/shrinkit"
+  check "and never the guarded checkout" \
+    lacks "$(plist_value "$plist" ProgramArguments.0)" "/Desktop/"
+  check "the menu entries run the copy too" \
+    contains "$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")" \
+    "$box/home/.local/bin/shrinkit"
+  check "and never the guarded checkout either" \
+    lacks "$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")" "/Desktop/repos"
+}
+
+test_setup_replaces_a_link_left_by_an_older_install_with_the_copy() {
+  local box script link
+  box="$(scratch)"
+  setup_box "$box"
+  script="$(guarded_checkout "$box")"
+  link="$box/home/.local/bin/shrinkit"
+  mkdir -p "${link:h}"
+  ln -sfn "$script" "$link"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$script" setup > /dev/null 2>&1
+
+  # cp onto a symlink writes through it and leaves the link alone, which is exactly the shape an
+  # upgrade from the version that always linked arrives in.
+  check "the link becomes a real file" test ! -L "$link"
+  check "and the copy runs" test -x "$link"
+}
+
 test_teardown_finds_the_folder_it_registered_without_being_told() {
   local box
   box="$(scratch)"
