@@ -159,7 +159,8 @@ for PRESET_PATH in "$BASE_DIR/presets"/*.conf(N.); do
   INSTALLED+=("$PRESET_NAME")
 done
 SHRINKIT_DIR="$BASE_DIR" SHRINKIT_REPO="$REPO_DIR" "$SCRIPT_DST" mark-cuts --install > /dev/null
-echo "==> Finder entries, one per preset, plus 'shrinkit: mark cuts': ${INSTALLED[*]}"
+SHRINKIT_DIR="$BASE_DIR" SHRINKIT_REPO="$REPO_DIR" "$SCRIPT_DST" merge --install > /dev/null
+echo "==> Finder entries, one per preset, plus 'shrinkit: mark cuts' and 'shrinkit: merge': ${INSTALLED[*]}"
 
 # 8. (re)load it
 launchctl bootout "gui/$(id -u)/$LABEL" 2> /dev/null || true
