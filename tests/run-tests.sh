@@ -160,13 +160,26 @@ optimize() {
 
 # --------------------------------------------------------------------- sample videos
 
+# A fixture that fails to build has to stop the run. Left missing, every test that uses it fails
+# with a message about the feature under test, and the ffmpeg error that explains it went to
+# /dev/null: four cut tests reported wrong lengths when ffmpeg dropped an option this file used.
+fixture_built() {
+  local name="$1" log="$2"
+  [[ -f "$FIXTURES/$name" ]] && return 0
+  print "  FAILED to build $name, ffmpeg said:"
+  [[ -f "$log" ]] && tail -6 "$log"
+  exit 1
+}
+
 # make_fixture <name> <ffmpeg args...>
 make_fixture() {
-  local name="$1"
+  local name="$1" log
   shift
   [[ -f "$FIXTURES/$name" ]] && return
   print "  building $name ..."
-  "$FFMPEG" -nostdin -y "$@" "$FIXTURES/$name" > /dev/null 2>&1
+  log="$(scratch)/ffmpeg.log"
+  "$FFMPEG" -nostdin -y "$@" "$FIXTURES/$name" > "$log" 2>&1
+  fixture_built "$name" "$log"
 }
 
 # A container that declares a much higher frame rate than the real one, the way ReplayKit does
@@ -191,8 +204,12 @@ build_vfr_fixture() {
     print -r -- "duration 2.666667"
     print -r -- "file '$work/f3.png'"
   } > "$work/list.txt"
-  "$FFMPEG" -nostdin -y -f concat -safe 0 -i "$work/list.txt" -vsync vfr -video_track_timescale 120 \
-    -c:v libx264 -pix_fmt yuv420p "$FIXTURES/vfr.mov" > /dev/null 2>&1
+  # -fps_mode, not the -vsync this used to pass: ffmpeg removed that spelling, and with it the
+  # fixture, silently. The two mean the same thing and -fps_mode has been accepted since 5.1.
+  "$FFMPEG" -nostdin -y -f concat -safe 0 -i "$work/list.txt" -fps_mode vfr \
+    -video_track_timescale 120 -c:v libx264 -pix_fmt yuv420p "$FIXTURES/vfr.mov" \
+    > "$work/ffmpeg.log" 2>&1
+  fixture_built vfr.mov "$work/ffmpeg.log"
 }
 
 build_fixtures() {
