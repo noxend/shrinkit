@@ -22,21 +22,25 @@ https://github.com/user-attachments/assets/651900d7-0171-4793-b6fd-5d1d5097ee98
 ## Requirements
 
 - macOS
-- [ffmpeg](https://ffmpeg.org). `setup` offers to fetch it with [Homebrew](https://brew.sh) if you
-  do not have it.
+- [Homebrew](https://brew.sh), which brings [ffmpeg](https://ffmpeg.org) along
 
 ## Install
+
+```bash
+brew install --cask noxend/tap/shrinkit
+```
+
+That is the whole install. It creates the working folders under `~/Movies/shrinkit`, registers a
+launchd agent that watches `input/`, builds the right-click entries, puts a `shrinkit` shortcut on
+your Desktop, and a `shrinkit` command on your PATH. Your settings are never overwritten.
+
+### From a clone instead
 
 ```bash
 git clone https://github.com/noxend/shrinkit.git
 cd shrinkit
 ./shrinkit.sh setup
 ```
-
-`setup` creates the working folders under `~/Movies/shrinkit`, registers a launchd agent that
-watches `input/`, builds the right-click entries, and puts a `shrinkit` shortcut on your Desktop
-and a `shrinkit` command on your PATH. Run it again any time; it never overwrites your settings.
-`./install.sh` still works and does exactly this.
 
 For a different working folder:
 
@@ -54,9 +58,9 @@ three, and neither the background agent nor a right-click entry can read a file 
 copies the tool to `~/.local` instead of pointing at the clone and says so. Everything works the
 same afterwards, except that `git pull` no longer reaches the copy: run `setup` again after one.
 
-`~/Desktop`, `~/Documents` and `~/Downloads` are guarded by macOS privacy protection, and a
-background job is refused there until you grant it Full Disk Access by hand. If you install into
-one of them `setup` prints the steps. Anywhere else, `~/Movies` included, needs nothing.
+A working folder in one of those three is refused to a background job until you grant it Full
+Disk Access by hand, and `setup` prints the steps. Anywhere else, `~/Movies` included, needs
+nothing.
 
 ## Use
 
@@ -259,38 +263,16 @@ script rather than a signed application, so there is nothing to sign.
 ## Update and uninstall
 
 ```bash
-git pull              # the agent runs your checkout, so there is nothing to reinstall
-shrinkit teardown     # remove the agent, the PATH entry, the shortcut and the menu entries
+brew upgrade --cask shrinkit
+brew uninstall --cask shrinkit
 ```
 
-Run `setup` again after a `git pull` only when the release notes say to, which means the agent or
-the menu entries themselves changed. A clone in one of the three guarded folders always needs it,
-since there the copy is what runs. Tearing down leaves your recordings and settings where they are.
+Uninstalling removes the agent, the right-click entries, the Desktop shortcut and the command.
+Your recordings, results, settings and presets in `~/Movies/shrinkit` stay where they are.
 
-Under Homebrew the order matters, because `brew` cannot run anything before it deletes the keg:
-
-```bash
-shrinkit teardown
-brew uninstall shrinkit
-```
-
-The other way round leaves the agent and the five right-click entries pointing at a path that no
-longer exists, and no `shrinkit` left to run `teardown` with. Every entry then fails silently. Put
-it back and undo it in order:
-
-```bash
-brew install shrinkit && shrinkit teardown && brew uninstall shrinkit
-```
-
-Or by hand. Deleting the plist does not unload an agent that is already running, so the unload
-comes first:
-
-```bash
-launchctl bootout "gui/$(id -u)/com.shrinkit"
-rm -f ~/Library/LaunchAgents/com.shrinkit.plist ~/Desktop/shrinkit
-rm -rf ~/Library/Services/shrinkit:*.workflow ~/.local/bin/shrinkit ~/.local/share/shrinkit
-/System/Library/CoreServices/pbs -update
-```
+From a clone, `git pull` updates it and `shrinkit teardown` undoes `setup`, with the same promise
+about your files. Run `setup` again after a pull only when the release notes say to, or always
+when the clone sits in one of the three guarded folders, since there the copy is what runs.
 
 ## License
 
