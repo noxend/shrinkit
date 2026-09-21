@@ -151,11 +151,16 @@ setup_bin() {
   # Under Homebrew a copy or a link that an earlier checkout install left in ~/.local would still
   # answer to "shrinkit" wherever ~/.local/bin sits first on the PATH, so it goes: brew's is the
   # one registered now.
+  # Only what an earlier setup put there, recognised by the script's own opening line and by lib/
+  # in the share folder: this runs on every brew install and upgrade, so a file of somebody else's
+  # that merely has the same name has to survive it.
   if installed_by_brew; then
-    [[ -e "$link" || -L "$link" || -d "$share" ]] || return 0
-    rm -f "$link"
-    rm -rf "$share"
-    print -r -- "==> Removed the earlier install in ~/.local; Homebrew's shrinkit is the one in use now"
+    local -a retired
+    grep -q '^# Shrinks screen recordings dropped into the input folder' "$link" 2> /dev/null \
+      && rm -f "$link" && retired+=("$link")
+    [[ -f "$share/lib/setup.zsh" ]] && rm -rf "$share" && retired+=("$share")
+    ((${#retired})) \
+      && print -r -- "==> Removed the earlier install, Homebrew's shrinkit is the one in use now: ${(j:, :)retired}"
     return 0
   fi
   mkdir -p "$BIN_DIR"
@@ -291,7 +296,7 @@ registered_base() {
 # no shortcut. Claiming all of it every time taught anyone reading the output to ignore it.
 teardown_command() {
   local base link action entries=0 unloaded=0 had_plist=0
-  local -a removed
+  local -a removed failed
   base="$(registered_base)"
 
   # launchd refuses to boot out a service it never loaded, so the status says whether one was
@@ -300,7 +305,7 @@ teardown_command() {
   # unloading one.
   "$LAUNCHCTL" bootout "gui/$(id -u)/$LABEL" 2> /dev/null && unloaded=1
   [[ -f "$PLIST" ]] && {
-    rm -f "$PLIST" && had_plist=1
+    rm -f "$PLIST" && had_plist=1 || failed+=("$PLIST")
   }
   ((unloaded || had_plist)) && removed+=("the agent")
 
@@ -308,24 +313,24 @@ teardown_command() {
   # the parts that come with such a copy. A keg's own binary belongs to brew uninstall.
   link="$BIN_DIR/shrinkit"
   [[ -e "$link" || -L "$link" ]] && {
-    rm -f "$link" && removed+=("$link")
+    rm -f "$link" && removed+=("$link") || failed+=("$link")
   }
   # Written by setup_bin when the checkout it ran from was privacy-protected. Left behind until
   # now, which made an uninstall that said it was finished leave 48K of the tool on disk.
   [[ -d "$SHARE_DIR" ]] && {
-    rm -rf "$SHARE_DIR" && removed+=("$SHARE_DIR")
+    rm -rf "$SHARE_DIR" && removed+=("$SHARE_DIR") || failed+=("$SHARE_DIR")
   }
 
   # Only ever a shortcut, never a real folder somebody put there.
   [[ -L "$HOME/Desktop/${base:t}" ]] && {
-    rm -f "$HOME/Desktop/${base:t}" && removed+=("the Desktop shortcut")
+    rm -f "$HOME/Desktop/${base:t}" && removed+=("the Desktop shortcut") || failed+=("$HOME/Desktop/${base:t}")
   }
 
   # The same entries setup builds and rebuilds, matched the same way, with the command they run
   # read as well so a menu entry of somebody else's is never swept up for its name alone.
   for action in "$SERVICES_DIR"/shrinkit:*.workflow(N); do
     grep -q "SHRINKIT_DIR=" "$action/Contents/document.wflow" 2> /dev/null && {
-      rm -rf "$action" && ((entries++))
+      rm -rf "$action" && ((++entries)) || failed+=("$action")
     }
   done
   ((entries)) && removed+=("$entries Finder entries")
@@ -333,8 +338,11 @@ teardown_command() {
 
   if ((${#removed})); then
     print -r -- "Removed: ${(j:, :)removed}."
-  else
+  elif ((!${#failed})); then
     print -r -- "Nothing to remove: no agent, no PATH entry, no shortcut and no Finder entries."
   fi
+  # Exit status left at 0 on purpose: brew runs this as the cask's uninstall script and would refuse
+  # to uninstall at all on a failure here, which leaves the user with less, not more.
+  ((${#failed})) && print -u2 -r -- "!! Could not remove (delete by hand): ${(j:, :)failed}"
   print -r -- "Left in place (delete by hand if you want): $base"
 }

@@ -2460,9 +2460,9 @@ test_a_cask_install_retires_an_earlier_checkout_copy() {
   box="$(scratch)"
   setup_box "$box"
   brew_cask "$box"
-  mkdir -p "$box/home/.local/bin" "$box/home/.local/share/shrinkit/lib"
-  print -r -- '#!/bin/zsh' > "$box/home/.local/bin/shrinkit"
-  chmod +x "$box/home/.local/bin/shrinkit"
+  mkdir -p "$box/home/.local/bin" "$box/home/.local/share/shrinkit"
+  cp "$OPTIMIZER" "$box/home/.local/bin/shrinkit"
+  cp -R "$REPO_DIR/lib" "$box/home/.local/share/shrinkit/"
 
   HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
     "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
@@ -2471,6 +2471,21 @@ test_a_cask_install_retires_an_earlier_checkout_copy() {
   # while the agent and the menu run brew's.
   check "removes the old copy on the PATH" missing "$box/home/.local/bin/shrinkit"
   check "and the parts that came with it" missing "$box/home/.local/share/shrinkit"
+}
+
+test_a_cask_install_leaves_a_different_shrinkit_alone() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  brew_cask "$box"
+  mkdir -p "$box/home/.local/bin"
+  print -rl -- '#!/bin/sh' 'echo somebody else' > "$box/home/.local/bin/shrinkit"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
+
+  # This runs on every brew install and upgrade, so a file that only shares the name survives it.
+  check "keeps a file that is not this script" grep -q "somebody else" "$box/home/.local/bin/shrinkit"
 }
 
 test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {
@@ -2534,6 +2549,7 @@ test_teardown_does_not_report_what_it_could_not_remove() {
 
   check "the shortcut is still there" test -L "$box/home/Desktop/work"
   check "and the report does not claim it" lacks "$out" "the Desktop shortcut"
+  check "but names it as left behind" contains "$out" "Could not remove (delete by hand): $box/home/Desktop/work"
   check "while what it could remove is reported" contains "$out" "the agent"
 }
 

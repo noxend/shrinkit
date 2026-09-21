@@ -274,6 +274,17 @@ From a clone, `git pull` updates it and `shrinkit teardown` undoes `setup`, with
 about your files. Run `setup` again after a pull only when the release notes say to, or always
 when the clone sits in one of the three guarded folders, since there the copy is what runs.
 
+If neither can run, because the Homebrew folder or the clone is already gone, the same can be
+undone by hand. Deleting the plist does not unload an agent that is already running, so the unload
+comes first:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.shrinkit"
+rm -f ~/Library/LaunchAgents/com.shrinkit.plist ~/Desktop/shrinkit
+rm -rf ~/Library/Services/shrinkit:*.workflow ~/.local/bin/shrinkit ~/.local/share/shrinkit
+/System/Library/CoreServices/pbs -update
+```
+
 ## License
 
 MIT
