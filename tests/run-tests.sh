@@ -1741,6 +1741,17 @@ brew_keg() {
   cp "$REPO_DIR/presets/2x.conf" "$box/presets/"
 }
 
+# A cask-shaped install: the release staged whole under Caskroom/<token>/<version>/shrinkit-<version>,
+# the way a GitHub tag tarball unpacks, and the binary stanza's link in the prefix's own bin.
+brew_cask() {
+  local box="$1" staged="$1/brew/Caskroom/shrinkit/9.9/shrinkit-9.9"
+  mkdir -p "$staged" "$box/brew/bin" "$box/home"
+  cp "$OPTIMIZER" "$staged/shrinkit.sh"
+  chmod +x "$staged/shrinkit.sh"
+  cp -R "$REPO_DIR/quick-action" "$REPO_DIR/presets" "$REPO_DIR/lib" "$REPO_DIR/settings.conf" "$staged/"
+  ln -sfn "$staged/shrinkit.sh" "$box/brew/bin/shrinkit"
+}
+
 # The command a Quick Action runs: where the script has to write its own path down.
 action_command() {
   plutil -extract actions.0.action.ActionParameters.COMMAND_STRING raw -o - \
@@ -2425,6 +2436,43 @@ test_teardown_reports_an_agent_it_unloaded_without_a_plist() {
   check "rather than claiming there was none" lacks "$out" "Nothing to remove"
 }
 
+test_a_cask_install_registers_the_link_that_survives_an_upgrade() {
+  local box plist
+  box="$(scratch)"
+  setup_box "$box"
+  brew_cask "$box"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
+
+  # The staged folder is named for the version and goes on the next upgrade, taking every entry
+  # that names it along; brew repoints the bin link at the new one instead.
+  plist="$box/home/Library/LaunchAgents/com.shrinkit.plist"
+  check "the agent runs brew's link" test "$(plist_value "$plist" ProgramArguments.0)" = "${box:A}/brew/bin/shrinkit"
+  check "and never the versioned folder" lacks "$(plist_value "$plist" ProgramArguments.0)" "Caskroom"
+  check "nor does a menu entry" \
+    lacks "$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")" "Caskroom"
+  check "and it makes no PATH link of its own" missing "$box/home/.local/bin/shrinkit"
+}
+
+test_a_cask_install_retires_an_earlier_checkout_copy() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  brew_cask "$box"
+  mkdir -p "$box/home/.local/bin" "$box/home/.local/share/shrinkit/lib"
+  print -r -- '#!/bin/zsh' > "$box/home/.local/bin/shrinkit"
+  chmod +x "$box/home/.local/bin/shrinkit"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
+
+  # Left in place, the old copy answers to "shrinkit" wherever ~/.local/bin comes first on the PATH
+  # while the agent and the menu run brew's.
+  check "removes the old copy on the PATH" missing "$box/home/.local/bin/shrinkit"
+  check "and the parts that came with it" missing "$box/home/.local/share/shrinkit"
+}
+
 test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {
   local box script out
   box="$(scratch)"
@@ -2471,6 +2519,22 @@ test_teardown_with_nothing_installed_says_so() {
 
   check "reports that there was nothing here" contains "$out" "Nothing to remove"
   check "and still says what it left alone" contains "$out" "$box/work"
+}
+
+test_teardown_does_not_report_what_it_could_not_remove() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  # A Desktop that refuses the delete, the way a sandbox or a missing privacy grant does.
+  chmod a-w "$box/home/Desktop"
+
+  out="$(run_teardown "$box" 2>&1)"
+  chmod u+w "$box/home/Desktop"
+
+  check "the shortcut is still there" test -L "$box/home/Desktop/work"
+  check "and the report does not claim it" lacks "$out" "the Desktop shortcut"
+  check "while what it could remove is reported" contains "$out" "the agent"
 }
 
 test_teardown_finds_the_folder_it_registered_without_being_told() {

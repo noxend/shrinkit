@@ -148,7 +148,16 @@ setup_actions() {
 # already know how to read.
 setup_bin() {
   local link="$BIN_DIR/shrinkit" share="$SHARE_DIR"
-  [[ "$SELF" == */opt/shrinkit/bin/shrinkit ]] && return 0
+  # Under Homebrew a copy or a link that an earlier checkout install left in ~/.local would still
+  # answer to "shrinkit" wherever ~/.local/bin sits first on the PATH, so it goes: brew's is the
+  # one registered now.
+  if installed_by_brew; then
+    [[ -e "$link" || -L "$link" || -d "$share" ]] || return 0
+    rm -f "$link"
+    rm -rf "$share"
+    print -r -- "==> Removed the earlier install in ~/.local; Homebrew's shrinkit is the one in use now"
+    return 0
+  fi
   mkdir -p "$BIN_DIR"
 
   if guarded_path "$SELF"; then
@@ -291,8 +300,7 @@ teardown_command() {
   # unloading one.
   "$LAUNCHCTL" bootout "gui/$(id -u)/$LABEL" 2> /dev/null && unloaded=1
   [[ -f "$PLIST" ]] && {
-    rm -f "$PLIST"
-    had_plist=1
+    rm -f "$PLIST" && had_plist=1
   }
   ((unloaded || had_plist)) && removed+=("the agent")
 
@@ -300,28 +308,24 @@ teardown_command() {
   # the parts that come with such a copy. A keg's own binary belongs to brew uninstall.
   link="$BIN_DIR/shrinkit"
   [[ -e "$link" || -L "$link" ]] && {
-    rm -f "$link"
-    removed+=("$link")
+    rm -f "$link" && removed+=("$link")
   }
   # Written by setup_bin when the checkout it ran from was privacy-protected. Left behind until
   # now, which made an uninstall that said it was finished leave 48K of the tool on disk.
   [[ -d "$SHARE_DIR" ]] && {
-    rm -rf "$SHARE_DIR"
-    removed+=("$SHARE_DIR")
+    rm -rf "$SHARE_DIR" && removed+=("$SHARE_DIR")
   }
 
   # Only ever a shortcut, never a real folder somebody put there.
   [[ -L "$HOME/Desktop/${base:t}" ]] && {
-    rm -f "$HOME/Desktop/${base:t}"
-    removed+=("the Desktop shortcut")
+    rm -f "$HOME/Desktop/${base:t}" && removed+=("the Desktop shortcut")
   }
 
   # The same entries setup builds and rebuilds, matched the same way, with the command they run
   # read as well so a menu entry of somebody else's is never swept up for its name alone.
   for action in "$SERVICES_DIR"/shrinkit:*.workflow(N); do
     grep -q "SHRINKIT_DIR=" "$action/Contents/document.wflow" 2> /dev/null && {
-      rm -rf "$action"
-      ((entries++))
+      rm -rf "$action" && ((entries++))
     }
   done
   ((entries)) && removed+=("$entries Finder entries")

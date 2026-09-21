@@ -28,11 +28,21 @@ export LC_NUMERIC=C
 # it (measured: through bin/, through opt/, and directly). That path disappears on the next
 # `brew upgrade`, silently taking every Finder entry and the agent with it, so it is mapped back to
 # brew's own per-formula path, which is documented as surviving upgrades.
+# A cask stages the release under Caskroom/shrinkit/<version>, gone on the next upgrade the same
+# way, and its binary stanza keeps <prefix>/bin/shrinkit pointing at whichever version is current.
 self_path() {
   local self="${ZSH_ARGZERO:A}"
-  [[ "$self" == */Cellar/shrinkit/*/bin/shrinkit ]] \
-    && print -r -- "${self%/Cellar/shrinkit/*}/opt/shrinkit/bin/shrinkit" \
-    || print -r -- "$self"
+  case "$self" in
+    */Cellar/shrinkit/*/bin/shrinkit) print -r -- "${self%/Cellar/shrinkit/*}/opt/shrinkit/bin/shrinkit" ;;
+    */Caskroom/shrinkit/*) print -r -- "${self%/Caskroom/shrinkit/*}/bin/shrinkit" ;;
+    *) print -r -- "$self" ;;
+  esac
+}
+
+# Homebrew owns the command on the PATH for either kind of install, so setup makes no link of its
+# own and teardown has nothing of brew's to remove.
+installed_by_brew() {
+  [[ "${ZSH_ARGZERO:A}" == */(Cellar|Caskroom)/shrinkit/* ]]
 }
 
 # Where presets/ and quick-action/ are read from: beside the script in a checkout, and under
