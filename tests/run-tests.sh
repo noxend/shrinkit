@@ -1743,23 +1743,6 @@ test_preset_that_does_not_exist_is_refused() {
   check "and builds nothing" missing "$box/home/Library/Services/shrinkit: nope.workflow"
 }
 
-# A Homebrew-shaped install: the script in a versioned Cellar directory, its data where a keg puts
-# it, and the per-formula opt symlink brew keeps pointing at the current version.
-brew_keg() {
-  local box="$1" keg="$1/brew/Cellar/shrinkit/9.9"
-  mkdir -p "$keg/bin" "$keg/share/shrinkit" "$box/brew/opt" "$box/home"
-  cp "$OPTIMIZER" "$keg/bin/shrinkit"
-  chmod +x "$keg/bin/shrinkit"
-  # lib/ goes in beside the data: the script reads it back as <keg>/share/shrinkit/lib, and the
-  # formula has to install it or nothing runs at all.
-  cp -R "$REPO_DIR/quick-action" "$REPO_DIR/presets" "$REPO_DIR/lib" "$keg/share/shrinkit/"
-  ln -sfn "$keg" "$box/brew/opt/shrinkit"
-  # The keg's presets are the stock copies setup seeds on a first install; an entry is built from
-  # the one in the working folder, so that is where this has to be.
-  mkdir -p "$box/presets"
-  cp "$REPO_DIR/presets/2x.conf" "$box/presets/"
-}
-
 # A cask-shaped install: the release staged whole under Caskroom/<token>/<version>/shrinkit-<version>,
 # the way a GitHub tag tarball unpacks, and the binary stanza's link in the prefix's own bin.
 brew_cask() {
@@ -1780,46 +1763,16 @@ action_command() {
 test_a_part_that_cannot_be_read_stops_the_run_and_says_so() {
   local box out code
   box="$(scratch)"
-  brew_keg "$box"
-  rm -f "$box/brew/Cellar/shrinkit/9.9/share/shrinkit/lib/merge.zsh"
+  brew_cask "$box"
+  rm -f "$box/brew/Caskroom/shrinkit/9.9/shrinkit-9.9/lib/merge.zsh"
 
   code=0
-  out="$(HOME="$box/home" SHRINKIT_DIR="$box" \
-    "$box/brew/opt/shrinkit/bin/shrinkit" --help 2>&1)" || code=$?
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box" "$box/brew/bin/shrinkit" --help 2>&1)" || code=$?
 
   # A packaging mistake, not a missing feature: carrying on would fail later somewhere that reads
   # as a bug in whatever the user was actually doing.
   check "stops rather than running without it" test "$code" = 1
   check "and names the file it could not read" contains "$out" "merge.zsh"
-}
-
-test_a_keg_install_finds_its_template_without_a_checkout() {
-  local box cmd
-  box="$(scratch)"
-  brew_keg "$box"
-  settings "$box" 'speed = 2'
-
-  HOME="$box/home" SHRINKIT_DIR="$box" \
-    "$box/brew/opt/shrinkit/bin/shrinkit" preset install 2x > /dev/null 2>&1
-
-  cmd="$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")"
-  check "builds the entry with nothing handed in from outside" test -n "$cmd"
-}
-
-test_a_keg_install_writes_a_path_that_survives_an_upgrade() {
-  local box cmd
-  box="$(scratch)"
-  brew_keg "$box"
-  settings "$box" 'speed = 2'
-
-  HOME="$box/home" SHRINKIT_DIR="$box" \
-    "$box/brew/opt/shrinkit/bin/shrinkit" preset install 2x > /dev/null 2>&1
-  cmd="$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")"
-
-  # The Cellar path is what ZSH_ARGZERO:A answers however the script was reached, and it is gone
-  # after the next brew upgrade, taking every Finder entry with it and saying nothing.
-  check "names the per-formula path" contains "$cmd" "/opt/shrinkit/bin/shrinkit"
-  check "not the versioned one" lacks "$cmd" "/Cellar/"
 }
 
 # --------------------------------------------------------------------- merging
@@ -2267,22 +2220,6 @@ test_setup_run_again_keeps_the_settings_and_the_presets() {
   check "so its entry is gone too" missing "$box/home/Library/Services/shrinkit: tiny.workflow"
 }
 
-test_setup_renames_the_presets_that_were_renamed() {
-  local box
-  box="$(scratch)"
-  setup_box "$box"
-  mkdir -p "$box/work/presets"
-  print -r -- "crf = 32" > "$box/work/presets/chat.conf"
-  print -r -- "crf = 18" > "$box/work/presets/hq.conf"
-
-  run_setup "$box" > /dev/null 2>&1
-
-  check "chat becomes tiny" exists "$box/work/presets/tiny.conf"
-  check "and is gone under the old name" missing "$box/work/presets/chat.conf"
-  check "hq becomes sharp" exists "$box/work/presets/sharp.conf"
-  check "keeping what was in it" grep -q "crf = 18" "$box/work/presets/sharp.conf"
-}
-
 test_setup_never_replaces_a_real_folder_on_the_desktop() {
   local box
   box="$(scratch)"
@@ -2429,7 +2366,7 @@ test_setup_says_when_another_shrinkit_answers_on_the_path() {
   print -r -- '#!/bin/zsh' > "$box/otherbin/shrinkit"
   chmod +x "$box/otherbin/shrinkit"
 
-  # What a keg does on a default macOS PATH, where /opt/homebrew/bin comes before ~/.local/bin.
+  # What Homebrew's bin does on a default macOS PATH, where /opt/homebrew/bin comes before ~/.local/bin.
   out="$(PATH="$box/otherbin:$PATH" HOME="$box/home" SHRINKIT_DIR="$box/work" \
     SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" setup 2>&1)"
 
@@ -2590,23 +2527,23 @@ test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {
   check "and says where they went" contains "$out" "$box/home/.local/share/shrinkit"
 }
 
-test_teardown_under_a_keg_claims_no_path_entry_of_its_own() {
+test_teardown_under_brew_claims_no_path_entry_of_its_own() {
   local box out
   box="$(scratch)"
   setup_box "$box"
-  brew_keg "$box"
+  brew_cask "$box"
 
   HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
-    "$box/brew/opt/shrinkit/bin/shrinkit" setup > /dev/null 2>&1
+    "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
   out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
-    "$box/brew/opt/shrinkit/bin/shrinkit" teardown 2>&1)"
+    "$box/brew/bin/shrinkit" teardown 2>&1)"
 
-  # setup_bin makes no link under a keg, so naming one here taught anyone reading the output that
+  # setup_bin makes no link under brew, so naming one here taught anyone reading the output that
   # the list is boilerplate rather than a report.
   check "removes the agent" missing "$box/home/Library/LaunchAgents/com.shrinkit.plist"
   check "and does not name a PATH entry it never made" lacks "$out" "the PATH link"
   check "nor one under ~/.local at all" lacks "$out" "$box/home/.local/bin"
-  check "and leaves brew's own binary alone" exists "$box/brew/Cellar/shrinkit/9.9/bin/shrinkit"
+  check "and leaves brew's own files alone" exists "$box/brew/Caskroom/shrinkit/9.9/shrinkit-9.9/shrinkit.sh"
 }
 
 test_teardown_with_nothing_installed_says_so() {

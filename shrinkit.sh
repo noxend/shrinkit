@@ -24,29 +24,24 @@ export LC_NUMERIC=C
 
 # The path to write down whenever this script has to name itself: in the launchd plist, in a Quick
 # Action's command, in the Full Disk Access instructions. ZSH_ARGZERO:A resolves every symlink, so
-# under Homebrew it always answers with the versioned Cellar path whichever route was used to run
-# it (measured: through bin/, through opt/, and directly). That path disappears on the next
-# `brew upgrade`, silently taking every Finder entry and the agent with it, so it is mapped back to
-# brew's own per-formula path, which is documented as surviving upgrades.
-# A cask stages the release under Caskroom/shrinkit/<version>, gone on the next upgrade the same
-# way, and its binary stanza keeps <prefix>/bin/shrinkit pointing at whichever version is current.
+# under Homebrew it answers with the staged Caskroom/shrinkit/<version> path, which the next
+# `brew upgrade` deletes, taking every Finder entry and the agent with it. It is mapped to
+# <prefix>/bin/shrinkit, the link brew repoints at whichever version is current.
 self_path() {
   local self="${ZSH_ARGZERO:A}"
-  case "$self" in
-    */Cellar/shrinkit/*/bin/shrinkit) print -r -- "${self%/Cellar/shrinkit/*}/opt/shrinkit/bin/shrinkit" ;;
-    */Caskroom/shrinkit/*) print -r -- "${self%/Caskroom/shrinkit/*}/bin/shrinkit" ;;
-    *) print -r -- "$self" ;;
-  esac
+  [[ "$self" == */Caskroom/shrinkit/* ]] \
+    && print -r -- "${self%/Caskroom/shrinkit/*}/bin/shrinkit" \
+    || print -r -- "$self"
 }
 
-# Homebrew owns the command on the PATH for either kind of install, so setup makes no link of its
-# own and teardown has nothing of brew's to remove.
+# Homebrew owns the command on the PATH, so setup makes no link of its own and teardown has nothing
+# of brew's to remove.
 installed_by_brew() {
-  [[ "${ZSH_ARGZERO:A}" == */(Cellar|Caskroom)/shrinkit/* ]]
+  [[ "${ZSH_ARGZERO:A}" == */Caskroom/shrinkit/* ]]
 }
 
-# Where presets/ and quick-action/ are read from: beside the script in a checkout, and under
-# share/shrinkit in a Homebrew keg. SHRINKIT_REPO still wins when it is set at all, so the test
+# Where presets/ and quick-action/ are read from: beside the script in a checkout or a cask, and
+# under ~/.local/share/shrinkit for the copy setup makes of a guarded checkout. SHRINKIT_REPO still wins when it is set at all, so the test
 # suite's explicit empty value keeps meaning "no data directory to find".
 data_dir() {
   [[ -n "${SHRINKIT_REPO+set}" ]] && {
@@ -86,8 +81,8 @@ SHARE_DIR="$HOME/.local/share/shrinkit"
 # What this script is called from the outside: the path written into the launchd plist, into every
 # Quick Action, and into the Full Disk Access instructions. Read afresh each time one is written,
 # since setup makes the link a step before it builds them. A checkout is reached through the link
-# setup puts on the PATH, so the name stays "shrinkit" and a git pull needs no reinstall; a keg has
-# brew's own bin for that, and setup makes no link, so there self_path answers.
+# setup puts on the PATH, so the name stays "shrinkit" and a git pull needs no reinstall; under
+# Homebrew setup makes no link, so there self_path answers.
 # macOS keeps Desktop, Documents and Downloads behind a privacy wall. Nothing running without that
 # grant can read a file inside one, which covers the launchd agent and every Finder entry.
 # Both sides resolved, since the caller's path usually is and $HOME usually is not: a home
@@ -114,8 +109,8 @@ registered_path() {
   print -r -- "$SELF"
 }
 
-# Where the two biggest self-contained features live: beside the script in a checkout, under
-# share/shrinkit in a Homebrew keg. Deliberately not data_dir(): SHRINKIT_REPO names where the
+# Where the two biggest self-contained features live: beside the script, or under
+# ~/.local/share/shrinkit for the copy of a guarded checkout. Deliberately not data_dir(): SHRINKIT_REPO names where the
 # presets and the menu template are, which the test suite blanks on purpose, and code is not that.
 lib_dir() {
   local here="${ZSH_ARGZERO:A:h}"
@@ -1225,12 +1220,14 @@ carry one. The result lands beside the first clip and the originals stay where
 they are. It does not shrink: run a preset on the result afterwards. Same as the
 right-click 'shrinkit: merge' entry.
 
+config folder <path> moves the working folder: the watcher, the right-click
+entries and the Desktop shortcut follow, and so do settings.conf and the presets.
+Recordings and results already in the old folder stay there.
+
 setup creates the folders, registers the launchd agent that watches input/,
-builds the right-click entries and puts shrinkit on your PATH. Run it again any
-time: it never overwrites your settings, and it registers the script it is run
-from, so a git pull or a brew upgrade needs no reinstall. teardown undoes all of
-it and leaves your recordings and settings alone. Under Homebrew, run teardown
-before brew uninstall, since brew cannot run it for you.
+builds the right-click entries and puts shrinkit on your PATH. teardown undoes
+all of it and leaves your recordings and settings alone. Homebrew runs both on
+install, upgrade and uninstall; run them yourself only from a clone.
 
   settings       $CONFIG
   presets        $PRESET_DIR

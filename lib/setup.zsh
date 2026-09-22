@@ -22,36 +22,11 @@ setup_folders() {
 }
 
 # A first install gets the three example presets; after that the folder is yours, and an empty one
-# is a deliberate choice rather than something to repopulate. Every rename below is keyed on which
-# files exist, so running setup again changes nothing it has already done.
+# is a deliberate choice rather than something to repopulate.
 setup_presets() {
-  if [[ -z "$(ls -A "$PRESET_DIR")" && ! -f "$CONFIG" ]]; then
-    cp "$REPO_DIR/presets/2x.conf" "$REPO_DIR/presets/sharp.conf" "$REPO_DIR/presets/tiny.conf" "$PRESET_DIR/"
-    print -r -- "==> Installed the example presets: 2x, sharp, tiny"
-  fi
-  # "default" set nothing and only existed to hold a place in the menu; "2x" pins the speed it
-  # always meant. Only retired while it is still setting-free, so an edited one is left alone.
-  if [[ -f "$PRESET_DIR/default.conf" ]] \
-    && ! grep -qE '^[[:space:]]*[a-z_]+[[:space:]]*=' "$PRESET_DIR/default.conf"; then
-    rm -f "$PRESET_DIR/default.conf"
-    [[ -f "$PRESET_DIR/2x.conf" ]] || cp "$REPO_DIR/presets/2x.conf" "$PRESET_DIR/"
-    print -r -- "==> Replaced the empty 'default' preset with '2x'"
-  fi
-  # "chat" is renamed "tiny": a name that says what the file becomes rather than where it is going.
-  if [[ -f "$PRESET_DIR/chat.conf" && ! -f "$PRESET_DIR/tiny.conf" ]]; then
-    mv "$PRESET_DIR/chat.conf" "$PRESET_DIR/tiny.conf"
-    print -r -- "==> Renamed the 'chat' preset to 'tiny'"
-  fi
-  # "hq" is renamed "sharp": says what it does without needing the abbreviation spelled out.
-  if [[ -f "$PRESET_DIR/hq.conf" && ! -f "$PRESET_DIR/sharp.conf" ]]; then
-    mv "$PRESET_DIR/hq.conf" "$PRESET_DIR/sharp.conf"
-    print -r -- "==> Renamed the 'hq' preset to 'sharp'"
-  fi
-  # New since 2x and tiny existed; an install that predates it just does not have the file yet.
-  if [[ ! -f "$PRESET_DIR/sharp.conf" ]]; then
-    cp "$REPO_DIR/presets/sharp.conf" "$PRESET_DIR/"
-    print -r -- "==> Added the new 'sharp' preset"
-  fi
+  [[ -z "$(ls -A "$PRESET_DIR")" && ! -f "$CONFIG" ]] || return 0
+  cp "$REPO_DIR/presets/2x.conf" "$REPO_DIR/presets/sharp.conf" "$REPO_DIR/presets/tiny.conf" "$PRESET_DIR/"
+  print -r -- "==> Installed the example presets: 2x, sharp, tiny"
 }
 
 setup_config() {
@@ -138,7 +113,7 @@ setup_actions() {
 # A checkout registers the script that is running rather than a copy of it, so a git pull is picked
 # up without anyone remembering to reinstall. The symlink is what the agent and the menu entries
 # name, which keeps "shrinkit" on the PATH and keeps Login Items reading "shrinkit" rather than
-# "shrinkit.sh". A keg needs none of it: brew puts its own shrinkit on the PATH.
+# "shrinkit.sh". Homebrew needs none of it: brew puts its own shrinkit on the PATH.
 # A checkout inside Desktop, Documents or Downloads cannot be reached by the agent or by a Finder
 # entry at all, link or no link: both run without the privacy grant that a folder there needs, and
 # zsh reports "can't open input file". Measured on a checkout in ~/Desktop, where a dropped
@@ -198,7 +173,7 @@ setup_bin() {
   print -r -- "==> On your PATH: $link -> $SELF"
 }
 
-# Two installs answering to one command name: a Homebrew keg sits on the PATH ahead of ~/.local/bin
+# Two installs answering to one command name: Homebrew's bin sits on the PATH ahead of ~/.local/bin
 # on a default macOS setup, so installing one while the other is registered splits the tool across
 # its entry points. The agent and the Finder entries keep running the path in the plist while the
 # terminal runs the other one, and nothing anywhere says so. Neither install can safely remove the
@@ -211,8 +186,8 @@ warn_about_another_shrinkit() {
   print -r -- "!! 'shrinkit' on your PATH is $onpath"
   print -r -- "   but the agent and the Finder entries now run $registered."
   # Not "tear down the one you do not want": teardown unregisters whatever is registered and
-  # clears ~/.local whichever binary runs it, so following that from the keg deletes the checkout
-  # install instead of the keg. It cannot act on a preference, so it must not be offered one.
+  # clears ~/.local whichever binary runs it, so following that from brew's deletes the checkout
+  # install instead of brew's. It cannot act on a preference, so it must not be offered one.
   print -r -- "   Two installs are in play. 'shrinkit teardown' unregisters the agent and the menu"
   print -r -- "   entries and clears ~/.local whichever one you run it from; afterwards run 'setup'"
   print -r -- "   again from the one you mean to keep."
@@ -294,7 +269,7 @@ registered_base() {
   [[ -n "$from_plist" ]] && print -r -- "$from_plist" || print -r -- "$BASE_DIR"
 }
 
-# Every branch below reports only what it actually found, because the shapes differ: a keg install
+# Every branch below reports only what it actually found, because the shapes differ: a Homebrew install
 # has no PATH entry of ours and no copy under ~/.local/share, and a base folder on the Desktop has
 # no shortcut. Claiming all of it every time taught anyone reading the output to ignore it.
 teardown_command() {
@@ -313,7 +288,7 @@ teardown_command() {
   ((unloaded || had_plist)) && removed+=("the agent")
 
   # brew puts nothing in ~/.local, so whatever is here is setup's link, an older install's copy, or
-  # the parts that come with such a copy. A keg's own binary belongs to brew uninstall.
+  # the parts that come with such a copy. Homebrew's own binary belongs to brew uninstall.
   link="$BIN_DIR/shrinkit"
   [[ -e "$link" || -L "$link" ]] && {
     rm -f "$link" && removed+=("$link") || failed+=("$link")
