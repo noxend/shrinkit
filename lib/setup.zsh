@@ -245,6 +245,9 @@ FDA
 
 setup_command() {
   print -r -- "==> Base folder: $BASE_DIR"
+  # A folder named for this run is remembered, so an install that runs setup again without it, as
+  # brew does on every upgrade, keeps the folder instead of falling back to the default.
+  [[ -n "${SHRINKIT_DIR-}" ]] && save_folder "$BASE_DIR"
 
   if [[ ! -x "$FFMPEG" ]]; then
     if command -v brew > /dev/null 2>&1; then

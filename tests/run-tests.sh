@@ -445,23 +445,25 @@ test_ignores_things_that_are_not_videos() {
 # Two right-click entries aimed at one file land on the same output name with no lock between
 # them, so the guard is that nothing is ever written at that name until it is complete.
 test_the_output_appears_only_once_it_is_finished() {
-  local box work out
+  local box work out tmp
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   work="$(scratch)"
+  tmp="$(scratch)"
   cp "$FIXTURES/big.mov" "$work/clip.mov"
   out="$work/clip.mp4"
 
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov" > /dev/null 2>&1 &
+  TMPDIR="$tmp" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov" > /dev/null 2>&1 &
   sleep 2 # the 4K fixture takes several seconds, so this lands mid-encode
 
   check "nothing sits at the final name yet" missing "$out"
-  check "the half-written file is hidden" test "$(ls -A "$work" | grep -c '\.part\.mp4$')" = 1
+  check "nor anything half-made beside the recording" test "$(ls -A "$work" | grep -c part)" = 0
+  check "the half-written file is in the temporary folder" test "$(ls -A "$tmp" | grep -c '\.part\.mp4$')" = 1
   wait
 
   check "it lands when the encode finishes" exists "$out"
   check "and plays" playable "$out"
-  check "leaving no part files behind" test "$(ls -A "$work" | grep -c part)" = 0
+  check "leaving no part files behind" test -z "$(ls -A "$tmp")"
 }
 
 test_a_broken_line_spoils_only_itself() {
@@ -1466,26 +1468,24 @@ test_one_shot_handles_several_files() {
 }
 
 test_a_failed_move_into_place_is_reported_not_silent() {
-  local box work fakebin
-  local -a leftover
+  local box work fakebin tmp
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   work="$(scratch)"
+  tmp="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
 
-  # Stands in for mv refusing the final rename -- Full Disk Access denied to whatever ran this, on
-  # Desktop/Documents/Downloads, is the real-world case, but any reason mv fails should end up here.
+  # Stands in for mv refusing to put the result in place, for whatever reason the folder has.
   fakebin="$(scratch)"
-  print -rl -- '#!/bin/zsh' 'exit 1' > "$fakebin/mv"
+  print -rl -- '#!/bin/zsh' 'print -u2 "mv: refused by the fake"' 'exit 1' > "$fakebin/mv"
   chmod +x "$fakebin/mv"
 
-  PATH="$fakebin:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov"
+  TMPDIR="$tmp" PATH="$fakebin:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov"
 
-  leftover=("$work"/.*.part.mp4(N))
   check "does not silently succeed" missing "$work/clip.mp4"
-  check "leaves no orphaned temp file behind" test "${#leftover}" = 0
-  check "names the actual problem" logged "$box" 'could not write clip.mp4'
-  check "mentions Full Disk Access" logged "$box" 'Full Disk Access'
+  check "leaves no orphaned temp file behind" test -z "$(ls -A "$tmp")"
+  check "names the actual problem" logged "$box" 'could not move clip.mp4'
+  check "with mv's own reason beside it" logged "$box" 'mv: refused by the fake'
   check "leaves the source in place" exists "$work/clip.mov"
 }
 
@@ -1544,6 +1544,25 @@ test_flags_that_make_no_sense_are_refused() {
       zsh "$OPTIMIZER" "$flag" > /dev/null 2>&1 || code=$?
     check "refuses $flag" test "$code" = 2
   done
+}
+
+test_a_result_is_made_outside_the_folder_it_lands_in() {
+  local box work tmp
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(scratch)"
+  tmp="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+
+  TMPDIR="$tmp" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov" > /dev/null 2>&1
+
+  # A right-click entry cannot rename or delete a file that ffmpeg made on the Desktop, so a half
+  # made file beside the recording is one it can neither finish nor clean up. Measured with a probe
+  # entry on a real Desktop file; the move in from elsewhere is allowed.
+  check "the result lands beside the recording" exists "$work/clip.mp4"
+  check "with ffmpeg writing into the temporary folder" logged "$box" "to '$tmp/shrinkit."
+  check "and nothing half-made left beside it" test -z "$(ls -A "$work" | grep part)"
+  check "nor in the temporary folder" test -z "$(ls -A "$tmp")"
 }
 
 test_config_show_lists_what_is_in_effect() {
@@ -1879,6 +1898,24 @@ test_merge_joins_the_takes_into_one_file() {
   check "leaves the first source where it was" exists "$work/one.mov"
   check "leaves the second source where it was" exists "$work/two.mov"
   check "joins the streams rather than re-encoding them" logged "$box" 'streams copied'
+}
+
+test_merge_writes_its_temp_file_outside_the_takes_folder() {
+  local box work tmp
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(scratch)"
+  tmp="$(scratch)"
+  recorded_copy "$FIXTURES/take-red.mov" "$work/one.mov" 2026-01-01T10:00:00
+  recorded_copy "$FIXTURES/take-blue.mov" "$work/two.mov" 2026-01-01T10:05:00
+
+  TMPDIR="$tmp" run_merge "$box" "$work/one.mov" "$work/two.mov"
+
+  # The same Desktop rule as a shrink: the join is built elsewhere and moved in finished.
+  check "joins them" exists "$work/one-merged.mov"
+  check "with ffmpeg writing into the temporary folder" logged "$box" "to '$tmp/shrinkit."
+  check "and nothing half-made left beside the takes" test -z "$(ls -A "$work" | grep part)"
+  check "nor in the temporary folder" test -z "$(ls -A "$tmp")"
 }
 
 test_merge_orders_by_when_each_take_was_recorded() {
@@ -2486,6 +2523,50 @@ test_a_cask_install_leaves_a_different_shrinkit_alone() {
 
   # This runs on every brew install and upgrade, so a file that only shares the name survives it.
   check "keeps a file that is not this script" grep -q "somebody else" "$box/home/.local/bin/shrinkit"
+}
+
+# setup the way Homebrew runs it: `env -i` with a short whitelist, so SHRINKIT_DIR never arrives.
+setup_as_brew_does() {
+  local box="$1"
+  env -i HOME="$box/home" PATH="$PATH" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    zsh "$OPTIMIZER" setup
+}
+
+test_a_folder_named_once_survives_a_setup_without_it() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" "$box/clips" > /dev/null 2>&1
+  run_teardown "$box" > /dev/null 2>&1
+
+  # What brew upgrade does: teardown from the old version, then setup with SHRINKIT_DIR cleared.
+  setup_as_brew_does "$box" > /dev/null 2>&1
+
+  check "the agent still watches the folder that was chosen" \
+    test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/clips/input"
+  check "and no default folder was made instead" missing "$box/home/Movies/shrinkit"
+}
+
+test_config_folder_moves_the_install_to_the_new_folder() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  print -r -- "crf = 19" >> "$box/work/settings.conf"
+
+  out="$(HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" config folder "$box/elsewhere" 2>&1)"
+
+  check "the agent watches the new folder" \
+    test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/elsewhere/input"
+  check "the menu entries work in it" \
+    contains "$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")" "SHRINKIT_DIR=\"$box/elsewhere\""
+  check "the Desktop shortcut follows" links_to "$box/home/Desktop/elsewhere" "$box/elsewhere"
+  check "and the old one is gone" missing "$box/home/Desktop/work"
+  check "the old folder and what is in it stay" grep -q "crf = 19" "$box/work/settings.conf"
+  check "and it says so" contains "$out" "stays there"
+  check "an upgrade keeps it" test "$(setup_as_brew_does "$box" 2>&1 | grep -c "Base folder: $box/elsewhere")" = 1
+  check "and config folder names it" \
+    test "$(HOME="$box/home" zsh "$OPTIMIZER" config folder)" = "$box/elsewhere"
 }
 
 test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {

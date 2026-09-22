@@ -196,7 +196,7 @@ merge_files() {
   local first="${clips[1]}" part out total mode=""
 
   total="$(merge_total_duration "${clips[@]}")" || total=""
-  part="${first:h}/.${first:t:r}-merged.$$.part.${first:e}"
+  part="$(temp_part "${first:t:r}-merged" "${first:e}")"
 
   if ! merge_signatures_match "${clips[@]}"; then
     log "merge  the clips differ in size, codec or sound, so they are re-encoded to match"
@@ -216,7 +216,7 @@ merge_files() {
   fi
 
   if [[ -z "$mode" ]]; then
-    part="${first:h}/.${first:t:r}-merged.$$.part.mp4"
+    part="$(temp_part "${first:t:r}-merged" mp4)"
     merge_encode "$part" "${clips[@]}" || {
       rm -f "$part"
       return 1
@@ -229,10 +229,8 @@ merge_files() {
   # Two merges of the same takes inside one second would otherwise land on that same name, and the
   # mv below overwrites. No other run can hold this pid while this one is still using it.
   [[ -e "$out" ]] && out="${out:r}-$$.${part:e}"
-  # The same rename that encode() guards: a Quick Action runs as Finder, which needs its own Full
-  # Disk Access grant for Desktop, Documents and Downloads.
-  mv -f "$part" "$out" || {
-    log "FAILED merge: could not write ${out:t} (Desktop, Documents and Downloads need Full Disk Access granted to whatever ran this)"
+  mv -f "$part" "$out" 2>> "$LOG" || {
+    log "FAILED merge: could not move ${out:t} into ${out:h} (the reason is on the line above)"
     rm -f "$part"
     return 1
   }

@@ -61,7 +61,18 @@ data_dir() {
   print -r -- "${here:h}/share/shrinkit"
 }
 
-BASE_DIR="${SHRINKIT_DIR:-$HOME/Movies/shrinkit}"
+# The working folder a user chose, kept in a file rather than only in SHRINKIT_DIR: brew runs its
+# install and upgrade scripts with every variable but a handful cleared, so a folder chosen through
+# the environment alone was reset to the default on each upgrade. SHRINKIT_DIR still wins when set.
+FOLDER_FILE="$HOME/Library/Application Support/shrinkit/folder"
+saved_folder() {
+  [[ -r "$FOLDER_FILE" ]] && print -r -- "$(< "$FOLDER_FILE")"
+}
+save_folder() {
+  mkdir -p "${FOLDER_FILE:h}" && print -r -- "$1" > "$FOLDER_FILE"
+}
+BASE_DIR="${SHRINKIT_DIR:-$(saved_folder)}"
+BASE_DIR="${BASE_DIR:-$HOME/Movies/shrinkit}"
 SELF="$(self_path)"
 REPO_DIR="$(data_dir)" # where the Quick Action template and the stock presets live
 # Installed without a .sh extension so it reads as "shrinkit", not "zsh", in the
@@ -154,6 +165,15 @@ FFPROBE="$(find_tool ffprobe)"
 
 log() {
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
+}
+
+# Where ffmpeg writes before the result is moved into place. Not beside the result: a right-click
+# entry may rename or delete a file in Desktop, Documents or Downloads that it made itself, but not
+# one that ffmpeg made there, so the rename out of a .part next to a recording on the Desktop was
+# refused and the part left behind. Measured with a probe entry run on a Desktop file; moving the
+# finished file in from the temporary folder needs no grant at all.
+temp_part() {
+  print -r -- "${${TMPDIR:-/tmp}%/}/shrinkit.$$.$1.part.$2"
 }
 
 # --------------------------------------------------------------------- settings
@@ -767,8 +787,9 @@ encode() {
     [[ "$keep_audio" == true ]] && audio=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "${CFG[speed]}")" -shortest)
   fi
 
-  # Written to a hidden temp file first, so two runs on one name can never collide mid-write.
-  local part="${out:h}/.${out:t:r}.$$.part.mp4"
+  # Written to a temp file first, so two runs on one name can never collide mid-write.
+  local part
+  part="$(temp_part "${out:t:r}" mp4)"
 
   log "encode ${src:t} ($label)"
   "$FFMPEG" -nostdin -y -i "$src" "${filter_args[@]}" \
@@ -782,12 +803,8 @@ encode() {
     rm -f "$part"
     return 1
   }
-  # ffmpeg writing $part is not proof the folder is actually writable to the process running this:
-  # a right-click Quick Action runs as Automator/Finder, which needs its own Full Disk Access grant
-  # for Desktop/Documents/Downloads, separate from Terminal's -- and unlike ffmpeg failing loudly,
-  # a denied rename here used to fail with no explanation at all, leaving the temp file behind.
-  mv -f "$part" "$out" || {
-    log "FAILED ${src:t}: could not write ${out:t} (Desktop, Documents and Downloads need Full Disk Access granted to whatever ran this)"
+  mv -f "$part" "$out" 2>> "$LOG" || {
+    log "FAILED ${src:t}: could not move ${out:t} into ${out:h} (the reason is on the line above)"
     rm -f "$part"
     return 1
   }
@@ -986,6 +1003,29 @@ config_edit() {
   "${editor[@]}" "$CONFIG"
 }
 
+# Moving the working folder means a new watch path for the agent, new menu entries and a new
+# Desktop shortcut, which is setup's job, so an install that exists is set up again for the new one.
+# The files already in the old folder stay there.
+config_folder() {
+  local new="$1" old_link="$HOME/Desktop/${BASE_DIR:t}"
+  [[ -n "$new" ]] || {
+    print -r -- "$BASE_DIR"
+    return 0
+  }
+  new="${new:a}"
+  save_folder "$new" || {
+    print -u2 -r -- "could not save the folder to $FOLDER_FILE"
+    return 1
+  }
+  print -r -- "==> Working folder: $new"
+  [[ "$new" != "$BASE_DIR" && -d "$BASE_DIR" ]] \
+    && print -r -- "    What is already in $BASE_DIR stays there."
+  [[ -f "$PLIST" ]] || return 0
+  [[ -L "$old_link" && "$(readlink "$old_link")" == "$BASE_DIR" && "${new:t}" != "${BASE_DIR:t}" ]] \
+    && rm -f "$old_link"
+  SHRINKIT_DIR="$new" zsh "${ZSH_ARGZERO:A}" setup
+}
+
 config_command() {
   mkdir -p "$BASE_DIR" "$LOG_DIR"
   case "${1-}" in
@@ -997,9 +1037,12 @@ config_command() {
     edit)
       config_edit
       ;;
+    folder)
+      config_folder "${2-}"
+      ;;
     *)
       [[ -n "${2-}" ]] || {
-        print -u2 -r -- "usage: config [show | edit | <setting> <value>]"
+        print -u2 -r -- "usage: config [show | edit | folder [<path>] | <setting> <value>]"
         return 2
       }
       config_set "$1" "$2" || return 2
@@ -1140,7 +1183,7 @@ mark_cuts_command() {
 
 usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
-       ${ZSH_ARGZERO:t} config [show | edit | <setting> <value>]
+       ${ZSH_ARGZERO:t} config [show | edit | folder [<path>] | <setting> <value>]
        ${ZSH_ARGZERO:t} preset [install <name> | remove <name>]
        ${ZSH_ARGZERO:t} mark-cuts <file>...
        ${ZSH_ARGZERO:t} merge <file>...
