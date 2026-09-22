@@ -276,7 +276,7 @@ setup_command() {
   setup_agent
 
   print -r -- ""
-  print -r -- "Done. Open the 'shrinkit' shortcut on your Desktop:"
+  print -r -- "Done. Open the '${BASE_DIR:t}' shortcut on your Desktop:"
   print -r -- "  - drop recordings into  $IN_DIR"
   print -r -- "  - pick up results from  $OUT_DIR"
   print -r -- "  - change behaviour by editing  $CONFIG"

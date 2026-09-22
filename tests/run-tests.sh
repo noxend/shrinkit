@@ -2563,7 +2563,10 @@ test_config_folder_moves_the_install_to_the_new_folder() {
   check "the Desktop shortcut follows" links_to "$box/home/Desktop/elsewhere" "$box/elsewhere"
   check "and the old one is gone" missing "$box/home/Desktop/work"
   check "the old folder and what is in it stay" grep -q "crf = 19" "$box/work/settings.conf"
-  check "and it says so" contains "$out" "stays there"
+  check "and it says so" contains "$out" "stay there"
+  check "the settings go along" grep -q "crf = 19" "$box/elsewhere/settings.conf"
+  check "and the presets" exists "$box/elsewhere/presets/2x.conf"
+  check "setup names the shortcut it made" contains "$out" "Open the 'elsewhere' shortcut"
   check "an upgrade keeps it" test "$(setup_as_brew_does "$box" 2>&1 | grep -c "Base folder: $box/elsewhere")" = 1
   check "and config folder names it" \
     test "$(HOME="$box/home" zsh "$OPTIMIZER" config folder)" = "$box/elsewhere"

@@ -1018,8 +1018,16 @@ config_folder() {
     return 1
   }
   print -r -- "==> Working folder: $new"
+  # The settings and presets go along when the new folder has none, since moving the folder is not
+  # meant to put every setting back to its default. Recordings and results stay where they are.
+  if [[ "$new" != "$BASE_DIR" && -f "$CONFIG" && ! -f "$new/settings.conf" ]]; then
+    mkdir -p "$new/presets"
+    cp "$CONFIG" "$new/settings.conf"
+    cp "$PRESET_DIR"/*.conf(N) "$new/presets/" 2> /dev/null
+    print -r -- "    Brought your settings and presets along."
+  fi
   [[ "$new" != "$BASE_DIR" && -d "$BASE_DIR" ]] \
-    && print -r -- "    What is already in $BASE_DIR stays there."
+    && print -r -- "    Recordings and results already in $BASE_DIR stay there."
   [[ -f "$PLIST" ]] || return 0
   [[ -L "$old_link" && "$(readlink "$old_link")" == "$BASE_DIR" && "${new:t}" != "${BASE_DIR:t}" ]] \
     && rm -f "$old_link"
