@@ -416,18 +416,41 @@ test_keep_days_off_by_default() {
   check "leaves it alone" exists "$box/.processed/old.mov"
 }
 
-test_skips_work_already_done() {
-  local box
+test_a_second_recording_with_the_same_name_is_shrunk_too() {
+  local box first
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
   optimize "$box"
+  first="$(shasum "$box/.processed/clip.mov" | cut -d' ' -f1)"
 
-  cp "$FIXTURES/silent.mov" "$box/input/clip.mov" # same name again
+  sleep 1 # a later recording, arriving after the first result was made
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
   optimize "$box"
 
-  check "says it already has one" logged "$box" 'already has an optimized copy'
-  check "does not touch the file" exists "$box/input/clip.mov"
+  # It used to sit in input/ for good beside a log line, and the first original was overwritten
+  # the moment anything did move a same-named file into .processed/.
+  check "does not stay in input/" missing "$box/input/clip.mov"
+  check "gets a result of its own" test "$(ls "$box/output" | grep -c '^clip.*\.mp4$')" = 2
+  check "keeps the first original as it was" \
+    test "$(shasum "$box/.processed/clip.mov" | cut -d' ' -f1)" = "$first"
+  check "and keeps the second one beside it" test "$(ls "$box/.processed" | grep -c '^clip.*\.mov$')" = 2
+}
+
+test_a_recording_that_could_not_be_filed_away_is_not_shrunk_again() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  chmod a-w "$box/.processed" # the original cannot be moved out of input/
+
+  optimize "$box"
+  optimize "$box"
+  chmod u+w "$box/.processed"
+
+  # Its own result is newer than its arrival, which is how it is told apart from a new recording.
+  check "is shrunk once" test "$(ls "$box/output" | grep -c '^clip.*\.mp4$')" = 1
+  check "and then left alone" logged "$box" 'already has an optimized copy'
 }
 
 test_ignores_things_that_are_not_videos() {
@@ -1565,6 +1588,50 @@ test_a_result_is_made_outside_the_folder_it_lands_in() {
   check "nor in the temporary folder" test -z "$(ls -A "$tmp")"
 }
 
+test_across_volumes_the_result_is_finished_beside_itself() {
+  local box work tmp fakebin
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(scratch)"
+  tmp="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+  # Stands in for a working folder on another drive: the temporary folder reports another device.
+  fakebin="$(scratch)"
+  print -rl -- '#!/bin/zsh' \
+    "[[ \"\$*\" == *'%d'*'$tmp'* ]] && { print 7; exit 0; }" \
+    'exec /usr/bin/stat "$@"' > "$fakebin/stat"
+  chmod +x "$fakebin/stat"
+
+  TMPDIR="$tmp" PATH="$fakebin:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" "$work/clip.mov" > /dev/null 2>&1
+
+  # A move across volumes is a copy, visible under the final name while it runs; a hidden part
+  # beside the result keeps the rename atomic there.
+  check "the result lands" exists "$work/clip.mp4"
+  check "written beside it, not in the temporary folder" logged "$box" "to '$work/.clip."
+  check "and nothing half-made is left" test "$(ls -A "$work" | grep -c part)" = 0
+}
+
+test_an_interrupted_run_stops_and_cleans_up() {
+  local box tmp pid code=0
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tmp="$(scratch)"
+  cp "$FIXTURES/big.mov" "$box/input/a.mov"
+  cp "$FIXTURES/big.mov" "$box/input/b.mov"
+
+  TMPDIR="$tmp" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" > /dev/null 2>&1 &
+  pid=$!
+  sleep 2 # mid-encode of the first
+  kill -TERM "$pid"
+  wait "$pid" || code=$?
+
+  # What brew's teardown does to a running agent: it used to release the lock and carry on.
+  check "stops with the signal's status" test "$code" = 143
+  check "does not go on to the next file" exists "$box/input/b.mov"
+  check "and leaves nothing half-made behind" test -z "$(ls -A "$tmp")"
+}
+
 test_config_show_lists_what_is_in_effect() {
   local box out
   box="$(sandbox)"
@@ -2424,6 +2491,7 @@ test_a_cask_install_registers_the_link_that_survives_an_upgrade() {
   plist="$box/home/Library/LaunchAgents/com.shrinkit.plist"
   check "the agent runs brew's link" test "$(plist_value "$plist" ProgramArguments.0)" = "${box:A}/brew/bin/shrinkit"
   check "and never the versioned folder" lacks "$(plist_value "$plist" ProgramArguments.0)" "Caskroom"
+  check "the menu entry is built" test -d "$box/home/Library/Services/shrinkit: 2x.workflow"
   check "nor does a menu entry" \
     lacks "$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")" "Caskroom"
   check "and it makes no PATH link of its own" missing "$box/home/.local/bin/shrinkit"
@@ -2507,6 +2575,112 @@ test_config_folder_moves_the_install_to_the_new_folder() {
   check "an upgrade keeps it" test "$(setup_as_brew_does "$box" 2>&1 | grep -c "Base folder: $box/elsewhere")" = 1
   check "and config folder names it" \
     test "$(HOME="$box/home" zsh "$OPTIMIZER" config folder)" = "$box/elsewhere"
+}
+
+test_teardown_leaves_a_different_shrinkit_alone() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  brew_cask "$box"
+  mkdir -p "$box/home/.local/bin" "$box/home/.local/share/shrinkit"
+  print -rl -- '#!/bin/sh' 'echo somebody else' > "$box/home/.local/bin/shrinkit"
+  print -r -- "notes" > "$box/home/.local/share/shrinkit/notes.txt"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$box/brew/bin/shrinkit" teardown > /dev/null 2>&1
+
+  # brew runs teardown on every upgrade, so a stranger's file with this name would go every time.
+  check "keeps a file that is not this script" grep -q "somebody else" "$box/home/.local/bin/shrinkit"
+  check "and a share folder that is not ours" exists "$box/home/.local/share/shrinkit/notes.txt"
+}
+
+test_a_folder_an_older_install_registered_survives_the_first_cask_setup() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" "$box/clips" > /dev/null 2>&1
+  print -r -- "crf = 19" >> "$box/clips/settings.conf"
+  # v2 named the folder only in the agent's plist; there was no file to remember it in.
+  rm -rf "$box/home/Library/Application Support/shrinkit"
+
+  setup_as_brew_does "$box" > /dev/null 2>&1
+
+  check "the agent still watches that folder" \
+    test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/clips/input"
+  check "no default folder was made instead" missing "$box/home/Movies/shrinkit"
+  check "and it is remembered from now on" \
+    test "$(< "$box/home/Library/Application Support/shrinkit/folder")" = "$box/clips"
+}
+
+test_config_folder_refuses_a_folder_it_cannot_create() {
+  local box code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+
+  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    zsh "$OPTIMIZER" config folder /Volumes/shrinkit-no-such-drive/work > /dev/null 2>&1 || code=$?
+
+  # A drive that is not connected used to be saved, registered and reported as done, and the
+  # preset entries were rebuilt from a presets folder that was not there.
+  check "says no" test "$code" != 0
+  check "keeps the folder it had" \
+    test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/work/input"
+  check "remembers the folder it had" \
+    test "$(< "$box/home/Library/Application Support/shrinkit/folder")" = "$box/work"
+  check "and keeps every menu entry" test "$(action_count "$box/home/Library/Services")" = 5
+}
+
+test_setup_registers_nothing_for_a_folder_it_cannot_create() {
+  local box code=0
+  box="$(scratch)"
+  setup_box "$box"
+
+  run_setup "$box" /Volumes/shrinkit-no-such-drive/work > /dev/null 2>&1 || code=$?
+
+  check "fails" test "$code" != 0
+  check "registers no agent" missing "$box/home/Library/LaunchAgents/com.shrinkit.plist"
+  check "and builds no menu" test "$(action_count "$box/home/Library/Services")" = 0
+}
+
+test_config_folder_does_not_recreate_a_folder_moved_away_by_hand() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" "$box/old" > /dev/null 2>&1
+  mv "$box/old" "$box/moved"
+
+  out="$(HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" config folder "$box/moved" 2>&1)"
+
+  check "the old path stays gone" missing "$box/old"
+  check "and nothing claims recordings are waiting there" lacks "$out" "stay there"
+  check "the agent watches the folder it was moved to" \
+    test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/moved/input"
+}
+
+test_a_desktop_link_of_somebody_elses_is_left_alone() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  mkdir -p "$box/pictures/work"
+  ln -s "$box/pictures/work" "$box/home/Desktop/work"
+
+  run_setup "$box" > /dev/null 2>&1
+  check "setup does not repoint it" links_to "$box/home/Desktop/work" "$box/pictures/work"
+  run_teardown "$box" > /dev/null 2>&1
+  check "teardown does not remove it" links_to "$box/home/Desktop/work" "$box/pictures/work"
+}
+
+test_the_agent_also_runs_when_it_is_loaded() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+
+  # brew replaces the agent on every upgrade; a recording that arrived meanwhile is picked up at load.
+  check "at load" test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" RunAtLoad)" = true
 }
 
 test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {

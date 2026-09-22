@@ -60,8 +60,10 @@ setup_plist() {
     <array>
         <string>$IN_DIR</string>
     </array>
+    <!-- At load as well, so a recording that arrived while the agent was being replaced, which
+         brew does on every upgrade, does not wait in input/ for the next drop. -->
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
     <key>ThrottleInterval</key>
     <integer>10</integer>
     <key>EnvironmentVariables</key>
@@ -89,6 +91,12 @@ setup_desktop_link() {
   [[ "$BASE_DIR" == "$HOME/Desktop/"* ]] && return 0
   if [[ -e "$link" && ! -L "$link" ]]; then
     print -r -- "!! $link already exists as a real folder; skipping the Desktop shortcut."
+    return 0
+  fi
+  # A link is taken over only when it is ours: it points here, or at another shrinkit working folder
+  # this one replaces. One of somebody else's that shares the name stays as it is.
+  if [[ -L "$link" && "$(readlink "$link")" != "$BASE_DIR" && ! -f "$(readlink "$link")/settings.conf" ]]; then
+    print -r -- "!! $link already points somewhere else; skipping the Desktop shortcut."
     return 0
   fi
   ln -sfn "$BASE_DIR" "$link"
@@ -121,6 +129,18 @@ setup_actions() {
 # from outside processed it within seconds. So a guarded checkout is copied out instead of linked
 # to, into a ~/.local laid out exactly like a Homebrew prefix, which lib_dir() and data_dir()
 # already know how to read.
+# What setup itself put in ~/.local, told apart from anything else with the name: the script's own
+# opening line, read through a link if it is one, or a link to a shrinkit.sh whose checkout has
+# since gone; and lib/ inside the share folder. Both setup and teardown ask, and under brew both run
+# on every upgrade, so neither may remove a file of somebody else's for its name alone.
+our_bin() {
+  [[ -L "$1" && "$(readlink "$1")" == */shrinkit.sh ]] && return 0
+  grep -q '^# Shrinks screen recordings dropped into the input folder' "$1" 2> /dev/null
+}
+our_share() {
+  [[ -f "$1/lib/setup.zsh" ]]
+}
+
 setup_bin() {
   local link="$BIN_DIR/shrinkit" share="$SHARE_DIR"
   # Under Homebrew a copy or a link that an earlier checkout install left in ~/.local would still
@@ -131,9 +151,8 @@ setup_bin() {
   # that merely has the same name has to survive it.
   if installed_by_brew; then
     local -a retired
-    grep -q '^# Shrinks screen recordings dropped into the input folder' "$link" 2> /dev/null \
-      && rm -f "$link" && retired+=("$link")
-    [[ -f "$share/lib/setup.zsh" ]] && rm -rf "$share" && retired+=("$share")
+    our_bin "$link" && rm -f "$link" && retired+=("$link")
+    our_share "$share" && rm -rf "$share" && retired+=("$share")
     ((${#retired})) \
       && print -r -- "==> Removed the earlier install, Homebrew's shrinkit is the one in use now: ${(j:, :)retired}"
     return 0
@@ -220,9 +239,17 @@ FDA
 
 setup_command() {
   print -r -- "==> Base folder: $BASE_DIR"
-  # A folder named for this run is remembered, so an install that runs setup again without it, as
-  # brew does on every upgrade, keeps the folder instead of falling back to the default.
-  [[ -n "${SHRINKIT_DIR-}" ]] && save_folder "$BASE_DIR"
+  # Checked before anything is registered: a folder on a drive that is not connected used to leave
+  # an agent watching nothing and the menu rebuilt from a presets folder that was not there.
+  mkdir -p "$BASE_DIR" 2> /dev/null || {
+    print -u2 -r -- "!! Cannot create the working folder $BASE_DIR."
+    print -u2 -r -- "!! If it is on a drive, connect it and run this again, or pick another with"
+    print -u2 -r -- "!! 'shrinkit config folder <path>'. Nothing was registered."
+    return 1
+  }
+  # The folder is remembered whichever way it was found, so an install that runs setup again
+  # without SHRINKIT_DIR, as brew does on every upgrade, keeps it rather than falling back.
+  save_folder "$BASE_DIR"
 
   if [[ ! -x "$FFMPEG" ]]; then
     if command -v brew > /dev/null 2>&1; then
@@ -265,7 +292,7 @@ setup_command() {
 # folder's Desktop shortcut behind.
 registered_base() {
   local from_plist
-  from_plist="$(plutil -extract EnvironmentVariables.SHRINKIT_DIR raw -o - "$PLIST" 2> /dev/null)"
+  from_plist="$(registered_folder)"
   [[ -n "$from_plist" ]] && print -r -- "$from_plist" || print -r -- "$BASE_DIR"
 }
 
@@ -290,17 +317,18 @@ teardown_command() {
   # brew puts nothing in ~/.local, so whatever is here is setup's link, an older install's copy, or
   # the parts that come with such a copy. Homebrew's own binary belongs to brew uninstall.
   link="$BIN_DIR/shrinkit"
-  [[ -e "$link" || -L "$link" ]] && {
+  our_bin "$link" && {
     rm -f "$link" && removed+=("$link") || failed+=("$link")
   }
   # Written by setup_bin when the checkout it ran from was privacy-protected. Left behind until
   # now, which made an uninstall that said it was finished leave 48K of the tool on disk.
-  [[ -d "$SHARE_DIR" ]] && {
+  our_share "$SHARE_DIR" && {
     rm -rf "$SHARE_DIR" && removed+=("$SHARE_DIR") || failed+=("$SHARE_DIR")
   }
 
-  # Only ever a shortcut, never a real folder somebody put there.
-  [[ -L "$HOME/Desktop/${base:t}" ]] && {
+  # Only the shortcut that points at this folder, never a real folder or a link of somebody else's
+  # that happens to share the name.
+  [[ -L "$HOME/Desktop/${base:t}" && "$(readlink "$HOME/Desktop/${base:t}")" == "$base" ]] && {
     rm -f "$HOME/Desktop/${base:t}" && removed+=("the Desktop shortcut") || failed+=("$HOME/Desktop/${base:t}")
   }
 

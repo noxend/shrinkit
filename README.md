@@ -133,11 +133,12 @@ Uninstalling removes the watcher, the right-click entries, the Desktop shortcut 
 Your recordings, results, settings and presets stay in the working folder. `brew uninstall --zap`
 also forgets which working folder you chose.
 
-If brew can no longer run it, the same by hand:
+If brew can no longer run it, the same by hand, then delete the shortcut on your Desktop, which
+is named after the working folder:
 
 ```bash
 launchctl bootout "gui/$(id -u)/com.shrinkit"
-rm -f ~/Library/LaunchAgents/com.shrinkit.plist ~/Desktop/shrinkit
+rm -f ~/Library/LaunchAgents/com.shrinkit.plist
 rm -rf ~/Library/Services/shrinkit:*.workflow ~/.local/bin/shrinkit ~/.local/share/shrinkit
 /System/Library/CoreServices/pbs -update
 ```

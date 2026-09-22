@@ -66,7 +66,14 @@ saved_folder() {
 save_folder() {
   mkdir -p "${FOLDER_FILE:h}" && print -r -- "$1" > "$FOLDER_FILE"
 }
+# An install from before the folder was kept in a file names it only in its agent's plist, and brew
+# clears SHRINKIT_DIR, so without this the first cask install moved such a user to the default.
+registered_folder() {
+  plutil -extract EnvironmentVariables.SHRINKIT_DIR raw -o - \
+    "$HOME/Library/LaunchAgents/com.shrinkit.plist" 2> /dev/null
+}
 BASE_DIR="${SHRINKIT_DIR:-$(saved_folder)}"
+BASE_DIR="${BASE_DIR:-$(registered_folder)}"
 BASE_DIR="${BASE_DIR:-$HOME/Movies/shrinkit}"
 SELF="$(self_path)"
 REPO_DIR="$(data_dir)" # where the Quick Action template and the stock presets live
@@ -162,13 +169,43 @@ log() {
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
 }
 
+# The part being written, so an interrupted run can take it away.
+CURRENT_PART=""
+
 # Where ffmpeg writes before the result is moved into place. Not beside the result: a right-click
 # entry may rename or delete a file in Desktop, Documents or Downloads that it made itself, but not
 # one that ffmpeg made there, so the rename out of a .part next to a recording on the Desktop was
 # refused and the part left behind. Measured with a probe entry run on a Desktop file; moving the
 # finished file in from the temporary folder needs no grant at all.
+# Only when the temporary folder is on the destination's volume, though: across volumes the move is
+# a copy, and the result would sit under its final name, growing, until it finished. There a hidden
+# part beside the result keeps the rename atomic. Desktop, Documents and Downloads are always on
+# the temporary folder's volume, so they always get the temporary folder.
 temp_part() {
-  print -r -- "${${TMPDIR:-/tmp}%/}/shrinkit.$$.$1.part.$2"
+  local dir="$1" tmp="${${TMPDIR:-/tmp}%/}" dev_tmp dev_dir
+  dev_tmp="$(stat -f %d "$tmp" 2> /dev/null)"
+  dev_dir="$(stat -f %d "$dir" 2> /dev/null)"
+  if [[ -n "$dev_tmp" && "$dev_tmp" == "$dev_dir" ]]; then
+    print -r -- "$tmp/shrinkit.$$.$2.part.$3"
+  else
+    print -r -- "$dir/.$2.$$.part.$3"
+  fi
+}
+
+# A name nothing holds yet: the one asked for, else with the time added, else with the time and
+# the pid. Wherever a second file of the same name must not replace the first.
+free_name() {
+  local want="$1" stamp
+  [[ -e "$want" ]] || {
+    print -r -- "$want"
+    return
+  }
+  stamp="$(date +%s)"
+  [[ -e "${want:r}-$stamp.${want:e}" ]] || {
+    print -r -- "${want:r}-$stamp.${want:e}"
+    return
+  }
+  print -r -- "${want:r}-$stamp-$$.${want:e}"
 }
 
 # --------------------------------------------------------------------- settings
@@ -784,7 +821,8 @@ encode() {
 
   # Written to a temp file first, so two runs on one name can never collide mid-write.
   local part
-  part="$(temp_part "${out:t:r}" mp4)"
+  part="$(temp_part "${out:h}" "${out:t:r}" mp4)"
+  CURRENT_PART="$part"
 
   log "encode ${src:t} ($label)"
   "$FFMPEG" -nostdin -y -i "$src" "${filter_args[@]}" \
@@ -803,6 +841,7 @@ encode() {
     rm -f "$part"
     return 1
   }
+  CURRENT_PART=""
 }
 
 # The size line, clipboard copy and finished banner, shared by both modes. note is cuts_note()'s
@@ -844,9 +883,13 @@ shrink() {
       # touch: mv keeps the file's own mtime, but keep_days counts from when it was archived. The
       # sidecar move is gated on the first mv succeeding, so a locked or permission-denied source
       # cannot leave its .cuts sidecar archived while the video itself stays stuck in input/.
-      mv "$src" "$DONE_DIR/" && {
-        touch "$DONE_DIR/${src:t}"
-        [[ -f "${src}.cuts" ]] && mv "${src}.cuts" "$DONE_DIR/" && touch "$DONE_DIR/${src:t}.cuts"
+      # Under a free name: a second recording with the same name used to replace the first one's
+      # original in .processed/ without a word.
+      local kept
+      kept="$(free_name "$DONE_DIR/${src:t}")"
+      mv "$src" "$kept" && {
+        touch "$kept"
+        [[ -f "${src}.cuts" ]] && mv "${src}.cuts" "${kept}.cuts" && touch "${kept}.cuts"
       }
     else
       rm -f "$src" "${src}.cuts"
@@ -871,7 +914,7 @@ optimize_files() {
       continue
     }
     out="${src:h}/$(output_name "$src")"
-    [[ -e "$out" ]] && out="${src:h}/${${out:t}:r}-$(date +%s).mp4"
+    out="$(free_name "$out")"
     shrink "$src" "$out" false
   done
 }
@@ -887,11 +930,14 @@ process_queue() {
     for src in "${pending[@]}"; do
       seen=1
       out="$OUT_DIR/$(output_name "$src")"
-      if [[ -e "$out" ]]; then
+      # A result made after this file arrived in input/ is its own, from a run that could not move it
+      # out; shrinking it again would loop. One made before is an earlier recording's with the same
+      # name, and used to leave this one in input/ for good.
+      if [[ -e "$out" ]] && (($(stat -f %c "$src") <= $(stat -f %m "$out"))); then
         log "skip   ${src:t} (already has an optimized copy)"
       elif ! is_settled "$src"; then
         log "skip   ${src:t} (still being written)"
-      elif shrink "$src" "$out" true; then
+      elif shrink "$src" "$(free_name "$out")" true; then
         progressed=1
       fi
     done
@@ -1008,6 +1054,10 @@ config_folder() {
     return 0
   }
   new="${new:a}"
+  mkdir -p "$new" 2> /dev/null || {
+    print -u2 -r -- "cannot create $new; nothing was changed"
+    return 1
+  }
   save_folder "$new" || {
     print -u2 -r -- "could not save the folder to $FOLDER_FILE"
     return 1
@@ -1030,7 +1080,8 @@ config_folder() {
 }
 
 config_command() {
-  mkdir -p "$BASE_DIR" "$LOG_DIR"
+  # Not for folder: moving away from a folder that was moved or deleted by hand would recreate it.
+  [[ "${1-}" == folder ]] || mkdir -p "$BASE_DIR" "$LOG_DIR"
   case "${1-}" in
     "" | show)
       read_config
@@ -1413,5 +1464,14 @@ main() {
 }
 
 # Set at the top level: in zsh, a trap set inside a function fires when that function returns.
-trap release_lock EXIT INT TERM
+# INT and TERM stop the run: releasing the lock and carrying on made Ctrl-C shrink the next file
+# anyway, and let brew's teardown unload an agent that went on working.
+stop_run() {
+  [[ -n "$CURRENT_PART" ]] && rm -f "$CURRENT_PART"
+  release_lock
+  exit "$1"
+}
+trap release_lock EXIT
+trap 'stop_run 130' INT
+trap 'stop_run 143' TERM
 main "$@"

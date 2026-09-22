@@ -196,7 +196,8 @@ merge_files() {
   local first="${clips[1]}" part out total mode=""
 
   total="$(merge_total_duration "${clips[@]}")" || total=""
-  part="$(temp_part "${first:t:r}-merged" "${first:e}")"
+  part="$(temp_part "${first:h}" "${first:t:r}-merged" "${first:e}")"
+  CURRENT_PART="$part"
 
   if ! merge_signatures_match "${clips[@]}"; then
     log "merge  the clips differ in size, codec or sound, so they are re-encoded to match"
@@ -216,7 +217,8 @@ merge_files() {
   fi
 
   if [[ -z "$mode" ]]; then
-    part="$(temp_part "${first:t:r}-merged" mp4)"
+    part="$(temp_part "${first:h}" "${first:t:r}-merged" mp4)"
+    CURRENT_PART="$part"
     merge_encode "$part" "${clips[@]}" || {
       rm -f "$part"
       return 1
@@ -234,6 +236,7 @@ merge_files() {
     rm -f "$part"
     return 1
   }
+  CURRENT_PART=""
   log "merged ${#clips} clips into ${out:t} ($mode)"
   print -r -- "$out"
 }
