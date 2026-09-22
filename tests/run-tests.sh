@@ -1612,6 +1612,29 @@ test_across_volumes_the_result_is_finished_beside_itself() {
   check "and nothing half-made is left" test "$(ls -A "$work" | grep -c part)" = 0
 }
 
+test_a_folder_that_will_not_answer_stat_still_gets_the_temporary_folder() {
+  local box work tmp fakebin
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(scratch)"
+  tmp="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+  # Stands in for a right-click entry that may not look at the Desktop folder itself.
+  fakebin="$(scratch)"
+  print -rl -- '#!/bin/zsh' \
+    "[[ \"\$*\" == *'%d'*'$work'* ]] && exit 1" \
+    'exec /usr/bin/stat "$@"' > "$fakebin/stat"
+  chmod +x "$fakebin/stat"
+
+  TMPDIR="$tmp" PATH="$fakebin:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" "$work/clip.mov" > /dev/null 2>&1
+
+  # Beside the result is where the entry cannot finish the rename, so a folder it cannot even stat
+  # must not send the part there.
+  check "the result lands" exists "$work/clip.mp4"
+  check "made in the temporary folder" logged "$box" "to '$tmp/shrinkit."
+}
+
 test_an_interrupted_run_stops_and_cleans_up() {
   local box tmp pid code=0
   box="$(sandbox)"

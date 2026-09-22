@@ -185,7 +185,9 @@ temp_part() {
   local dir="$1" tmp="${${TMPDIR:-/tmp}%/}" dev_tmp dev_dir
   dev_tmp="$(stat -f %d "$tmp" 2> /dev/null)"
   dev_dir="$(stat -f %d "$dir" 2> /dev/null)"
-  if [[ -n "$dev_tmp" && "$dev_tmp" == "$dev_dir" ]]; then
+  # Beside only when the devices are known to differ: a folder that will not even answer stat is a
+  # guarded one, and those are on the temporary folder's volume.
+  if [[ -z "$dev_dir" || "$dev_tmp" == "$dev_dir" ]]; then
     print -r -- "$tmp/shrinkit.$$.$2.part.$3"
   else
     print -r -- "$dir/.$2.$$.part.$3"
