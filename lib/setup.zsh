@@ -344,7 +344,7 @@ teardown_command() {
 
   if ((${#removed})); then
     print -r -- "Removed: ${(j:, :)removed}."
-  elif ((!${#failed})); then
+  elif ((${#failed} == 0)); then
     print -r -- "Nothing to remove: no agent, no PATH entry, no shortcut and no Finder entries."
   fi
   # Exit status left at 0 on purpose: brew runs this as the cask's uninstall script and would refuse
