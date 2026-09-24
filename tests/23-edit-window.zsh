@@ -54,6 +54,11 @@ test_the_window_reveals_the_result_and_says_how_to_run_it_again() {
     test "$(tail -1 "$tools/open.log")" = "-R | $work/1 a.mp4 | $work/2 b.mp4"
 }
 
+# A time the given number of seconds ago, as touch -t takes it.
+seconds_ago() {
+  date -v-"$1"S '+%Y%m%d%H%M.%S'
+}
+
 # One request per edit file (SPEC.md, How the window is started), and one window per request: each
 # takes the oldest one there is. The launcher itself is run here, as Terminal runs it, with open
 # stubbed.
@@ -76,9 +81,9 @@ test_each_window_takes_one_request() {
   print -r -- "$work/gone.edit.txt" > "$queue/one"
   print -r -- "$a" > "$queue/two"
   print -r -- "$b" > "$queue/three"
-  touch -t 202601011000 "$queue/one"
-  touch -t 202601011001 "$queue/two"
-  touch -t 202601011002 "$queue/three"
+  touch -t "$(seconds_ago 30)" "$queue/one"
+  touch -t "$(seconds_ago 20)" "$queue/two"
+  touch -t "$(seconds_ago 10)" "$queue/three"
 
   first="$(HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null)"
   second="$(HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null)"
@@ -94,6 +99,42 @@ test_each_window_takes_one_request() {
     "${CLEAN_SCREEN}No edit file is waiting. Select one in Finder and pick shrinkit: run."
   check "and exits 1" test "$code" = 1
   check "leaving no request behind" empty_dir "$queue"
+}
+
+# A request whose window never came (closed while its shell started, or Terminal quit) is the
+# oldest in the queue, so the window of the next click would run its file instead of that click's.
+test_a_window_takes_no_request_left_2_minutes_ago() {
+  local box tools work old new support launcher queue first left second code=0
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/old.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/new.mov"
+  old="$(make_edit "$box/work" "$tools" "$work/old.mov")"
+  new="$(make_edit "$box/work" "$tools" "$work/new.mov")"
+  support="$box/home/Library/Application Support/shrinkit"
+  launcher="$support/shrinkit edit.command"
+  queue="$support/edit-queue"
+  mkdir -p "$queue"
+  print -r -- "$old" > "$queue/old"
+  print -r -- "$new" > "$queue/new"
+  touch -t "$(seconds_ago 150)" "$queue/old"
+  touch -t "$(seconds_ago 90)" "$queue/new"
+
+  first="$(HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null)"
+  left="$(ls -A "$queue")"
+  second="$(HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null)" || code=$?
+
+  check "the window takes the request left 90 seconds ago" \
+    test "${${(f)first}[1]}" = "${CLEAN_SCREEN}shrinkit run  ${new:t}"
+  check "and runs its file alone" test "$(< "$tools/open.log")" = "-R | $work/new.mp4"
+  check "dropping the one left 150 seconds ago" test -z "$left"
+  check "so the next window finds none waiting" test "$second" = \
+    "${CLEAN_SCREEN}No edit file is waiting. Select one in Finder and pick shrinkit: run."
+  check "and exits 1" test "$code" = 1
 }
 
 # --------------------------------------------------------------------- shrinkit: edit
@@ -367,7 +408,8 @@ never_asked_to_close() {
 }
 
 # Terminal keeps a window open once its shell has ended, so a window whose run went through asks
-# Terminal to close it: the window whose selected tab is on the terminal it ran on.
+# Terminal to close it: the window whose selected tab was on the terminal it ran on as the run
+# started, by its id, since Terminal may give that terminal to a window opened meanwhile.
 test_a_window_whose_run_went_through_closes_itself() {
   local box tools work file launcher ended waited _
   zmodload zsh/datetime
@@ -395,10 +437,36 @@ test_a_window_whose_run_went_through_closes_itself() {
     test "$(screen_text "$tools" | tail -1)" = "      this window closes in 3 seconds"
   check "and not how to run it again, which there is no time to read" \
     lacks "$(< "$tools/screen")" "To run it again"
-  check "and asks Terminal to close the window on its terminal" \
-    test "$(< "$tools/osascript.log")" = "close $(< "$tools/tty")"
+  check "asks Terminal for the window on its terminal, then to close that window by its id" \
+    test "$(< "$tools/osascript.log")" = "window $(< "$tools/tty")"$'\n'"close 4242 | $(< "$tools/tty")"
   # A lower bound alone: a loaded machine starts the stub late, never early.
   check "3 seconds on, once the shell there has ended" awk -v w="$waited" 'BEGIN { exit !(w >= 2.5) }'
+}
+
+# Without the window's id there is nothing safe to close.
+test_a_window_terminal_does_not_name_stays_open() {
+  local box tools work file launcher
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  file="$(make_edit "$box/work" "$tools" "$work/clip.mov")"
+  run_entry "$box" "$tools" run "$file"
+  launcher="$box/home/Library/Application Support/shrinkit/shrinkit edit.command"
+  rm "$tools/window-id"
+
+  in_terminal "$tools" env HOME="$box/home" PATH="$tools:$PATH" "$launcher"
+  sleep 4.5 # past the 3 seconds a window whose run went through waits
+
+  check "runs the file" exists "$work/clip.mp4"
+  check "after asking Terminal for its window" \
+    test "$(< "$tools/osascript.log")" = "window $(< "$tools/tty")"
+  check "says nothing about closing" lacks "$(< "$tools/screen")" "closes in"
+  check "says how to run it again" contains "$(screen_text "$tools")" "To run it again: shrinkit run "
+  check "and never asks Terminal to close it" never_asked_to_close "$tools"
 }
 
 test_a_window_whose_run_failed_stays_open() {

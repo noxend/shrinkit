@@ -620,19 +620,19 @@ run_command() {
 # --------------------------------------------------------------------- the Terminal window
 
 # The window: the file run at once, what came out shown in Finder, and the window closed when the
-# run went through; when it stays open, how to run the file again. It closes only when it knows its
-# terminal, the one this reads from.
+# run went through; when it stays open, how to run the file again. It closes only when Terminal
+# names the window of its terminal, the one this reads from.
 edit_window() {
-  local file="${1:a}" rc tty
-  tty="$(tty)" || tty=""
-  run_edit_file "$file" "${tty:+this window closes in 3 seconds}"
+  local file="${1:a}" rc tty window=""
+  tty="$(tty)" && window="$(terminal_window "$tty")"
+  run_edit_file "$file" "${window:+this window closes in 3 seconds}"
   rc=$?
-  if ((rc != 0)) || [[ -z "$tty" ]]; then
+  if ((rc != 0)) || [[ -z "$window" ]]; then
     print
     print -r -- "To run it again: shrinkit run ${(qq)file}"
   fi
   ((${#EDIT_MADE})) && open -R "${EDIT_MADE[@]}"
-  ((rc == 0)) && [[ -n "$tty" ]] && close_window_later "$tty"
+  ((rc == 0)) && [[ -n "$window" ]] && close_window_later "$window" "$tty"
   return $rc
 }
 
