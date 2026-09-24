@@ -28,8 +28,9 @@ brew tap noxend/shrinkit https://github.com/noxend/shrinkit
 brew install --cask noxend/shrinkit/shrnkit
 ```
 
-The package is `shrnkit` because Homebrew already has a different app named `shrinkit`. The command
-it installs is still `shrinkit`.
+shrinkit is not in Homebrew's official catalog. The first command adds this repository as a tap,
+and Homebrew installs and updates shrinkit from there. The package is `shrnkit` because Homebrew
+already has a different app named `shrinkit`. The command it installs is still `shrinkit`.
 
 That sets everything up: a working folder at `~/Movies/shrinkit`, a watcher on its `input/`, the
 right-click entries in Finder, a `shrinkit` shortcut on your Desktop and a `shrinkit` command.
