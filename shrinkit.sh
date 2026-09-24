@@ -195,7 +195,8 @@ MAX_RECORDINGS=10
 SCREEN_FD=""
 
 # The one format every part of a merged edit run is encoded to, so the parts join by copying their
-# streams: codec, width, height, rate and sound (true or false). Empty outside such a run.
+# streams: codec, width, height, rate, sound (true or false), and the colour tags primaries, trc,
+# space and range. Empty outside such a run.
 typeset -A PART_FORMAT
 
 # During an edit run every line also goes on its screen (screen_log, lib/screen.zsh).
@@ -371,6 +372,10 @@ is_bool() {
   [[ "$1" == true || "$1" == false ]]
 }
 
+# The highest frame rate an encode is given, so that a mistyped fps, or a recording stating an
+# absurd rate of its own, cannot hang it.
+MAX_FPS=240
+
 # One key's rule, asked about one value, with the words that describe the rule living in the same
 # arm. Written this way so "config" can check a single value before writing it and before showing
 # it, without any of these ranges being spelled out in a second or third place. Prints the reason
@@ -383,12 +388,12 @@ check_setting() {
       is_num "$value" && awk -v s="$value" 'BEGIN { exit !(s > 0) }' && return 0
       ;;
     fps)
-      # Capped, so a mistyped value cannot hang the encode. Digit count bounded first for the same
-      # reason keep_days bounds it below: zsh arithmetic truncates a long enough digit string to
-      # something negative and prints its own diagnostic doing it, so a bare comparison both passes
-      # the value and leaks "number truncated after 19 digits" to whoever ran the command.
-      reason="want 0-240"
-      [[ "$value" =~ ^[0-9]{1,4}$ ]] && ((value <= 240)) && return 0
+      # Capped at MAX_FPS. Digit count bounded first for the same reason keep_days bounds it
+      # below: zsh arithmetic truncates a long enough digit string to something negative and prints
+      # its own diagnostic doing it, so a bare comparison both passes the value and leaks "number
+      # truncated after 19 digits" to whoever ran the command.
+      reason="want 0-$MAX_FPS"
+      [[ "$value" =~ ^[0-9]{1,4}$ ]] && ((value <= MAX_FPS)) && return 0
       ;;
     crf)
       reason="want 0-51"
@@ -779,7 +784,9 @@ fit_frame() {
 }
 
 # The size, the speed and the frame rate, with or without cuts before them. In a merged edit run
-# every recording is fitted into the set's frame and brought to its rate.
+# every recording is fitted into the set's frame, brought to its rate and tagged with its primaries
+# and transfer: ffmpeg gives the encoder the frames' own whatever -color_primaries and -color_trc
+# say (measured on 9.0.2), and setparams only renames them, converting nothing.
 video_filters() {
   local height="$1" chain=""
   if ((${#PART_FORMAT})); then
@@ -790,6 +797,7 @@ video_filters() {
   chain="${chain}setpts=PTS/${CFG[speed]}"
   if ((${#PART_FORMAT})); then
     chain="$chain,fps=${PART_FORMAT[rate]}"
+    chain="$chain,setparams=color_primaries=${PART_FORMAT[primaries]}:color_trc=${PART_FORMAT[trc]}"
   elif ((CFG[fps] > 0)); then
     chain="$chain,fps=${CFG[fps]}"
   fi
@@ -854,6 +862,8 @@ encode() {
     ((${#PART_FORMAT})) && codec+=(-x264-params stitchable=1)
   fi
   codec+=(-crf "${CFG[crf]}" -preset veryfast)
+  # The set's matrix and range, which ffmpeg converts each recording to before the encoder.
+  ((${#PART_FORMAT})) && codec+=(-colorspace "${PART_FORMAT[space]}" -color_range "${PART_FORMAT[range]}")
 
   local frame="${height}p" rate="${CFG[fps]}"
   if ((${#PART_FORMAT})); then

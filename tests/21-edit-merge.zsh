@@ -18,6 +18,21 @@ frames_of() {
     -of default=nw=1:nk=1 "$1" 2> /dev/null
 }
 
+colours_of() {
+  "$FFPROBE" -v error -select_streams v:0 \
+    -show_entries stream=color_primaries,color_transfer,color_space,color_range -of compact=p=0 \
+    "$1" 2> /dev/null
+}
+
+# tagged_copy <recording> <copy> <primaries, transfer and matrix> [range]: the recording encoded
+# again with its colour tags set, as a recording made by another app states them, tv unless a range
+# is given.
+tagged_copy() {
+  "$FFMPEG" -nostdin -v error -y -i "$1" \
+    -vf "setparams=color_primaries=${3}:color_trc=${3}:colorspace=${3}:range=${4:-tv}" \
+    -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$2"
+}
+
 test_run_merge_joins_the_recordings_in_the_order_of_the_blocks() {
   local box tools work file tmp out code=0
   local -a left
@@ -82,10 +97,11 @@ test_run_merge_names_the_result_after_its_edit_file_in_its_folder() {
   check "exits 0 both times" test "$code$again" = 00
 }
 
-# The second name keeps a dot of its own: only .edit.txt goes.
+# The second name keeps a dot of its own: only .edit.txt goes, whatever its case, and any other
+# name loses its last extension.
 test_run_merge_names_the_result_after_an_edit_file_named_by_hand() {
-  local box tools work file code=0 again=0
-  local -a merged
+  local box tools work file code=0 again=0 third=0 fourth=0
+  local -a merged later
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -101,11 +117,20 @@ test_run_merge_names_the_result_after_an_edit_file_named_by_hand() {
   merged=("$work"/*merged*(N))
   mv "$work/demo.edit.txt" "$work/take 1.5.edit.txt"
   run_file "$box" "$tools" "$work/take 1.5.edit.txt" > /dev/null || again=$?
+  mv "$work/take 1.5.edit.txt" "$work/Clip.EDIT.TXT"
+  run_file "$box" "$tools" "$work/Clip.EDIT.TXT" > /dev/null || third=$?
+  mv "$work/Clip.EDIT.TXT" "$work/plan.txt"
+  run_file "$box" "$tools" "$work/plan.txt" > /dev/null || fourth=$?
+  # Read back from the folder, which keeps the case a name was written in on a disk that ignores it.
+  later=("$work"/*merged*(N:t))
 
   check "names the join demo-merged.mp4" exists "$work/demo-merged.mp4"
   check "and nothing else" test "${merged[*]}" = "$work/demo-merged.mp4"
   check "names the next one take 1.5-merged.mp4" exists "$work/take 1.5-merged.mp4"
-  check "exits 0 both times" test "$code$again" = 00
+  check "the one of Clip.EDIT.TXT Clip-merged.mp4" test "${later[(Ie)Clip-merged.mp4]}" -gt 0
+  check "and the one of plan.txt plan-merged.mp4" test "${later[(Ie)plan-merged.mp4]}" -gt 0
+  check "and no other" test "${#later}" = 4
+  check "exits 0 each time" test "$code$again$third$fourth" = 0000
 }
 
 # Two sizes of frame, sound taken out of one, missing from another and kept in the third, three crf
@@ -178,6 +203,59 @@ test_run_merge_copies_a_join_of_hevc_parts() {
   check "as long as the two together" duration_near "$out" 4
 }
 
+# x264 writes a recording's colour tags into the parameter sets, so a recording from an app that
+# states them and one that states none would give parts that cannot be joined by copying; so would
+# one in the full range.
+test_run_merge_copies_the_join_of_a_tagged_and_an_untagged_recording() {
+  local box tools work file out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 plain.mov"
+  tagged_copy "$FIXTURES/take-blue.mov" "$work/2 tagged.mov" bt709
+  tagged_copy "$FIXTURES/take-green.mov" "$work/3 full.mov" bt709 pc
+  file="$(make_edit "$box" "$tools" "$work/1 plain.mov" "$work/2 tagged.mov" "$work/3 full.mov")"
+  out="${file%.edit.txt}-merged.mp4"
+
+  run_file "$box" "$tools" "$file" > /dev/null
+
+  check "the first recording states no colours" test "$(colours_of "$work/1 plain.mov")" = \
+    "color_range=unknown|color_space=unknown|color_transfer=unknown|color_primaries=unknown"
+  check "the second states bt709" test "$(colours_of "$work/2 tagged.mov")" = \
+    "color_range=tv|color_space=bt709|color_transfer=bt709|color_primaries=bt709"
+  check "and the third bt709 in the full range" test "$(colours_of "$work/3 full.mov")" = \
+    "color_range=pc|color_space=bt709|color_transfer=bt709|color_primaries=bt709"
+  check "joins the parts by copying them" logged "$box" "merged 3 clips into ${out:t} (streams copied)"
+  check "tagged bt709 and tv, as nothing states otherwise" test "$(colours_of "$out")" = \
+    "color_range=tv|color_space=bt709|color_transfer=bt709|color_primaries=bt709"
+  check "in all three parts" takes_are "$out" red blue green
+}
+
+test_run_merge_tags_every_part_with_the_first_recordings_colours() {
+  local box tools work file out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true' 'add "1 ntsc.mov" "codec = hevc"'
+  work="$(scratch)"
+  tagged_copy "$FIXTURES/take-red.mov" "$work/1 ntsc.mov" smpte170m
+  cp "$FIXTURES/take-green.mov" "$work/2 plain.mov"
+  tagged_copy "$FIXTURES/take-blue.mov" "$work/3 tagged.mov" bt709
+  file="$(make_edit "$box" "$tools" "$work/1 ntsc.mov" "$work/2 plain.mov" "$work/3 tagged.mov")"
+  out="${file%.edit.txt}-merged.mp4"
+
+  run_file "$box" "$tools" "$file" > /dev/null
+
+  check "joins the three parts by copying them" logged "$box" "merged 3 clips into ${out:t} (streams copied)"
+  check "tagged as the first recording is" test "$(colours_of "$out")" = \
+    "color_range=tv|color_space=smpte170m|color_transfer=smpte170m|color_primaries=smpte170m"
+  check "in the order of the blocks" takes_are "$out" red green blue
+}
+
 # The parts agree by construction, so the join re-encodes only when copying them fails: here, an
 # ffmpeg that cannot join by copying and does everything else as the real one.
 test_run_merge_that_has_to_re_encode_the_join_keeps_the_sets_codec() {
@@ -223,6 +301,29 @@ test_run_merge_fps_zero_keeps_the_first_recordings_rate() {
   check "and so is the merged file" test "$(rate_of "$out")" = 60/1
   # 12 s and 2 s at speed 4 are 3.5 s: 210 frames at 60 fps.
   check "with 60 frames in every second of both parts" roughly_equal "$(frames_of "$out")" 210 3
+  check "joined by copying" logged "$box" 'streams copied'
+}
+
+# fps = 0 takes the first recording's own rate, which is capped as the fps setting is.
+test_run_merge_fps_zero_takes_at_most_240_from_the_first_recording() {
+  local box tools work file out text
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true' 'add "1 a.mov" "fps = 0"'
+  work="$(scratch)"
+  "$FFMPEG" -nostdin -v error -f lavfi -i "color=c=red:s=320x180:r=480:d=1" -c:v libx264 \
+    -preset ultrafast -pix_fmt yuv420p "$work/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
+  out="${file%.edit.txt}-merged.mp4"
+
+  text="$(run_file "$box" "$tools" "$file")"
+
+  check "the first recording is 480 fps" test "$(rate_of "$work/1 a.mov")" = 480/1
+  check "says every part is 240 fps" test "${${(@f)text}[2]}" = "2 recordings, merge = true, every part 320x180 at 240 fps"
+  check "and the merged file is" test "$(rate_of "$out")" = 240/1
   check "joined by copying" logged "$box" 'streams copied'
 }
 

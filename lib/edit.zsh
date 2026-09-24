@@ -310,22 +310,46 @@ edit_block_quietly() {
   )
 }
 
-# A recording's own frame rate as ffprobe states it, 60 or 30000/1001, or nothing.
+# A recording's own frame rate as ffprobe states it, 60 or 30000/1001, or nothing; MAX_FPS for a
+# rate above it, as the fps setting is capped.
 frame_rate() {
   local rate
+  local -a match mbegin mend
   rate="$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=r_frame_rate \
     -of default=nw=1:nk=1 "$1" 2> /dev/null | head -1)"
-  [[ "$rate" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]] && print -r -- "${rate%/1}"
+  [[ "$rate" =~ ^([1-9][0-9]{0,9})/([1-9][0-9]{0,9})$ ]] || return 0
+  if ((match[1] > MAX_FPS * match[2])); then
+    print -r -- "$MAX_FPS"
+  else
+    print -r -- "${rate%/1}"
+  fi
+}
+
+# The colour tags a recording states, one per line as ffmpeg names them: primaries, transfer,
+# matrix and range, bt709 or tv for each it does not state. ffprobe says unknown for those, and
+# gbr is the matrix of an RGB picture, which no part is.
+colour_tags() {
+  local key value
+  local -A stated
+  "$FFPROBE" -v error -select_streams v:0 \
+    -show_entries stream=color_primaries,color_transfer,color_space,color_range \
+    -of default=nw=1 "$1" 2> /dev/null | while IFS='=' read -r key value; do
+    [[ "$value" =~ ^[a-z0-9-]+$ && "$value" != (unknown|reserved|gbr) ]] && stated[$key]="$value"
+  done
+  print -rl -- "${stated[color_primaries]:-bt709}" "${stated[color_transfer]:-bt709}" \
+    "${stated[color_space]:-bt709}" "${stated[color_range]:-tv}"
 }
 
 # The one format every block of a merged run is encoded to, in PART_FORMAT: the first block's
 # codec; the largest width and height among the recordings, fitted to the first block's
-# max_height; the first block's fps, or the first recording's own rate when that is 0; and sound
-# when any block keeps some. A later block's codec, fps or max_height that differs from the first
-# one's is not used, and each is said with the lines that cannot be used.
+# max_height; the first block's fps, or the first recording's own rate when that is 0; sound when
+# any block keeps some; and the first recording's colour tags. x264 and x265 write those tags into
+# the parameter sets, so a tagged and an untagged recording would otherwise give parts that do not
+# join by copying. A later block's codec, fps or max_height that differs from the first one's is
+# not used, and each is said with the lines that cannot be used.
 edit_merge_format() {
   local file="$1" n=${#EDIT_NAMES} i src width height maxw=0 maxh=0 sound=false rate prefix
-  local -a mine codecs fpses heights
+  local -a mine codecs fpses heights tags
   for ((i = 1; i <= n; i++)); do
     src="$(edit_source "${EDIT_NAMES[i]}" "${file:h}")"
     mine=("${(@f)$(edit_block_quietly $i codec fps max_height remove_audio)}")
@@ -345,10 +369,13 @@ edit_merge_format() {
   # libx264 refuses an odd frame size in yuv420p.
   ((maxw % 2)) && maxw=$((maxw + 1))
   ((maxh % 2)) && maxh=$((maxh + 1))
+  src="$(edit_source "${EDIT_NAMES[1]}" "${file:h}")"
   rate="${fpses[1]}"
-  ((rate > 0)) || rate="$(frame_rate "$(edit_source "${EDIT_NAMES[1]}" "${file:h}")")"
+  ((rate > 0)) || rate="$(frame_rate "$src")"
   rate="${rate:-${DEFAULTS[fps]}}"
-  PART_FORMAT=(codec "${codecs[1]}" width "$maxw" height "$maxh" rate "$rate" sound "$sound")
+  tags=(${(f)"$(colour_tags "$src")"})
+  PART_FORMAT=(codec "${codecs[1]}" width "$maxw" height "$maxh" rate "$rate" sound "$sound"
+    primaries "${tags[1]}" trc "${tags[2]}" space "${tags[3]}" range "${tags[4]}")
 
   for ((i = 2; i <= n; i++)); do
     prefix="[$i/$n] ${EDIT_NAMES[i]}:"
@@ -387,13 +414,14 @@ edit_run_apart() {
 }
 
 # merge = true: every block encoded to the set's one format as a part, in a folder of its own in
-# the temporary folder, then the parts joined by copying their streams into
-# <edit file without .edit.txt>-merged.mp4 beside the edit file. A block that cannot be shrunk would
-# leave a hole in the video, so the run joins nothing then: a block that cannot run at all is found
-# before the first encode, and one whose encode fails stops the run there. The set's format is in
-# PART_FORMAT already when every block can run (run_edit_file).
+# the temporary folder, then the parts joined by copying their streams into <stem>-merged.mp4
+# beside the edit file, the stem its name without .edit.txt in any case, or without its last
+# extension. A block that cannot be shrunk would leave a hole in the video, so the run joins
+# nothing then: a block that cannot run at all is found before the first encode, and one whose
+# encode fails stops the run there. The set's format is in PART_FORMAT already when every block can
+# run (run_edit_file).
 edit_run_merged() {
-  local file="$1" n=${#EDIT_NAMES} i src out refused
+  local file="$1" n=${#EDIT_NAMES} i src out refused stem
   local -a parts refusals
   local nothing="[join] nothing joined: merge = true joins every recording or none"
   for ((i = 1; i <= n; i++)); do
@@ -427,8 +455,10 @@ edit_run_merged() {
   done
   print
   print -r -- "${PAINT[bold]}[join]${PAINT[reset]} $n parts"
+  stem="${file%(#i).edit.txt}"
+  [[ "$stem" != "$file" ]] || stem="${file:r}"
   # Called directly, not in $(...): the traps find the part it writes in CURRENT_PART.
-  merge_files "${file%.edit.txt}" "${parts[@]}" || {
+  merge_files "$stem" "${parts[@]}" || {
     log "FAILED join of $n parts (the reason is above)"
     remove_parts
     return 1
