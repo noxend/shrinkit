@@ -384,6 +384,28 @@ test_run_keeps_the_presets_value_when_a_line_is_refused() {
   check "under the preset's name" exists "$work/clip-sharp.mp4"
 }
 
+# zsh truncates a digit string past 19 places to a negative number: a max_height compared that way
+# was no cap at all, and zsh said so on the screen.
+test_run_refuses_a_max_height_too_long_for_arithmetic() {
+  local box tools work file out n
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'max_height = 720'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'add clip.mov "max_height = 99999999999999999999"'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
+
+  out="$(run_file "$box" "$tools" "$file" 2>&1)"
+  n="$(line_of "$file" 'max_height = 99999999999999999999')"
+
+  check "skips the line and says why" contains "$out" \
+    "      skipped   line $n: max_height = 99999999999999999999 (want 0-9999)"$'\n'
+  check "with no word from zsh" lacks "$out" "truncated"
+  check "keeping the height settings.conf caps it at" test "$(height_of "$work/clip.mp4")" = 720
+}
+
 test_run_leaves_out_a_recording_with_both_cut_and_keep() {
   local box tools work file out code=0
   box="$(sandbox)"
