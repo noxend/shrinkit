@@ -145,6 +145,112 @@ test_run_on_a_terminal_draws_an_encode_as_a_bar_redrawn_in_place() {
   check "and no colour" not_logged "$box" "$ESC"
 }
 
+# stub_columns <dir>: <dir>/columns <n> <command...> runs the command on a terminal n columns wide.
+# in_terminal's shell keeps the terminal for itself, so stty from the command is stopped by TTOU
+# unless it starts with TTOU ignored, which zsh's trap does not pass on.
+stub_columns() {
+  print -rl -- '#!/bin/zsh' 'perl -e '\''$SIG{TTOU} = "IGNORE"; exec @ARGV'\'' stty cols "$1"' shift \
+    'exec "$@"' > "$1/columns"
+  chmod +x "$1/columns"
+}
+
+# A frame's width on the screen, and the cells of its bar: ━ is three bytes and one column.
+frame_width() {
+  local frame="${1//━/#}"
+  print -r -- "${#frame}"
+}
+bar_cells() {
+  local frame="${1//━/#}"
+  frame="${frame//[^#]/}"
+  print -r -- "${#frame}"
+}
+
+# A line wider than the terminal wraps, and each redraw from the start of the line leaves the
+# wrapped part behind: at 50 columns the bar gives up cells and keeps the time left, at 36 the time
+# left goes too, and at 16 not even the word and the percent fit.
+test_run_on_a_narrow_terminal_fits_the_bar_to_its_width() {
+  local box tools work file cols frame widest timed narrowest
+  local -a frames
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'add clip.mov "keep = 0:05-0:25"'
+  work="$(scratch)"
+  cp "$FIXTURES/big.mov" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
+  stub_columns "$tools"
+
+  for cols in 50 36 16; do
+    rm -f "$work/clip.mp4"
+    in_terminal "$tools" "$tools/columns" "$cols" env -u NO_COLOR PATH="$tools:$PATH" \
+      SHRINKIT_DIR="$box" SHRINKIT_REPO= zsh "$OPTIMIZER" run "$file"
+    frames=(${(f)"$(drawn_frames "$(< "$tools/screen")" encoding | plain)"})
+    widest=0 timed=0 narrowest=30
+    for frame in "${frames[@]}"; do
+      (($(frame_width "$frame") > widest)) && widest=$(frame_width "$frame")
+      (($(bar_cells "$frame") < narrowest)) && narrowest=$(bar_cells "$frame")
+      [[ "$frame" == *%\ \ [0-9]*s\ left ]] && ((++timed))
+    done
+
+    if ((cols == 16)); then
+      check "$cols columns: draws nothing" test "${#frames}" = 0
+      check "$cols columns: and runs the file" exists "$work/clip.mp4"
+      continue
+    fi
+    check "$cols columns: draws the bar" test "${#frames}" -ge 2
+    check "$cols columns: never as wide as the terminal" test "$widest" -lt "$cols"
+    check "$cols columns: with fewer than 30 cells" test "$narrowest" -lt 30
+    if ((cols == 50)); then
+      check "$cols columns: keeping the time left" test "$timed" -ge 1
+    else
+      check "$cols columns: without the time left" test "$timed" = 0
+      check "$cols columns: and still a bar" test "$narrowest" -ge 10
+    fi
+  done
+}
+
+# ffmpeg writes a block of lines at a time, so a read can end in the middle of a line: the rest of
+# it comes with the next read, and the line counts whole. Here an ffmpeg that writes an out_time_us
+# line in two pieces half a second apart, then encodes as the real one without writing any more.
+test_run_on_a_terminal_reads_a_progress_line_written_in_two_pieces() {
+  local box tools work file frame
+  local -a percents
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  cat > "$tools/ffmpeg" << STUB
+#!/bin/zsh
+args=("\$@")
+i=\${args[(i)-progress]}
+if ((i < \$#args)); then
+  progress="\${args[i+1]}"
+  args[i,i+1]=()
+  print -rn -- 'out_time_us=1' >> "\$progress"
+  sleep 0.5
+  print -r -- '500000' >> "\$progress"
+  sleep 0.5
+fi
+exec ${(qq)FFMPEG} "\${args[@]}"
+STUB
+  chmod +x "$tools/ffmpeg"
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
+
+  in_terminal "$tools" env -u NO_COLOR PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO= \
+    zsh "$OPTIMIZER" run "$file"
+  for frame in ${(f)"$(drawn_frames "$(< "$tools/screen")" encoding | plain)"}; do
+    percents+=("${${${frame%%\%*}##* }}")
+  done
+
+  check "draws the bar" test "${#percents}" -ge 2
+  check "at 75% once the line is whole: 1.5 of the 2 seconds" test "${percents[(Ie)75]}" -gt 0
+  check "and runs the file" exists "$work/clip.mp4"
+}
+
 # The parts of a merged set agree, so their join is a copy too quick to watch; here it has to be
 # re-encoded, by an ffmpeg that cannot join by copying and does everything else as the real one.
 test_run_merge_on_a_terminal_draws_the_join_as_a_bar() {
@@ -210,6 +316,28 @@ test_run_on_a_terminal_spins_for_a_recording_that_does_not_say_how_long_it_is() 
   check "then the result in its place" contains "$screen" \
     $'\r'"${ESC}[K${ESC}[?25h      ${ESC}[32mdone     ${ESC}[0m $(size_of "$work/clip.mov") -> $(size_of "$work/clip.mp4")"
   check "and the cursor shown again" contains "${screen##*${ESC}\[\?25l}" "${ESC}[?25h"
+}
+
+# The spinner's line takes 17 columns, which a terminal of 16 does not have.
+test_run_on_a_terminal_too_narrow_for_the_spinner_draws_none() {
+  local box tools work file
+  local -a frames
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  stub_columns "$tools"
+  work="$(scratch)"
+  "$FFMPEG" -nostdin -v error -i "$FIXTURES/tall.mov" -c copy -bsf:v h264_mp4toannexb -f h264 "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
+
+  in_terminal "$tools" "$tools/columns" 16 env -u NO_COLOR PATH="$tools:$PATH" SHRINKIT_DIR="$box" \
+    SHRINKIT_REPO= zsh "$OPTIMIZER" run "$file"
+  frames=(${(f)"$(drawn_frames "$(< "$tools/screen")" encoding)"})
+
+  check "draws no spinner" test "${#frames}" = 0
+  check "and runs the file" exists "$work/clip.mp4"
 }
 
 # TERM stops a run in the middle of an encode, as kill does. Closing the window sends HUP, which

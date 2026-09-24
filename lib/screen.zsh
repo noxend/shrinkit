@@ -78,10 +78,10 @@ screen_draws() {
 SCREEN_PROGRESS=""
 
 # screen_progress <word> <seconds> <progress file>: while ffmpeg (CURRENT_CHILD) runs, its step
-# redrawn in place 10 times a second, with the cursor hidden: a bar of 30 cells for ffmpeg's
-# out_time against the seconds the result lasts, then the percent and, past 3%, the time left; a
-# spinner instead when the seconds are not known. The line is cleared at the end, for the step's
-# result to take its place.
+# redrawn in place 10 times a second, with the cursor hidden: a bar of 30 cells, fewer on a narrow
+# terminal, for ffmpeg's out_time against the seconds the result lasts, then the percent and, past
+# 3%, the time left; a spinner instead when the seconds are not known. The line is cleared at the
+# end, for the step's result to take its place.
 screen_progress() {
   local word="$1" length="$2" fd line partial="" us=0 k=0 started
   zmodload zsh/datetime zsh/zselect
@@ -110,24 +110,57 @@ screen_progress() {
   screen_stop
 }
 
-# screen_bar <word> <microseconds done> <seconds in all> <when it started>
+# M:SS, as a player shows it. Whole seconds, rounded down.
+minutes() {
+  local secs="${1%.*}"
+  printf '%d:%02d' $((secs / 60)) $((secs % 60))
+}
+
+# The columns a line redrawn in place may take: one fewer than the terminal is wide, so writing the
+# last of them never leaves the cursor waiting to wrap. Nothing when the terminal does not say.
+# Asked at every draw, since the window may be resized during a step, and of the terminal itself:
+# COLUMNS follows a resize only while stdin is that terminal too.
+screen_room() {
+  local size
+  size="$(stty size <&$SCREEN_FD 2> /dev/null)"
+  size="${size#* }"
+  [[ "$size" =~ ^[0-9]{1,4}$ ]] && ((size > 0)) && print -r -- $((size - 1))
+}
+
+# screen_bar <word> <microseconds done> <seconds in all> <when it started>: the line fitted to the
+# terminal, since a line that wraps leaves a copy of itself at every redraw. The bar gives up cells
+# first, down to 10, then the time left goes and the bar takes what room is left; where not even
+# the word and the percent fit, nothing is drawn.
 screen_bar() {
-  local word="$1" colour="${PAINT[${WORD_COLOUR[$1]}]}" filled="" rest="" left="" line i
+  local word="$1" colour="${PAINT[${WORD_COLOUR[$1]}]}" filled="" rest="" left="" line room i
   local -F part elapsed
-  local -i pct cells secs
+  local -i pct width cells secs
   part=$(($2 / ($3 * 1000000.0)))
   ((part > 1)) && part=1
   pct=$((part * 100))
-  cells=$((part * 30))
-  # One cell at a time, so the bar is the same whatever the locale says a character is.
-  for ((i = 0; i < 30; i++)); do
-    ((i < cells)) && filled="$filled━" || rest="$rest━"
-  done
   if ((pct > 3)); then
     elapsed=$((EPOCHREALTIME - $4))
     secs=$((elapsed * (1 - part) / part))
     ((secs < 60)) && left="${secs}s left" || left="$(minutes $secs) left"
   fi
+  # Around the bar: 16 columns for the indent and the word, 5 for the percent, and two spaces and
+  # the time left.
+  width=30
+  room="$(screen_room)"
+  if [[ -n "$room" ]]; then
+    width=$((room - 21 - (${#left} ? ${#left} + 2 : 0)))
+    if ((width < 10)) && [[ -n "$left" ]]; then
+      left=""
+      width=$((room - 21))
+    fi
+    ((width < 0)) && return 0
+    ((width > 30)) && width=30
+  fi
+  cells=$((part * width))
+  # One cell at a time, so the bar is the same whatever the locale says a character is.
+  for ((i = 0; i < width; i++)); do
+    ((i < cells)) && filled="$filled━" || rest="$rest━"
+  done
   line="      $colour${(r:9:)word}${PAINT[reset]} $colour$filled${PAINT[dim]}$rest${PAINT[reset]}"
   line="$line ${(l:3:)pct}%${left:+  ${PAINT[dim]}$left${PAINT[reset]}}"
   print -rn -u "$SCREEN_FD" -- $'\r'"$line"$'\e[K'
@@ -136,9 +169,11 @@ screen_bar() {
 # The frames of the spinner a step of unknown length shows: braille, which is text, not emoji.
 SPINNER=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
 
-# screen_spinner <word> <frame>
+# screen_spinner <word> <frame>: nothing where the word and the frame, 17 columns, do not fit.
 screen_spinner() {
-  local colour="${PAINT[${WORD_COLOUR[$1]}]}" line
+  local colour="${PAINT[${WORD_COLOUR[$1]}]}" line room
+  room="$(screen_room)"
+  [[ -z "$room" ]] || ((room >= 17)) || return 0
   line="      $colour${(r:9:)1}${PAINT[reset]} $colour${SPINNER[$2 % 10 + 1]}${PAINT[reset]}"
   print -rn -u "$SCREEN_FD" -- $'\r'"$line"$'\e[K'
 }
