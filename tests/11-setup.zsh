@@ -9,6 +9,39 @@ test_a_launchctl_call_without_a_stub_is_refused() {
   check "and says why" contains "$out" "without its stub"
 }
 
+test_setup_writes_a_folder_with_an_ampersand_into_a_valid_plist() {
+  local box plist
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" "$box/R&D <draft>" > /dev/null 2>&1
+
+  plist="$box/home/Library/LaunchAgents/com.shrinkit.plist"
+  check "the plist parses" plutil -lint "$plist"
+  check "and names the folder as it is" \
+    test "$(plist_value "$plist" WatchPaths.0)" = "$box/R&D <draft>/input"
+}
+
+test_a_right_click_entry_takes_names_as_written() {
+  local box folder cmd
+  box="$(scratch)"
+  setup_box "$box"
+  folder="$box/w \$(touch folder-ran)"
+  run_setup "$box" "$folder" > /dev/null 2>&1
+  print -r -- 'notify = false' >> "$folder/settings.conf"
+  cp "$folder/presets/2x.conf" "$folder/presets/x \$(touch preset-ran).conf"
+  run_setup "$box" "$folder" > /dev/null 2>&1
+  mkdir -p "$box/cwd" "$box/clips"
+  cp "$FIXTURES/silent.mov" "$box/clips/clip.mov"
+  cmd="$(action_command "$box/home/Library/Services/shrinkit: x \$(touch preset-ran).workflow")"
+
+  # The way a Quick Action runs its command: zsh, with the selected files as arguments.
+  (cd "$box/cwd" && HOME="$box/home" zsh -c "$cmd" zsh "$box/clips/clip.mov" > /dev/null 2>&1)
+
+  check "runs nothing named in the folder" missing "$box/cwd/folder-ran"
+  check "or in the preset" missing "$box/cwd/preset-ran"
+  check "and shrinks with that preset" exists "$box/clips/clip-x \$(touch preset-ran).mp4"
+}
+
 test_setup_registers_the_script_that_is_running() {
   local box plist
   box="$(scratch)"

@@ -8,7 +8,7 @@
 # instead of shrinking any of them.
 install_merge_action() {
   install_quick_action merge \
-    "SHRINKIT_DIR=\"$BASE_DIR\" \"$(registered_path)\" merge \"\$@\""
+    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} merge \"\$@\""
 }
 
 # When a recording was made, in epoch seconds. Its own creation_time first, which QuickTime writes

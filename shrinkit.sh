@@ -1176,7 +1176,9 @@ quick_action_template() {
 }
 
 # One entry in the right-click menu: the template copied into ~/Library/Services, with the command
-# it runs and the name it shows replaced. Every entry differs only in those two.
+# it runs and the name it shows replaced. Every entry differs only in those two. The folder, the
+# program and the preset go into that command single-quoted, since zsh runs it: inside double
+# quotes a $ or a backtick in a folder or preset name ran as code on every right-click.
 install_quick_action() {
   local name="$1" command="$2" template action
   template="$(quick_action_template)" || {
@@ -1206,7 +1208,7 @@ install_preset_action() {
     return 1
   }
   install_quick_action "$name" \
-    "SHRINKIT_DIR=\"$BASE_DIR\" \"$(registered_path)\" --preset \"$name\" \"\$@\""
+    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} --preset ${(qq)name} \"\$@\""
 }
 
 remove_preset_action() {
@@ -1243,7 +1245,7 @@ preset_command() {
 # (creating it first if needed) so a cut can be marked before a normal preset runs on the file.
 install_cuts_action() {
   install_quick_action "mark cuts" \
-    "SHRINKIT_DIR=\"$BASE_DIR\" \"$(registered_path)\" mark-cuts \"\$@\""
+    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} mark-cuts \"\$@\""
 }
 
 # Seeds a .cuts sidecar with a header comment and the recording's own length, if one is not there

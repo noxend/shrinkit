@@ -38,6 +38,14 @@ setup_config() {
   fi
 }
 
+# A value as plist text: an & or a < in a folder name otherwise ends the XML, and launchd refuses
+# the whole agent.
+xml_text() {
+  local text="${1//&/&amp;}"
+  text="${text//</&lt;}"
+  print -r -- "${text//>/&gt;}"
+}
+
 # The agent has to name absolute paths, which is why the plist is written here rather than shipped.
 # It carries no SHRINKIT_REPO: the script finds its own data directory now, so an agent registered
 # before a move or an upgrade cannot be left pointing at a folder that is gone.
@@ -54,11 +62,11 @@ setup_plist() {
     <!-- Direct shebang execution, so Login Items shows "shrinkit" rather than "zsh". -->
     <key>ProgramArguments</key>
     <array>
-        <string>$program</string>
+        <string>$(xml_text "$program")</string>
     </array>
     <key>WatchPaths</key>
     <array>
-        <string>$IN_DIR</string>
+        <string>$(xml_text "$IN_DIR")</string>
     </array>
     <!-- At load as well, so a recording that arrived while the agent was not loaded is picked up
          at login. Under brew the load comes before brew links the command, so a recording dropped
@@ -70,14 +78,14 @@ setup_plist() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>$ffmpeg_dir:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>$(xml_text "${ffmpeg_dir}:/usr/bin:/bin:/usr/sbin:/sbin")</string>
         <key>SHRINKIT_DIR</key>
-        <string>$BASE_DIR</string>
+        <string>$(xml_text "$BASE_DIR")</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>$LOG_DIR/launchd.out.log</string>
+    <string>$(xml_text "$LOG_DIR/launchd.out.log")</string>
     <key>StandardErrorPath</key>
-    <string>$LOG_DIR/launchd.err.log</string>
+    <string>$(xml_text "$LOG_DIR/launchd.err.log")</string>
 </dict>
 </plist>
 PLIST_EOF

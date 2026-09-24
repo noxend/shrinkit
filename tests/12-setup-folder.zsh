@@ -98,7 +98,7 @@ test_config_folder_moves_the_install_to_the_new_folder() {
   check "the agent watches the new folder" \
     test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/elsewhere/input"
   check "the menu entries work in it" \
-    contains "$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")" "SHRINKIT_DIR=\"$box/elsewhere\""
+    contains "$(action_command "$box/home/Library/Services/shrinkit: 2x.workflow")" "SHRINKIT_DIR='$box/elsewhere'"
   check "the Desktop shortcut follows" links_to "$box/home/Desktop/elsewhere" "$box/elsewhere"
   check "and the old one is gone" missing "$box/home/Desktop/work"
   check "the old folder and what is in it stay" grep -q "crf = 19" "$box/work/settings.conf"
