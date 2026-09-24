@@ -163,10 +163,10 @@ PRESET_DIR="$BASE_DIR/presets"
 
 OUT_DIR="$BASE_DIR/output"
 
-# First hit wins: whatever is on PATH, then the two usual Homebrew prefixes. SHRINKIT_TOOL_DIRS
-# replaces the prefixes for the tests: the machine running them has ffmpeg in one, and a missing
-# ffmpeg cannot be made there any other way.
-TOOL_DIRS=(${=SHRINKIT_TOOL_DIRS:-/opt/homebrew/bin /usr/local/bin})
+# First hit wins: whatever is on PATH, then the two usual Homebrew prefixes. SHRINKIT_TOOL_DIRS,
+# colon-separated like PATH, replaces the prefixes for the tests: the machine running them has
+# ffmpeg in one, and a missing ffmpeg cannot be made there any other way.
+TOOL_DIRS=(${(s.:.)SHRINKIT_TOOL_DIRS:-/opt/homebrew/bin:/usr/local/bin})
 find_tool() {
   local name="$1" candidate
   for candidate in "$(command -v "$name" 2> /dev/null)" "${^TOOL_DIRS[@]}/$name"; do

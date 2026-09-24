@@ -8,7 +8,8 @@ test_doctor_fails_when_nothing_was_set_up() {
   out="$(run_doctor "$box" 2>&1)"
 
   check "fails, saying there is no agent" contains "$(doctor_line "$out" watcher)" "FAIL  watcher        not installed"
-  check "and how to install it" contains "$(doctor_block "$out" watcher)" "  shrinkit setup"
+  # Nothing is on the PATH yet, so the command names this script.
+  check "and how to install it" contains "$(doctor_block "$out" watcher)" "  '$OPTIMIZER' setup"
 }
 
 test_doctor_fails_when_the_plist_is_not_valid() {
@@ -33,7 +34,8 @@ test_doctor_fails_when_the_program_is_gone() {
 
   check "fails, naming the program" test "$(doctor_line "$out" watcher)" = \
     "FAIL  watcher        it runs $box/home/.local/bin/shrinkit, which is not there"
-  check "says how to register one that is" contains "$(doctor_block "$out" watcher)" "  shrinkit setup"
+  check "says how to register one that is, by this script's path" \
+    contains "$(doctor_block "$out" watcher)" "  '$OPTIMIZER' setup"
   check "without blaming the log files for the 78" lacks "$out" "log files"
   check "and fails the right-click entries that run it" test "$(doctor_line "$out" right-click)" = \
     "FAIL  right-click    the entries run $box/home/.local/bin/shrinkit, which is not there"
@@ -66,6 +68,17 @@ test_doctor_fails_when_the_agent_is_not_loaded() {
   check "names the likely cause" contains "$(doctor_block "$out" watcher)" "Login Items"
   check "says how to start it again" contains "$(doctor_block "$out" watcher)" "  shrinkit setup"
   check "and exits 1" test "$code" = 1
+}
+
+test_doctor_names_this_script_in_its_fixes_when_shrinkit_is_not_on_the_path() {
+  local box out
+  box="$(installed_box)"
+  "$box/stub/launchctl" bootout "gui/$(id -u)/com.shrinkit"
+
+  # A clone run as ./shrinkit.sh, with ~/.local/bin not on the PATH: "shrinkit" is no command there.
+  out="$(run_doctor "$box" PATH="$(clean_path)" 2>&1)"
+
+  check "names the script to run" contains "$(doctor_block "$out" watcher)" "  '$OPTIMIZER' setup"
 }
 
 test_doctor_explains_how_the_last_run_ended() {

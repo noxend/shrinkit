@@ -9,7 +9,7 @@ test_doctor_finds_nothing_wrong_with_a_fresh_install() {
   check "names the shrinkit that is running" \
     test "$(doctor_line "$out" command)" = "ok    command        $OPTIMIZER (a clone)"
   check "finds ffmpeg where shrinkit looks" \
-    test "$(doctor_line "$out" ffmpeg)" = "ok    ffmpeg         $FFMPEG"
+    test "$(doctor_line "$out" ffmpeg)" = "ok    ffmpeg         $box/tools/ffmpeg"
   check "names the working folder" test "$(doctor_line "$out" folder)" = "ok    folder         $box/work"
   check "finds the watcher loaded" \
     test "$(doctor_line "$out" watcher)" = "ok    watcher        loaded: $box/home/.local/bin/shrinkit"
@@ -46,6 +46,7 @@ test_doctor_leaves_everything_as_it_found_it() {
   # two things doctor reads that a run would write for.
   print -r -- 'output_suffix = -2x' >> "$box/work/settings.conf"
   cp "$FIXTURES/silent.mov" "$box/work/input/clip.mov"
+  own_ffmpeg "$box"
   calls="$(wc -l < "$box/launchctl.log")"
   before="$(listing "$box")"
 
@@ -79,10 +80,12 @@ test_doctor_warns_when_another_shrinkit_comes_first_on_the_path() {
   setup_box "$box"
   brew_cask "$box"
   run_setup "$box" > /dev/null 2>&1
+  own_ffmpeg "$box"
 
   # Homebrew's doctor, run where the clone's link comes first on the PATH.
   out="$(env -u SHRINKIT_DIR HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
-    PATH="$(clean_path "$box/home/.local/bin" "$box/brew/bin")" "$box/brew/bin/shrinkit" doctor 2>&1)" || code=$?
+    SHRINKIT_TOOL_DIRS="$box/tools" PATH="$(clean_path "$box/home/.local/bin" "$box/brew/bin")" \
+    "$box/brew/bin/shrinkit" doctor 2>&1)" || code=$?
 
   check "warns that two installs are in play" \
     test "$(doctor_line "$out" command)" = "warn  command        two installs are in play"

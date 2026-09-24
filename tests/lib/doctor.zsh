@@ -12,18 +12,22 @@ installed_box() {
 # A PATH with nothing on it but the system and the folders named, since the machine running the
 # tests may have a shrinkit of its own on its PATH, and doctor reports a second install.
 clean_path() {
-  print -r -- "${(j.:.)@}:/usr/bin:/bin:/usr/sbin:/sbin"
+  local -a dirs=("$@" /usr/bin /bin /usr/sbin /sbin)
+  print -r -- "${(j.:.)dirs}"
 }
 
 # doctor as someone runs it after an install: a new shell, with the folder known from the folder
-# file and the plist rather than from SHRINKIT_DIR, and the sandbox's PATH link on the PATH. Extra
-# NAME=value words go into its environment.
+# file and the plist rather than from SHRINKIT_DIR, and the sandbox's PATH link on the PATH. It
+# finds ffmpeg in the sandbox's own folder, so where this machine keeps its ffmpeg does not change
+# a verdict. Extra NAME=value words go into its environment.
 run_doctor() {
   local box="$1"
   shift
   sandboxed "$box"
+  [[ -d "$box/tools" ]] || own_ffmpeg "$box"
   env -u SHRINKIT_DIR HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
-    PATH="$(clean_path "$box/home/.local/bin")" "$@" zsh "$OPTIMIZER" doctor
+    PATH="$(clean_path "$box/home/.local/bin")" SHRINKIT_TOOL_DIRS="$box/tools" "$@" \
+    zsh "$OPTIMIZER" doctor
 }
 
 # The line doctor printed for one check, and that line with everything indented under it.

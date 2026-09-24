@@ -73,14 +73,31 @@ test_doctor_warns_when_it_cannot_look_inside_input() {
     test "$(doctor_line "$out" input)" = "warn  input          cannot look inside $box/work/input"
 }
 
-test_doctor_prints_no_control_character_from_a_file_name() {
-  local box out
+test_doctor_prints_no_control_character_from_a_name() {
+  local box fine out
   box="$(installed_box)"
-  # A name that would move the cursor and wipe a line, the way a line can be faked on screen.
+  # Names that would move the cursor and wipe a line, the way a line can be faked on screen: one
+  # doctor lists on an ok line, and one it warns about.
+  cp "$FIXTURES/silent.mov" "$box/work/input/clip"$'\e[2K'".mov"
+  cp "$box/work/presets/2x.conf" "$box/work/presets/p"$'\e[31m'"red.conf"
+  fine="$(run_doctor "$box" 2>&1)"
   : > "$box/work/input/clip"$'\e[2K'".mkv"
 
   out="$(run_doctor "$box" 2>&1)"
 
-  check "shows it with a ? instead" contains "$(doctor_line "$out" input)" "clip?[2K.mkv"
-  check "and prints no escape" test -z "$(print -r -- "$out" | tr -d -c '\033')"
+  check "shows the recording with a ? instead" contains "$(doctor_line "$fine" input)" "clip?[2K.mov"
+  check "and the preset" contains "$(doctor_line "$fine" presets)" "p?[31mred"
+  check "and the file it warns about" contains "$(doctor_line "$out" input)" "clip?[2K.mkv"
+  check "and prints no escape" test -z "$(print -r -- "$fine$out" | tr -d -c '\033')"
+}
+
+test_doctor_warns_when_there_is_no_input_folder() {
+  local box out
+  box="$(installed_box)"
+  rm -rf "$box/work/input"
+
+  out="$(run_doctor "$box" 2>&1)"
+
+  check "warns" test "$(doctor_line "$out" input)" = "warn  input          there is no $box/work/input"
+  check "and says how to make it again" contains "$(doctor_block "$out" input)" "  shrinkit setup"
 }

@@ -12,6 +12,9 @@
 typeset -a DOCTOR_VERDICTS DOCTOR_FINDINGS DOCTOR_DETAILS
 typeset -i DOCTOR_FAILED=0 DOCTOR_WARNED=0
 DOCTOR_OK=""
+# This shrinkit as a command to paste: "shrinkit" when that is what the PATH finds, its quoted path
+# otherwise, as for a clone run as ./shrinkit.sh with nothing on the PATH.
+DOCTOR_SELF=shrinkit
 
 # doctor_found FAIL|warn <finding> [detail ...]. Names read from disk end up in these, so a control
 # character in one is shown as ? rather than reaching the terminal.
@@ -38,7 +41,7 @@ doctor_report() {
     DOCTOR_WARNED+=1
   fi
   if [[ "$verdict" == ok ]]; then
-    printf '%-6s%-15s%s\n' ok "$name" "$DOCTOR_OK"
+    printf '%-6s%-15s%s\n' ok "$name" "${DOCTOR_OK//[[:cntrl:]]/?}"
   else
     lead="${DOCTOR_VERDICTS[(i)$verdict]}"
     body=(${(f)DOCTOR_DETAILS[lead]})
@@ -126,18 +129,18 @@ doctor_check_folder() {
     && doctor_found warn "SHRINKIT_DIR in this shell is $SHRINKIT_DIR, the watcher's folder is $agent" \
       "Anything run from this shell uses the first. Take SHRINKIT_DIR out of your shell's" \
       "startup file, or move everything to the one to keep:" \
-      "  shrinkit config folder <path>"
+      "  $DOCTOR_SELF config folder <path>"
   if [[ ! -d "$base" ]]; then
     if [[ "${base:A}" == /Volumes/* ]]; then
       doctor_found FAIL "$base does not exist" \
         "Connect the drive it is on, or move shrinkit to a folder on this Mac:" \
-        "  shrinkit config folder ~/Movies/shrinkit"
+        "  $DOCTOR_SELF config folder ~/Movies/shrinkit"
     else
       doctor_found FAIL "$base does not exist" \
         "If you moved it, point shrinkit at where it is now:" \
-        "  shrinkit config folder <path>" \
+        "  $DOCTOR_SELF config folder <path>" \
         "or make it again where it was:" \
-        "  shrinkit setup"
+        "  $DOCTOR_SELF setup"
     fi
     return
   fi
@@ -148,7 +151,7 @@ doctor_check_folder() {
     "Give yourself write access:" \
     "  chmod u+w ${(j: :)${(@qq)unwritable}}" \
     "or, on a drive that is read-only, move to a folder on this Mac:" \
-    "  shrinkit config folder ~/Movies/shrinkit"
+    "  $DOCTOR_SELF config folder ~/Movies/shrinkit"
 }
 
 # The agent: its plist, the program it runs, whether launchd has it loaded, and how launchd says
@@ -156,7 +159,7 @@ doctor_check_folder() {
 # keeps the one before while a run is going on.
 doctor_check_watcher() {
   local program listing raw session
-  local -a again=("Register it again with:" "  shrinkit setup")
+  local -a again=("Register it again with:" "  $DOCTOR_SELF setup")
   [[ -f "$PLIST" ]] || {
     doctor_found FAIL "not installed: there is no $PLIST" "${again[@]}"
     return
@@ -185,7 +188,7 @@ doctor_check_watcher() {
     doctor_found FAIL "installed, but macOS is not running it" \
       "Usually it was switched off in System Settings > General > Login Items &" \
       "Extensions. Switch shrinkit on there, then run:" \
-      "  shrinkit setup"
+      "  $DOCTOR_SELF setup"
     return
   }
   ((${#DOCTOR_VERDICTS} == 0)) || return
@@ -196,12 +199,12 @@ doctor_check_watcher() {
       "launchd could not open its log files in ${$(agent_value StandardErrorPath):h}: the folder" \
       "is missing, on a drive that is not connected, or where it needs Full Disk Access." \
       "Once that is fixed, run:" \
-      "  shrinkit setup"
+      "  $DOCTOR_SELF setup"
   elif ((raw >> 8 == 127)); then
     doctor_found FAIL "could not read $program (exit 127)" \
       "It is somewhere macOS keeps the watcher out of, such as Desktop, Documents or" \
       "Downloads. setup copies it out of those; run it from where it is now:" \
-      "  shrinkit setup"
+      "  $DOCTOR_SELF setup"
   fi
 }
 
@@ -245,11 +248,11 @@ doctor_check_right_click() {
     [[ -z "$ENTRY_PRESET" || -f "$ENTRY_FOLDER/presets/$ENTRY_PRESET.conf" ]] \
       || doctor_found FAIL "right-click $ENTRY_NAME runs the preset $ENTRY_PRESET, which is not in $ENTRY_FOLDER/presets" \
         "Put it back, or build the entries again from the presets there are:" \
-        "  shrinkit setup"
+        "  $DOCTOR_SELF setup"
   done
   for program in "${programs[@]}"; do
     if [[ ! -e "$program" ]]; then
-      doctor_found FAIL "the entries run $program, which is not there" "Build them again with:" "  shrinkit setup"
+      doctor_found FAIL "the entries run $program, which is not there" "Build them again with:" "  $DOCTOR_SELF setup"
     elif [[ ! -x "$program" ]]; then
       doctor_found FAIL "the entries run $program, which is not executable" \
         "Make it executable with:" \
@@ -259,10 +262,12 @@ doctor_check_right_click() {
   for name in "${expected[@]}"; do
     ((${present[(Ie)$name]})) && continue
     if [[ "$name" == "mark cuts" || "$name" == merge ]]; then
-      doctor_found warn "no right-click entry for $name" "Build it again with:" "  shrinkit setup"
+      doctor_found warn "no right-click entry for $name" "Build it again with:" "  $DOCTOR_SELF setup"
     else
       doctor_found warn "no right-click entry for the preset $name" "Add it with:" \
-        "  shrinkit preset install ${(qq)name}"
+        "  $DOCTOR_SELF preset install ${(qq)name}" \
+        "If you took it out with 'preset remove', the next setup or brew upgrade puts it back;" \
+        "to keep it out, move the preset file out of presets/."
     fi
   done
   DOCTOR_OK="${#present} entries (whether each is switched on, doctor cannot see)"
@@ -314,10 +319,13 @@ doctor_check_presets() {
 doctor_check_input() {
   local item name
   local -a waiting ignored
-  [[ -d "$IN_DIR" && -r "$IN_DIR" && -x "$IN_DIR" ]] || {
-    doctor_found warn "cannot look inside $IN_DIR" "The folder line above says why."
+  if [[ ! -d "$IN_DIR" ]]; then
+    doctor_found warn "there is no $IN_DIR" "Make it again with:" "  $DOCTOR_SELF setup"
     return
-  }
+  elif [[ ! -r "$IN_DIR" || ! -x "$IN_DIR" ]]; then
+    doctor_found warn "cannot look inside $IN_DIR" "Give yourself access:" "  chmod u+rx ${(qq)IN_DIR}"
+    return
+  fi
   for item in "$IN_DIR"/*(DN); do
     name="${item:t}"
     if [[ "$name" == .DS_Store || "$name" == ._* ]] || [[ "$name" == *.cuts && -f "${item%.cuts}" ]]; then
@@ -355,6 +363,7 @@ doctor_command() {
     print -u2 -r -- "usage: doctor (it takes no arguments)"
     return 2
   }
+  this_install "$(whence -p shrinkit)" || DOCTOR_SELF="${(qq)SELF}"
   for check in command ffmpeg folder watcher right-click settings presets input; do
     doctor_check_${check//-/_}
     doctor_report "$check"

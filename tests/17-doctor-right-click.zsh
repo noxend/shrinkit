@@ -43,3 +43,19 @@ test_doctor_reads_an_entry_an_older_setup_wrote() {
 
   check "counts it with the others" contains "$(doctor_line "$out" right-click)" "ok    right-click    5 entries"
 }
+
+test_doctor_says_setup_brings_back_an_entry_taken_out() {
+  local box out
+  box="$(installed_box)"
+  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset remove 2x > /dev/null 2>&1
+
+  out="$(run_doctor "$box" 2>&1)"
+  run_setup "$box" > /dev/null 2>&1
+
+  check "warns that the preset has no entry" \
+    contains "$(doctor_block "$out" right-click)" "no right-click entry for the preset 2x"
+  check "and says how to keep it out" \
+    contains "$(doctor_block "$out" right-click)" "move the preset file out of presets/"
+  check "which is right: the next setup builds it again" \
+    test -d "$box/home/Library/Services/shrinkit: 2x.workflow"
+}
