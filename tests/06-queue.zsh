@@ -110,6 +110,34 @@ test_picks_up_a_file_dropped_mid_run() {
   check "and empties the queue" empty_dir "$box/input"
 }
 
+test_a_recording_that_fails_is_recorded_once() {
+  local box id
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  print "this is not really a video" > "$box/input/broken.mov"
+  id="$(stat -f '%d:%i:%z' "$box/input/broken.mov")"
+
+  optimize "$box"
+  optimize "$box"
+
+  # By what it is, the way a recording that could not be filed away is: a later file under the
+  # same name is a different one.
+  check "writes it down" grep -qxF -- "$id" "$box/.logs/failed"
+  check "once, however often it fails" test "$(grep -cxF -- "$id" "$box/.logs/failed")" = 1
+}
+
+test_an_empty_recording_is_logged_as_empty() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  : > "$box/input/clip.mov" # a copy that stopped before it wrote anything
+
+  optimize "$box"
+
+  check "says it is empty" logged "$box" "skip   clip.mov (empty"
+  check "rather than still being written" not_logged "$box" "still being written"
+}
+
 test_a_broken_file_does_not_wedge_the_queue() {
   local box
   box="$(sandbox)"

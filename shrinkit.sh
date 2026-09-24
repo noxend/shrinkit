@@ -153,6 +153,8 @@ LOG_DIR="$BASE_DIR/.logs"
 LOG="$LOG_DIR/optimizer.log"
 # Recordings whose result was made but which could not be filed away; see already_done().
 STUCK_FILE="$LOG_DIR/stuck"
+# Recordings a run in input/ could not shrink, written down the same way; see failed_before().
+FAILED_FILE="$LOG_DIR/failed"
 LOCK_DIR="$BASE_DIR/.optimizer.lock"
 
 CONFIG="$BASE_DIR/settings.conf"
@@ -912,6 +914,7 @@ shrink() {
     [[ "$archive" == true ]] \
       && log "FAILED ${src:t}, left in place (ffmpeg output is above)" \
       || log "FAILED $src (one-shot, ffmpeg output is above)"
+    [[ "$archive" == true ]] && mark_failed "$src"
     notify "${src:t}" "Could not shrink"
     return 1
   }
@@ -976,6 +979,16 @@ already_done() {
   id="$(source_id "$1")"
   [[ -n "$id" ]] && grep -qxF -- "$id" "$STUCK_FILE" 2> /dev/null
 }
+# A recording that failed stays in input/ and is tried again with every drop, so it is written down
+# once, for doctor to say which one it is without reading the log's wording.
+mark_failed() {
+  failed_before "$1" || source_id "$1" >> "$FAILED_FILE"
+}
+failed_before() {
+  local id
+  id="$(source_id "$1")"
+  [[ -n "$id" ]] && grep -qxF -- "$id" "$FAILED_FILE" 2> /dev/null
+}
 
 # Re-scans after every file: launchd swallows drop events while a run is already in progress.
 process_queue() {
@@ -990,6 +1003,8 @@ process_queue() {
       out="$OUT_DIR/$(output_name "$src")"
       if already_done "$src"; then
         log "skip   ${src:t} (already has an optimized copy)"
+      elif [[ ! -s "$src" ]]; then
+        log "skip   ${src:t} (empty: nothing to shrink yet)"
       elif ! is_settled "$src"; then
         log "skip   ${src:t} (still being written)"
       elif shrink "$src" "$(free_name "$out")" true; then
