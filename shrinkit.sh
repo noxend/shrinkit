@@ -24,20 +24,20 @@ export LC_NUMERIC=C
 
 # The path to write down whenever this script has to name itself: in the launchd plist, in a Quick
 # Action's command, in the Full Disk Access instructions. ZSH_ARGZERO:A resolves every symlink, so
-# under Homebrew it answers with the staged Caskroom/shrinkit/<version> path, which the next
+# under Homebrew it answers with the staged Caskroom/<token>/<version> path, which the next
 # `brew upgrade` deletes, taking every Finder entry and the agent with it. It is mapped to
 # <prefix>/bin/shrinkit, the link brew repoints at whichever version is current.
 self_path() {
   local self="${ZSH_ARGZERO:A}"
-  [[ "$self" == */Caskroom/shrinkit/* ]] \
-    && print -r -- "${self%/Caskroom/shrinkit/*}/bin/shrinkit" \
+  [[ "$self" == */Caskroom/* ]] \
+    && print -r -- "${self%/Caskroom/*}/bin/shrinkit" \
     || print -r -- "$self"
 }
 
 # Homebrew owns the command on the PATH, so setup makes no link of its own and teardown has nothing
 # of brew's to remove.
 installed_by_brew() {
-  [[ "${ZSH_ARGZERO:A}" == */Caskroom/shrinkit/* ]]
+  [[ "${ZSH_ARGZERO:A}" == */Caskroom/* ]]
 }
 
 # Where presets/ and quick-action/ are read from: beside the script in a checkout or a cask, and

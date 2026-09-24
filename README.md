@@ -24,8 +24,12 @@ https://github.com/user-attachments/assets/651900d7-0171-4793-b6fd-5d1d5097ee98
 Needs macOS and [Homebrew](https://brew.sh). ffmpeg comes along with it.
 
 ```bash
-brew install --cask noxend/tap/shrinkit
+brew tap noxend/shrinkit https://github.com/noxend/shrinkit
+brew install --cask noxend/shrinkit/shrnkit
 ```
+
+The package is `shrnkit` because Homebrew already has a different app named `shrinkit`. The command
+it installs is still `shrinkit`.
 
 That sets everything up: a working folder at `~/Movies/shrinkit`, a watcher on its `input/`, the
 right-click entries in Finder, a `shrinkit` shortcut on your Desktop and a `shrinkit` command.
@@ -125,13 +129,13 @@ A value that does not fit is replaced by its default, and the log in `.logs/` sa
 ## Update and uninstall
 
 ```bash
-brew upgrade --cask shrinkit
-brew uninstall --cask shrinkit
+brew upgrade --cask shrnkit
+brew uninstall --cask shrnkit
 ```
 
 Uninstalling removes the watcher, the right-click entries, the Desktop shortcut and the command.
-Your recordings, results, settings and presets stay in the working folder. `brew uninstall --zap`
-also forgets which working folder you chose.
+Your recordings, results, settings and presets stay in the working folder.
+`brew uninstall --zap --cask shrnkit` also forgets which working folder you chose.
 
 If brew can no longer run it, the same by hand, then delete the shortcut on your Desktop, which
 is named after the working folder:
