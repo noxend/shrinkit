@@ -337,39 +337,45 @@ test_run_merge_with_one_recording_left_shrinks_it_alone() {
   check "exits 0" test "$code" = 0
 }
 
-# As an interrupted merge (tests/07): TERM while the second part is being written.
+# As an interrupted merge (tests/07): TERM while the second part is being written, and HUP, which
+# closing the Terminal window the run is in sends.
 test_an_interrupted_edit_merge_leaves_nothing_behind() {
-  local box tools work file tmp pid code=0 asked took _
-  box="$(sandbox)"
-  settings "$box" 'speed = 2'
-  tools="$(scratch)"
-  stub_tools "$tools"
-  stub_editor "$tools" editor 'set_merge true'
-  work="$(scratch)"
-  tmp="$(scratch)"
-  cp "$FIXTURES/take-red.mov" "$work/1 short.mov"
-  cp "$FIXTURES/big.mov" "$work/2 long.mov"
-  file="$(make_edit "$box" "$tools" "$work/1 short.mov" "$work/2 long.mov")"
+  local box tools work file tmp pid code asked took pair signal _
+  for pair in TERM:143 HUP:129; do
+    signal="${pair%:*}"
+    box="$(sandbox)"
+    settings "$box" 'speed = 2'
+    tools="$(scratch)"
+    stub_tools "$tools"
+    stub_editor "$tools" editor 'set_merge true'
+    work="$(scratch)"
+    tmp="$(scratch)"
+    cp "$FIXTURES/take-red.mov" "$work/1 short.mov"
+    cp "$FIXTURES/big.mov" "$work/2 long.mov"
+    file="$(make_edit "$box" "$tools" "$work/1 short.mov" "$work/2 long.mov")"
 
-  TMPDIR="$tmp" PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
-    zsh "$OPTIMIZER" run "$file" > /dev/null 2>&1 &
-  pid=$!
-  for _ in {1..400}; do
-    grep -q 'done   1 short' "$box/.logs/optimizer.log" 2> /dev/null && break
-    sleep 0.05
+    TMPDIR="$tmp" PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+      zsh "$OPTIMIZER" run "$file" > /dev/null 2>&1 &
+    pid=$!
+    for _ in {1..400}; do
+      grep -q 'done   1 short' "$box/.logs/optimizer.log" 2> /dev/null && break
+      sleep 0.05
+    done
+    wait_for_part "$tmp"
+    asked=$SECONDS
+    code=0
+    kill -"$signal" "$pid"
+    wait "$pid" || code=$?
+    took=$((SECONDS - asked))
+    sleep 3 # anything still running would have moved a result in by now
+
+    check "$signal: the first part was made before it" logged "$box" 'done   1 short'
+    check "$signal: stops with its status" test "$code" = "${pair#*:}"
+    check "$signal: within a couple of seconds" test "$took" -le 2
+    check "$signal: leaves no part in the temporary folder" empty_dir "$tmp"
+    check "$signal: and nothing beside the recordings but the edit file" \
+      test "$(ls "$work" | wc -l | tr -d ' ')" = 3
   done
-  wait_for_part "$tmp"
-  asked=$SECONDS
-  kill -TERM "$pid"
-  wait "$pid" || code=$?
-  took=$((SECONDS - asked))
-  sleep 3 # anything still running would have moved a result in by now
-
-  check "the first part was made before the signal" logged "$box" 'done   1 short'
-  check "stops with the signal's status" test "$code" = 143
-  check "within a couple of seconds" test "$took" -le 2
-  check "leaves no part in the temporary folder" empty_dir "$tmp"
-  check "and nothing beside the recordings but the edit file" test "$(ls "$work" | wc -l | tr -d ' ')" = 3
 }
 
 test_run_merge_says_each_part_and_heads_the_join_on_the_terminal() {
