@@ -52,6 +52,9 @@ shrinkit --speed 4 --crf 32 recording.mov
 shrinkit --preset tiny recording.mov
 ```
 
+**If nothing happens**, run `shrinkit doctor`. It checks the install without changing anything and
+says what is wrong and what to run to fix it; its output can go into an issue as it is.
+
 ## Presets
 
 | Preset | What it is |
