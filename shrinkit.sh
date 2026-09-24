@@ -1032,10 +1032,15 @@ prune_processed() {
 LOCK_HELD=0
 LOCK_PID_FILE="$LOCK_DIR/pid"
 
+# Alive and a run: zsh running shrinkit. A run stopped without cleaning up leaves its pid behind,
+# and once macOS hands that number to another program, a check for "alive" alone left the lock
+# held for good and every later run standing down.
 lock_owner_alive() {
   local owner
   owner="$(cat "$LOCK_PID_FILE" 2> /dev/null)"
-  is_int "$owner" && kill -0 "$owner" 2> /dev/null
+  is_int "$owner" && kill -0 "$owner" 2> /dev/null || return 1
+  [[ "$(ps -o comm= -p "$owner" 2> /dev/null)" == (*/|)zsh ]] \
+    && [[ "$(ps -o command= -p "$owner" 2> /dev/null)" == *shrinkit* ]]
 }
 
 acquire_lock() {

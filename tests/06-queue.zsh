@@ -81,17 +81,54 @@ test_a_lock_from_a_dead_run_is_taken_over() {
   check "and leaves none behind" missing "$box/.optimizer.lock"
 }
 
+# A process that looks to ps the way a run does: zsh running a script named shrinkit. Prints its
+# pid; the caller kills it.
+running_shrinkit() {
+  local box="$1"
+  print -rl -- '#!/bin/zsh' 'sleep 30' > "$box/shrinkit"
+  chmod +x "$box/shrinkit"
+  "$box/shrinkit" > /dev/null 2>&1 &
+  print -r -- $!
+}
+
 test_a_lock_from_a_live_run_is_left_alone() {
-  local box
+  local box owner
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
-  plant_lock "$box" $$ # this shell is very much alive
+  owner="$(running_shrinkit "$box")"
+  plant_lock "$box" "$owner"
 
   optimize "$box"
+  kill "$owner" 2> /dev/null
   check "stands down" logged "$box" 'another run has the lock'
   check "leaves the file where it is" exists "$box/input/clip.mov"
   check "does not delete the other run's lock" exists "$box/.optimizer.lock/pid"
+}
+
+test_a_lock_whose_pid_went_to_another_program_is_taken_over() {
+  local box other kind
+  # The run that took the lock was stopped, and its pid has since gone to something else: a
+  # program that is not zsh though "shrinkit" is in its command line, and zsh running something
+  # that is not shrinkit.
+  for kind in tail zsh; do
+    box="$(sandbox)"
+    settings "$box" 'speed = 2'
+    cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+    : > "$box/shrinkit.log"
+    if [[ "$kind" == tail ]]; then
+      tail -f "$box/shrinkit.log" > /dev/null 2>&1 &
+    else
+      zsh -c 'sleep 30; :' > /dev/null 2>&1 &
+    fi
+    other=$!
+    plant_lock "$box" "$other"
+
+    optimize "$box"
+    kill "$other" 2> /dev/null
+    check "takes the lock over from $kind" exists "$box/output/clip.mp4"
+    check "and leaves none behind" missing "$box/.optimizer.lock"
+  done
 }
 
 test_picks_up_a_file_dropped_mid_run() {
