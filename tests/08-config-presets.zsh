@@ -41,12 +41,12 @@ test_config_set_refuses_a_value_outside_the_range() {
 test_config_set_refuses_a_number_too_long_for_arithmetic() {
   local box code out key
   box="$(sandbox)"
-  settings "$box" 'crf = 31' 'fps = 30'
+  settings "$box" 'crf = 31' 'fps = 30' 'max_height = 720'
 
   # zsh truncates a digit string past 19 places to something negative, so a bare <= comparison
   # passes it and prints its own diagnostic doing so. Both reached the user: the command reported
   # success on a value no run can use, with "number truncated after 19 digits" above it.
-  for key in crf fps; do
+  for key in crf fps max_height; do
     code=0
     out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
       zsh "$OPTIMIZER" config "$key" 99999999999999999999 2>&1)" || code=$?
@@ -54,7 +54,8 @@ test_config_set_refuses_a_number_too_long_for_arithmetic() {
     check "and leaks no zsh diagnostic" lacks "$out" "truncated"
   done
   check "the file keeps the value it had" grep -q '^crf = 31$' "$box/settings.conf"
-  check "and the other one too" grep -q '^fps = 30$' "$box/settings.conf"
+  check "and the other ones too" grep -q '^fps = 30$' "$box/settings.conf"
+  check "all of them" grep -q '^max_height = 720$' "$box/settings.conf"
 }
 
 test_a_setting_that_is_not_one_leaves_a_line_in_the_log() {

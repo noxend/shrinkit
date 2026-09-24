@@ -400,8 +400,11 @@ check_setting() {
       [[ "$value" =~ ^[0-9]{1,4}$ ]] && ((value <= 51)) && return 0
       ;;
     max_height)
-      reason="want a whole number"
-      is_int "$value" && return 0
+      # Bounded by its digit count before any arithmetic, as fps is: zsh truncates a digit string
+      # past 19 places to a negative number, which reads as no cap, and says so on stderr. 9999 is
+      # taller than any recording.
+      reason="want 0-9999"
+      [[ "$value" =~ ^[0-9]{1,4}$ ]] && return 0
       ;;
     codec)
       reason="want h264 or hevc"

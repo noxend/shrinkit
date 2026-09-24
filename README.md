@@ -171,7 +171,7 @@ shrinkit config folder ~/Movies/clips    # move the working folder
 | `crf` | Quality against size, the main knob. Lower is sharper and bigger, higher is smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
 | `codec` | `h264` plays everywhere, `hevc` is about 30% smaller and less compatible | `h264` |
 | `remove_audio` | `true` drops the sound, `false` keeps it and speeds it up to match | `true` |
-| `max_height` | Downscale tall videos to this height; `0` keeps the original | `0` |
+| `max_height` | Downscale tall videos to this height, up to 9999; `0` keeps the original | `0` |
 | `keep_original` | `true` files the original in `.processed/`, `false` deletes it | `true` |
 | `keep_days` | Delete originals from `.processed/` once this many days old, up to 3650; `0` keeps them forever | `0` |
 | `notify` | Post a macOS banner when a file is done | `true` |
