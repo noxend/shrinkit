@@ -35,6 +35,8 @@ test_doctor_fails_when_the_program_is_gone() {
     "FAIL  watcher        it runs $box/home/.local/bin/shrinkit, which is not there"
   check "says how to register one that is" contains "$(doctor_block "$out" watcher)" "  shrinkit setup"
   check "without blaming the log files for the 78" lacks "$out" "log files"
+  check "and fails the right-click entries that run it" test "$(doctor_line "$out" right-click)" = \
+    "FAIL  right-click    the entries run $box/home/.local/bin/shrinkit, which is not there"
 }
 
 test_doctor_fails_when_the_program_cannot_be_run() {
@@ -50,6 +52,7 @@ test_doctor_fails_when_the_program_cannot_be_run() {
 
   check "fails, saying it cannot be run" contains "$(doctor_line "$out" watcher)" "which is not executable"
   check "and how to fix it" contains "$(doctor_block "$out" watcher)" "  chmod +x '${box:A}/brew/bin/shrinkit'"
+  check "and says the same for the entries" contains "$(doctor_line "$out" right-click)" "which is not executable"
 }
 
 test_doctor_fails_when_the_agent_is_not_loaded() {

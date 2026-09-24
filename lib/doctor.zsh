@@ -205,6 +205,147 @@ doctor_check_watcher() {
   fi
 }
 
+# The right-click entries setup built, matched the way teardown matches them: a command that sets
+# SHRINKIT_DIR, so an entry of somebody else's with a similar name is never read as one.
+our_entries() {
+  local action
+  for action in "$SERVICES_DIR"/shrinkit:*.workflow(N); do
+    grep -q "SHRINKIT_DIR=" "$action/Contents/document.wflow" 2> /dev/null && print -r -- "$action"
+  done
+}
+
+# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name>, mark-cuts or merge.
+# The command is split into words the way zsh splits it, so the quoting of an older setup reads the
+# same as today's. Sets ENTRY_NAME, ENTRY_FOLDER, ENTRY_PROGRAM and ENTRY_PRESET.
+read_entry() {
+  local -a words
+  words=(${(Q)${(z)"$(plutil -extract actions.0.action.ActionParameters.COMMAND_STRING raw -o - \
+    "$1/Contents/document.wflow" 2> /dev/null)"}})
+  ENTRY_NAME="${${1:t:r}#shrinkit: }"
+  [[ "${words[1]-}" == SHRINKIT_DIR=* ]] || return 1
+  ENTRY_FOLDER="${words[1]#SHRINKIT_DIR=}" ENTRY_PROGRAM="${words[2]-}" ENTRY_PRESET=""
+  if [[ "${words[3]-}" == --preset ]]; then
+    ENTRY_PRESET="${words[4]-}"
+  fi
+}
+
+# One entry per preset in the working folder, plus mark cuts and merge, each running a program and,
+# for a preset's entry, a preset that is there. Whether an entry is switched on in System Settings
+# is kept where no command reads it.
+doctor_check_right_click() {
+  local entry preset name program
+  local -a present expected
+  local -aU programs
+  for preset in "$PRESET_DIR"/*.conf(N.); do expected+=("${preset:t:r}"); done
+  expected+=("mark cuts" merge)
+  for entry in ${(f)"$(our_entries)"}; do
+    read_entry "$entry" || continue
+    present+=("$ENTRY_NAME")
+    programs+=("$ENTRY_PROGRAM")
+    [[ -z "$ENTRY_PRESET" || -f "$ENTRY_FOLDER/presets/$ENTRY_PRESET.conf" ]] \
+      || doctor_found FAIL "right-click $ENTRY_NAME runs the preset $ENTRY_PRESET, which is not in $ENTRY_FOLDER/presets" \
+        "Put it back, or build the entries again from the presets there are:" \
+        "  shrinkit setup"
+  done
+  for program in "${programs[@]}"; do
+    if [[ ! -e "$program" ]]; then
+      doctor_found FAIL "the entries run $program, which is not there" "Build them again with:" "  shrinkit setup"
+    elif [[ ! -x "$program" ]]; then
+      doctor_found FAIL "the entries run $program, which is not executable" \
+        "Make it executable with:" \
+        "  chmod +x ${(qq)program}"
+    fi
+  done
+  for name in "${expected[@]}"; do
+    ((${present[(Ie)$name]})) && continue
+    if [[ "$name" == "mark cuts" || "$name" == merge ]]; then
+      doctor_found warn "no right-click entry for $name" "Build it again with:" "  shrinkit setup"
+    else
+      doctor_found warn "no right-click entry for the preset $name" "Add it with:" \
+        "  shrinkit preset install ${(qq)name}"
+    fi
+  done
+  DOCTOR_OK="${#present} entries (whether each is switched on, doctor cannot see)"
+}
+
+# What a run would log about one settings file read on its own: every line it leaves out, and
+# every value it puts back to the default. Read through the functions a run uses, with the log sent
+# here rather than to the file, so doctor reports the log's own words.
+settings_warnings() {
+  local file="$1" label="$2" line
+  for line in ${(f)"$( (
+    LOG=/dev/stdout
+    CFG=("${(@kv)DEFAULTS}")
+    read_settings "$file"
+    validate_config
+  ) 2> /dev/null)"}; do
+    line="${${line#????-??-?? ??:??:??  }%, using *}"
+    [[ "$line" == *"${file:t}"* ]] || line="$line, in $label"
+    doctor_found warn "$line"
+  done
+}
+
+doctor_check_settings() {
+  DOCTOR_OK="$CONFIG"
+  if [[ ! -e "$CONFIG" ]]; then
+    DOCTOR_OK="no settings.conf, so the defaults are in effect"
+  elif [[ ! -r "$CONFIG" ]]; then
+    doctor_found warn "cannot read $CONFIG, so a run uses none of it" \
+      "Give yourself read access:" \
+      "  chmod u+r ${(qq)CONFIG}"
+  else
+    settings_warnings "$CONFIG" settings.conf
+  fi
+}
+
+doctor_check_presets() {
+  local preset
+  local -a names
+  for preset in "$PRESET_DIR"/*.conf(N.); do
+    names+=("${preset:t:r}")
+    settings_warnings "$preset" "presets/${preset:t}"
+  done
+  DOCTOR_OK="${${(j:, :)names}:-none}"
+}
+
+# What is sitting in input/ and why it is still there. The watcher takes plain .mov, .mp4 and .m4v
+# files straight inside input/ that are not hidden; a run writes down the ones it shrank but could
+# not file away and the ones it could not shrink.
+doctor_check_input() {
+  local item name
+  local -a waiting ignored
+  [[ -d "$IN_DIR" && -r "$IN_DIR" && -x "$IN_DIR" ]] || {
+    doctor_found warn "cannot look inside $IN_DIR" "The folder line above says why."
+    return
+  }
+  for item in "$IN_DIR"/*(DN); do
+    name="${item:t}"
+    if [[ "$name" == .DS_Store || "$name" == ._* ]] || [[ "$name" == *.cuts && -f "${item%.cuts}" ]]; then
+      continue
+    elif [[ "$name" == .* || -L "$item" || ! -f "$item" || "$name" != (#i)*.(mov|mp4|m4v) ]]; then
+      [[ -d "$item" ]] && name+=/
+      ignored+=("$name")
+    elif already_done "$item"; then
+      doctor_found warn "$name was shrunk, but could not be moved out of input/" \
+        "Its result is in output/, and why it stayed is in:" \
+        "  $LOG" \
+        "Move it out of input/ yourself."
+    elif failed_before "$item"; then
+      doctor_found warn "$name could not be shrunk, and is tried again with every drop" \
+        "Why is in:" \
+        "  $LOG" \
+        "Take it out of input/ once you have read it."
+    else
+      waiting+=("$name")
+    fi
+  done
+  ((${#ignored})) && doctor_found warn "never picked up: ${(j:, :)ignored}" \
+    "The watcher takes .mov, .mp4 and .m4v files straight inside input/ and skips hidden ones;" \
+    "convert or move these, or take them out."
+  DOCTOR_OK="nothing waiting"
+  ((${#waiting})) && DOCTOR_OK="${#waiting} waiting: ${(j:, :)waiting}"
+}
+
 # --------------------------------------------------------------------- the command
 
 doctor_command() {
@@ -214,7 +355,7 @@ doctor_command() {
     print -u2 -r -- "usage: doctor (it takes no arguments)"
     return 2
   }
-  for check in command ffmpeg folder watcher; do
+  for check in command ffmpeg folder watcher right-click settings presets input; do
     doctor_check_${check//-/_}
     doctor_report "$check"
   done

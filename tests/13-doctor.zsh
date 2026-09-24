@@ -13,6 +13,12 @@ test_doctor_finds_nothing_wrong_with_a_fresh_install() {
   check "names the working folder" test "$(doctor_line "$out" folder)" = "ok    folder         $box/work"
   check "finds the watcher loaded" \
     test "$(doctor_line "$out" watcher)" = "ok    watcher        loaded: $box/home/.local/bin/shrinkit"
+  check "counts the right-click entries" test "$(doctor_line "$out" right-click)" = \
+    "ok    right-click    5 entries (whether each is switched on, doctor cannot see)"
+  check "reads the settings" \
+    test "$(doctor_line "$out" settings)" = "ok    settings       $box/work/settings.conf"
+  check "names the presets it read" test "$(doctor_line "$out" presets)" = "ok    presets        2x, sharp, tiny"
+  check "finds nothing waiting" test "$(doctor_line "$out" input)" = "ok    input          nothing waiting"
   check "says there is nothing wrong" test "${${(f)out}[-1]}" = "No problems found."
   check "and exits 0" test "$code" = 0
 }
@@ -46,7 +52,7 @@ test_doctor_leaves_everything_as_it_found_it() {
   out="$(run_doctor "$box" 2>&1)"
 
   after="$(listing "$box")"
-  check "ran its checks" contains "$out" "ok    watcher"
+  check "ran every check" test "${${(f)out}[-1]}" = "1 warning."
   check "and changed no file or folder" test "$before" = "$after"
   check "asked launchd for a listing" grep -q '^list ' <(tail -n "+$((calls + 1))" "$box/launchctl.log")
   check "and for nothing else" \
