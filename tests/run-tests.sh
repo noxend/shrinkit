@@ -1918,7 +1918,7 @@ test_preset_that_does_not_exist_is_refused() {
 # A cask-shaped install: the release staged whole under Caskroom/<token>/<version>/shrinkit-<version>,
 # the way a GitHub tag tarball unpacks, and the binary stanza's link in the prefix's own bin.
 brew_cask() {
-  local box="$1" staged="$1/brew/Caskroom/shrinkit/9.9/shrinkit-9.9"
+  local box="$1" staged="$1/brew/Caskroom/shrnkit/9.9/shrinkit-9.9"
   mkdir -p "$staged" "$box/brew/bin" "$box/home"
   cp "$OPTIMIZER" "$staged/shrinkit.sh"
   chmod +x "$staged/shrinkit.sh"
@@ -1936,7 +1936,7 @@ test_a_part_that_cannot_be_read_stops_the_run_and_says_so() {
   local box out code
   box="$(scratch)"
   brew_cask "$box"
-  rm -f "$box/brew/Caskroom/shrinkit/9.9/shrinkit-9.9/lib/merge.zsh"
+  rm -f "$box/brew/Caskroom/shrnkit/9.9/shrinkit-9.9/lib/merge.zsh"
 
   code=0
   out="$(HOME="$box/home" SHRINKIT_DIR="$box" "$box/brew/bin/shrinkit" --help 2>&1)" || code=$?
@@ -2900,7 +2900,7 @@ test_teardown_under_brew_claims_no_path_entry_of_its_own() {
   check "removes the agent" missing "$box/home/Library/LaunchAgents/com.shrinkit.plist"
   check "and does not name a PATH entry it never made" lacks "$out" "the PATH link"
   check "nor one under ~/.local at all" lacks "$out" "$box/home/.local/bin"
-  check "and leaves brew's own files alone" exists "$box/brew/Caskroom/shrinkit/9.9/shrinkit-9.9/shrinkit.sh"
+  check "and leaves brew's own files alone" exists "$box/brew/Caskroom/shrnkit/9.9/shrinkit-9.9/shrinkit.sh"
 }
 
 test_teardown_with_nothing_installed_says_so() {
