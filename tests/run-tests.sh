@@ -1718,8 +1718,9 @@ test_an_interrupted_merge_leaves_nothing_behind() {
   settings "$box" 'speed = 2'
   work="$(scratch)"
   tmp="$(scratch)"
+  # Two shapes, so the takes are re-encoded: joined as they are, they are done before a kill lands.
   recorded_copy "$FIXTURES/big.mov" "$work/one.mov" 2026-01-01T10:00:00
-  recorded_copy "$FIXTURES/tall.mov" "$work/two.mov" 2026-01-01T10:05:00
+  recorded_copy "$FIXTURES/silent.mov" "$work/two.mov" 2026-01-01T10:05:00
 
   TMPDIR="$tmp" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" merge "$work/one.mov" "$work/two.mov" \
     > /dev/null 2>&1 &
