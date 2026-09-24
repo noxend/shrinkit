@@ -19,6 +19,29 @@ test_open_and_osascript_without_a_stub_are_refused() {
   : > "$TMPROOT/refused"
 }
 
+# Every test file and helper file is sourced into one shell, so of a helper defined in two of them
+# only the later body is left, and a test calling the first one silently runs the other. Here one
+# is in two test files and one in a helper file and a test file, in a copy of the runner.
+test_the_runner_stops_on_a_helper_defined_in_two_files() {
+  local copy out code=0
+  copy="$(scratch)"
+  mkdir -p "$copy/tests/lib"
+  cp "$TESTS_DIR/run-tests.sh" "$copy/tests/"
+  cp "$TESTS_DIR"/lib/*.zsh "$copy/tests/lib/"
+  ln -s "$FIXTURES" "$copy/tests/fixtures"
+  : > "$copy/shrinkit.sh"
+  print -rl -- 'lib_helper() {' '  true' '}' > "$copy/tests/lib/probe.zsh"
+  print -rl -- 'lib_helper() {' '  false' '}' 'probe_helper() {' '  true' '}' 'test_one() {' \
+    '  check "one" probe_helper' '}' > "$copy/tests/01-one.zsh"
+  print -rl -- 'probe_helper() {' '  false' '}' 'test_two() {' '  check "two" lib_helper' '}' \
+    > "$copy/tests/02-two.zsh"
+
+  out="$(zsh "$copy/tests/run-tests.sh" 2>&1)" || code=$?
+
+  check "names both before running anything" test "$out" = "defined twice: lib_helper, probe_helper"
+  check "and exits 1" test "$code" = 1
+}
+
 test_run_shrinks_each_recording_with_its_own_settings() {
   local box tools work file code=0
   local -a files

@@ -97,12 +97,17 @@ unset _file
 
 # Every top-level test_* function, file by file in the order each defines them, so the grouping
 # on disk is the grouping that runs. Nothing here to keep in sync by hand when a test is added or
-# renamed. A name defined twice would run the later body twice, so it stops the run instead.
+# renamed.
 typeset -a TESTS
 TESTS=("${(f)$(grep -hoE '^test_[a-zA-Z0-9_]+' "${TEST_FILES[@]}")}")
-TWICE="$(print -rl -- "${TESTS[@]}" | sort | uniq -d)"
+
+# Every file is sourced into this one shell, so a function defined twice, a test or a helper, in
+# one file or in two, keeps only its later body, and a test would run it twice or call the wrong
+# helper: that stops the run instead. A name inside a heredoc counts too (the stub editor's in
+# tests/lib/edit.zsh), a false alarm at worst.
+TWICE="$(grep -hoE '^[a-zA-Z_][a-zA-Z0-9_]*\(\)' "$TESTS_DIR"/lib/*.zsh "${TEST_FILES[@]}" | sort | uniq -d)"
 [[ -z "$TWICE" ]] || {
-  print -r -- "defined twice: ${TWICE//$'\n'/, }"
+  print -r -- "defined twice: ${${TWICE//\(\)/}//$'\n'/, }"
   exit 1
 }
 
