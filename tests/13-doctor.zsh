@@ -10,6 +10,9 @@ test_doctor_finds_nothing_wrong_with_a_fresh_install() {
     test "$(doctor_line "$out" command)" = "ok    command        $OPTIMIZER (a clone)"
   check "finds ffmpeg where shrinkit looks" \
     test "$(doctor_line "$out" ffmpeg)" = "ok    ffmpeg         $FFMPEG"
+  check "names the working folder" test "$(doctor_line "$out" folder)" = "ok    folder         $box/work"
+  check "finds the watcher loaded" \
+    test "$(doctor_line "$out" watcher)" = "ok    watcher        loaded: $box/home/.local/bin/shrinkit"
   check "says there is nothing wrong" test "${${(f)out}[-1]}" = "No problems found."
   check "and exits 0" test "$code" = 0
 }
@@ -43,9 +46,11 @@ test_doctor_leaves_everything_as_it_found_it() {
   out="$(run_doctor "$box" 2>&1)"
 
   after="$(listing "$box")"
-  check "ran its checks" contains "$out" "ok    command"
+  check "ran its checks" contains "$out" "ok    watcher"
   check "and changed no file or folder" test "$before" = "$after"
-  check "and asked launchd for nothing" test -z "$(tail -n "+$((calls + 1))" "$box/launchctl.log")"
+  check "asked launchd for a listing" grep -q '^list ' <(tail -n "+$((calls + 1))" "$box/launchctl.log")
+  check "and for nothing else" \
+    test -z "$(tail -n "+$((calls + 1))" "$box/launchctl.log" | grep -v '^list \|^managername$')"
 }
 
 test_doctor_refuses_an_argument_it_does_not_take() {

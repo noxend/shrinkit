@@ -115,6 +115,96 @@ doctor_check_ffmpeg() {
   }
 }
 
+# The working folder in effect: there, and writable where a run writes, the folder itself included
+# since the lock is taken there. And the folder this shell would use against the watcher's.
+doctor_check_folder() {
+  local base="$BASE_DIR" agent place
+  local -a unwritable
+  DOCTOR_OK="$base"
+  agent="$(agent_value EnvironmentVariables.SHRINKIT_DIR)"
+  [[ -n "${SHRINKIT_DIR-}" && -n "$agent" && "${SHRINKIT_DIR:A}" != "${agent:A}" ]] \
+    && doctor_found warn "SHRINKIT_DIR in this shell is $SHRINKIT_DIR, the watcher's folder is $agent" \
+      "Anything run from this shell uses the first. Take SHRINKIT_DIR out of your shell's" \
+      "startup file, or move everything to the one to keep:" \
+      "  shrinkit config folder <path>"
+  if [[ ! -d "$base" ]]; then
+    if [[ "${base:A}" == /Volumes/* ]]; then
+      doctor_found FAIL "$base does not exist" \
+        "Connect the drive it is on, or move shrinkit to a folder on this Mac:" \
+        "  shrinkit config folder ~/Movies/shrinkit"
+    else
+      doctor_found FAIL "$base does not exist" \
+        "If you moved it, point shrinkit at where it is now:" \
+        "  shrinkit config folder <path>" \
+        "or make it again where it was:" \
+        "  shrinkit setup"
+    fi
+    return
+  fi
+  for place in "$base" "$base"/{input,output,.logs}(N/); do
+    [[ -w "$place" ]] || unwritable+=("$place")
+  done
+  ((${#unwritable})) && doctor_found FAIL "cannot write to ${(j:, :)unwritable}" \
+    "Give yourself write access:" \
+    "  chmod u+w ${(j: :)${(@qq)unwritable}}" \
+    "or, on a drive that is read-only, move to a folder on this Mac:" \
+    "  shrinkit config folder ~/Movies/shrinkit"
+}
+
+# The agent: its plist, the program it runs, whether launchd has it loaded, and how launchd says
+# its last run ended. launchctl keeps that as a wait status, an exit code shifted up by eight, and
+# keeps the one before while a run is going on.
+doctor_check_watcher() {
+  local program listing raw session
+  local -a again=("Register it again with:" "  shrinkit setup")
+  [[ -f "$PLIST" ]] || {
+    doctor_found FAIL "not installed: there is no $PLIST" "${again[@]}"
+    return
+  }
+  plutil -lint "$PLIST" > /dev/null 2>&1 || {
+    doctor_found FAIL "$PLIST is not a valid plist" "${again[@]}"
+    return
+  }
+  program="$(agent_value ProgramArguments.0)"
+  DOCTOR_OK="loaded: $program"
+  if [[ ! -e "$program" ]]; then
+    doctor_found FAIL "it runs $program, which is not there" "${again[@]}"
+  elif [[ ! -x "$program" ]]; then
+    doctor_found FAIL "it runs $program, which is not executable" \
+      "Make it executable with:" \
+      "  chmod +x ${(qq)program}"
+  fi
+  # launchctl answers for the session it is asked from, and a login over ssh has its own.
+  session="$("$LAUNCHCTL" managername 2> /dev/null)"
+  [[ "$session" == Aqua ]] || {
+    doctor_found warn "cannot tell from this session whether macOS runs it" \
+      "launchd calls this session ${session:-nothing}; run doctor in Terminal on the Mac itself."
+    return
+  }
+  listing="$("$LAUNCHCTL" list "$LABEL" 2> /dev/null)" || {
+    doctor_found FAIL "installed, but macOS is not running it" \
+      "Usually it was switched off in System Settings > General > Login Items &" \
+      "Extensions. Switch shrinkit on there, then run:" \
+      "  shrinkit setup"
+    return
+  }
+  ((${#DOCTOR_VERDICTS} == 0)) || return
+  [[ "$listing" =~ '"PID" = [0-9]+;' ]] && return
+  [[ "$listing" =~ '"LastExitStatus" = ([0-9]+);' ]] && raw="${match[1]}"
+  if ((raw >> 8 == 78)); then
+    doctor_found FAIL "macOS could not start it (exit 78)" \
+      "launchd could not open its log files in ${$(agent_value StandardErrorPath):h}: the folder" \
+      "is missing, on a drive that is not connected, or where it needs Full Disk Access." \
+      "Once that is fixed, run:" \
+      "  shrinkit setup"
+  elif ((raw >> 8 == 127)); then
+    doctor_found FAIL "could not read $program (exit 127)" \
+      "It is somewhere macOS keeps the watcher out of, such as Desktop, Documents or" \
+      "Downloads. setup copies it out of those; run it from where it is now:" \
+      "  shrinkit setup"
+  fi
+}
+
 # --------------------------------------------------------------------- the command
 
 doctor_command() {
@@ -124,7 +214,7 @@ doctor_command() {
     print -u2 -r -- "usage: doctor (it takes no arguments)"
     return 2
   }
-  for check in command ffmpeg; do
+  for check in command ffmpeg folder watcher; do
     doctor_check_${check//-/_}
     doctor_report "$check"
   done
