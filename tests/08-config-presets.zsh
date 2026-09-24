@@ -85,6 +85,52 @@ test_a_preset_key_that_is_not_a_setting_is_logged_too() {
   check "a preset goes through the same reader" logged "$box" "ignoring 'output_suffix' in sharp.conf"
 }
 
+# What a run ends up using, read the way "config" shows it.
+in_effect() {
+  SHRINKIT_DIR="$1" SHRINKIT_REPO="" zsh "$OPTIMIZER" config 2> /dev/null
+}
+
+test_a_last_line_with_no_line_break_is_read() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 3'
+  printf 'crf = 20' >> "$box/settings.conf" # nothing typed after the last setting
+
+  check "takes the last setting" contains "$(in_effect "$box")" "crf = 20"
+}
+
+test_a_setting_without_an_equals_sign_is_logged() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'crf: 40'
+
+  in_effect "$box" > /dev/null
+
+  check "names the line and what is wrong with it" \
+    logged "$box" "ignoring settings.conf line 2: 'crf: 40' has no '='"
+}
+
+test_a_byte_order_mark_does_not_hide_the_first_setting() {
+  local box
+  box="$(sandbox)"
+  # What an editor saving "UTF-8 with BOM" puts in front of the first line.
+  { printf '\xef\xbb\xbf' && print -rl -- 'crf = 20' 'notify = false'; } > "$box/settings.conf"
+
+  check "reads the first line as written" contains "$(in_effect "$box")" "crf = 20"
+  check "and logs nothing about it" not_logged "$box" "not a setting"
+}
+
+test_config_set_keeps_a_last_line_with_no_line_break() {
+  local box
+  box="$(sandbox)"
+  print -rl -- 'crf = 28' > "$box/settings.conf"
+  printf 'speed = 3' >> "$box/settings.conf"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" config crf 30 > /dev/null
+
+  check "keeps it" grep -q '^speed = 3$' "$box/settings.conf"
+}
+
 test_config_set_edits_the_line_in_place() {
   local box
   box="$(sandbox)"

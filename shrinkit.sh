@@ -266,12 +266,21 @@ trim() {
   print -r -- "${${1##[[:space:]]#}%%[[:space:]]#}"
 }
 
-# A whole line starting with # is a comment; a # elsewhere is part of the value.
+# A whole line starting with # is a comment; a # elsewhere is part of the value. The last line
+# counts without a line break after it, and a byte-order mark an editor put in front of the first
+# line is not part of its key: a file that ends on a setting, or was saved as "UTF-8 with BOM", lost
+# that setting without a word.
 read_settings() {
-  local line key value
-  while IFS= read -r line; do
+  local line key value n=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    ((++n))
+    ((n == 1)) && line="${line#$'\xef\xbb\xbf'}"
     line="$(trim "$line")"
-    [[ -z "$line" || "$line" == '#'* || "$line" != *=* ]] && continue
+    [[ -z "$line" || "$line" == '#'* ]] && continue
+    [[ "$line" == *=* ]] || {
+      log "ignoring ${1:t} line $n: '$line' has no '='"
+      continue
+    }
     key="${(L)${line%%=*}//[[:space:]]/}"
     value="$(trim "${line#*=}")"
     # A key that is not in DEFAULTS is dropped on purpose, which is what keeps a typo harmless.
@@ -280,7 +289,7 @@ read_settings() {
     if [[ -n "${DEFAULTS[$key]+known}" ]]; then
       CFG[$key]="${value//\"/}"
     else
-      log "ignoring '$key' in ${1:t}: not a setting"
+      log "ignoring '$key' in ${1:t} line $n: not a setting"
     fi
   done < "$1"
 }
@@ -1067,7 +1076,7 @@ config_set() {
 
   tmp="$(mktemp)"
   if [[ -f "$CONFIG" ]]; then
-    while IFS= read -r line; do
+    while IFS= read -r line || [[ -n "$line" ]]; do
       if [[ "$(trim "$line")" != '#'* && "$(trim "${line%%=*}")" == "$key" ]]; then
         print -r -- "$key = $value"
         found=1
