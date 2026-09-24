@@ -60,8 +60,9 @@ setup_plist() {
     <array>
         <string>$IN_DIR</string>
     </array>
-    <!-- At load as well, so a recording that arrived while the agent was being replaced, which
-         brew does on every upgrade, does not wait in input/ for the next drop. -->
+    <!-- At load as well, so a recording that arrived while the agent was not loaded is picked up
+         at login. Under brew the load comes before brew links the command, so a recording dropped
+         during an upgrade waits for the next drop. -->
     <key>RunAtLoad</key>
     <true/>
     <key>ThrottleInterval</key>
