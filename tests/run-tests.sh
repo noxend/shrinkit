@@ -437,6 +437,48 @@ test_a_second_recording_with_the_same_name_is_shrunk_too() {
   check "and keeps the second one beside it" test "$(ls "$box/.processed" | grep -c '^clip.*\.mov$')" = 2
 }
 
+test_a_same_named_recording_that_cannot_be_filed_away_is_shrunk_once() {
+  local box pid
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  optimize "$box" # an earlier recording's result, output/clip.mp4
+  sleep 1
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  chflags uchg "$box/input/clip.mov" # locked in Finder: it cannot be moved to .processed/
+
+  # Its result goes under a free name, and a rescan that looked only at clip.mp4 shrank it again,
+  # and again, without end. Bounded here, so a regression fails instead of hanging the suite.
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" > /dev/null 2>&1 &
+  pid=$!
+  sleep 12
+  kill "$pid" 2> /dev/null && pkill -P "$pid" 2> /dev/null
+  wait "$pid" 2> /dev/null
+  chflags nouchg "$box/input/clip.mov"
+
+  check "is shrunk once" test "$(ls "$box/output" | grep -c '^clip.*\.mp4$')" = 2
+  check "and the run ends by itself" test "$(log_count "$box" 'kept   clip.mov in input/')" = 1
+  check "saying why it is still in input/" logged "$box" 'could not be moved to .processed/'
+}
+
+test_a_recording_arriving_the_same_second_as_an_earlier_result_is_not_taken_for_done() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  optimize "$box"
+  # At the start of a second, the earlier result is stamped and the new recording lands, both inside
+  # that one whole second; whole-second times cannot tell which came first.
+  zmodload zsh/datetime
+  while ((10#${${EPOCHREALTIME#*.}[1,2]} > 20)); do sleep 0.02; done
+  touch "$box/output/clip.mp4"
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+
+  optimize "$box"
+
+  check "is shrunk" missing "$box/input/clip.mov"
+}
+
 test_a_recording_that_could_not_be_filed_away_is_not_shrunk_again() {
   local box
   box="$(sandbox)"
@@ -1635,8 +1677,19 @@ test_a_folder_that_will_not_answer_stat_still_gets_the_temporary_folder() {
   check "made in the temporary folder" logged "$box" "to '$tmp/shrinkit."
 }
 
+# Until the half-written file exists in dir, for up to ten seconds: the moment an encode is under
+# way, rather than a guessed number of seconds that can land before ffmpeg has started.
+wait_for_part() {
+  local _
+  for _ in {1..200}; do
+    [[ -n "$(ls -A "$1" | grep part)" ]] && return 0
+    sleep 0.05
+  done
+  return 1
+}
+
 test_an_interrupted_run_stops_and_cleans_up() {
-  local box tmp pid code=0
+  local box tmp pid code=0 asked took
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tmp="$(scratch)"
@@ -1645,14 +1698,43 @@ test_an_interrupted_run_stops_and_cleans_up() {
 
   TMPDIR="$tmp" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" > /dev/null 2>&1 &
   pid=$!
-  sleep 2 # mid-encode of the first
+  wait_for_part "$tmp"
+  asked=$SECONDS
   kill -TERM "$pid"
   wait "$pid" || code=$?
+  took=$((SECONDS - asked))
 
-  # What brew's teardown does to a running agent: it used to release the lock and carry on.
+  # What brew's teardown does to a running agent. launchd kills it five seconds after asking, so it
+  # has to stop well inside that, not when the encode of a 45-second 4K clip is done.
   check "stops with the signal's status" test "$code" = 143
+  check "within a couple of seconds" test "$took" -le 2
   check "does not go on to the next file" exists "$box/input/b.mov"
   check "and leaves nothing half-made behind" test -z "$(ls -A "$tmp")"
+}
+
+test_an_interrupted_merge_leaves_nothing_behind() {
+  local box work tmp pid code=0 asked took
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(scratch)"
+  tmp="$(scratch)"
+  recorded_copy "$FIXTURES/big.mov" "$work/one.mov" 2026-01-01T10:00:00
+  recorded_copy "$FIXTURES/tall.mov" "$work/two.mov" 2026-01-01T10:05:00
+
+  TMPDIR="$tmp" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" merge "$work/one.mov" "$work/two.mov" \
+    > /dev/null 2>&1 &
+  pid=$!
+  wait_for_part "$tmp"
+  asked=$SECONDS
+  kill -TERM "$pid"
+  wait "$pid" || code=$?
+  took=$((SECONDS - asked))
+  sleep 3 # anything still running would have moved a result in by now
+
+  check "stops with the signal's status" test "$code" = 143
+  check "within a couple of seconds" test "$took" -le 2
+  check "leaves no half-joined file in the temporary folder" test -z "$(ls -A "$tmp")"
+  check "and puts no result in place afterwards" test "$(ls "$work" | grep -c merged)" = 0
 }
 
 test_config_show_lists_what_is_in_effect() {
@@ -2575,6 +2657,70 @@ test_a_folder_named_once_survives_a_setup_without_it() {
   check "and no default folder was made instead" missing "$box/home/Movies/shrinkit"
 }
 
+test_config_folder_refuses_a_folder_it_cannot_write_to() {
+  local box code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  mkdir -p "$box/readonly"
+  chmod 555 "$box/readonly" # what a read-only NTFS drive or a folder owned by root looks like
+
+  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    zsh "$OPTIMIZER" config folder "$box/readonly" > /dev/null 2>&1 || code=$?
+  chmod 755 "$box/readonly"
+
+  check "says no" test "$code" != 0
+  check "keeps the folder it had" \
+    test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/work/input"
+  check "and keeps every menu entry" test "$(action_count "$box/home/Library/Services")" = 5
+}
+
+test_setup_under_brew_does_not_fail_the_upgrade_for_a_missing_drive() {
+  local box code=0 out
+  box="$(scratch)"
+  setup_box "$box"
+  brew_cask "$box"
+  mkdir -p "$box/home/Library/Application Support/shrinkit"
+  print -r -- /Volumes/shrinkit-no-such-drive/work > "$box/home/Library/Application Support/shrinkit/folder"
+
+  out="$(env -i HOME="$box/home" PATH="$PATH" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    "$box/brew/bin/shrinkit" setup 2>&1)" || code=$?
+
+  # brew runs setup before it links the command; a failure aborts the upgrade after the old
+  # version was already torn down, leaving nothing at all to run setup with later.
+  check "lets brew finish" test "$code" = 0
+  check "registers nothing" missing "$box/home/Library/LaunchAgents/com.shrinkit.plist"
+  check "and says how to finish once the drive is back" contains "$out" "run 'shrinkit setup'"
+}
+
+test_setup_does_not_point_at_a_shortcut_it_did_not_make() {
+  local box out
+  box="$(scratch)"
+  setup_box "$box"
+  mkdir -p "$box/pictures/work"
+  ln -s "$box/pictures/work" "$box/home/Desktop/work"
+
+  out="$(run_setup "$box" 2>&1)"
+
+  check "does not send anyone to that shortcut" lacks "$out" "Open the 'work' shortcut"
+  check "names the folder instead" contains "$out" "The working folder is $box/work"
+}
+
+test_the_agent_uses_the_per_user_temporary_folder() {
+  local box work expected
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+  expected="$(getconf DARWIN_USER_TEMP_DIR)"
+
+  # launchd gives the agent no TMPDIR; /tmp is shared by every account, this folder is not.
+  env -u TMPDIR SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov" > /dev/null 2>&1
+
+  check "the result lands" exists "$work/clip.mp4"
+  check "made in the per-user temporary folder" logged "$box" "to '${expected%/}/shrinkit."
+}
+
 test_config_folder_moves_the_install_to_the_new_folder() {
   local box out
   box="$(scratch)"
@@ -2681,6 +2827,20 @@ test_config_folder_does_not_recreate_a_folder_moved_away_by_hand() {
   check "and nothing claims recordings are waiting there" lacks "$out" "stay there"
   check "the agent watches the folder it was moved to" \
     test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/moved/input"
+}
+
+test_config_folder_moves_the_shortcut_after_a_move_by_hand_to_the_same_name() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" "$box/one/shrinkit" > /dev/null 2>&1
+  mkdir -p "$box/two"
+  mv "$box/one/shrinkit" "$box/two/shrinkit" # moved in Finder; the shortcut now leads nowhere
+
+  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    zsh "$OPTIMIZER" config folder "$box/two/shrinkit" > /dev/null 2>&1
+
+  check "the shortcut leads to the folder again" links_to "$box/home/Desktop/shrinkit" "$box/two/shrinkit"
 }
 
 test_a_desktop_link_of_somebody_elses_is_left_alone() {

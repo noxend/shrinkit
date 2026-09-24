@@ -66,8 +66,15 @@ saved_folder() {
 save_folder() {
   mkdir -p "${FOLDER_FILE:h}" && print -r -- "$1" > "$FOLDER_FILE"
 }
-# An install from before the folder was kept in a file names it only in its agent's plist, and brew
-# clears SHRINKIT_DIR, so without this the first cask install moved such a user to the default.
+# Whether a working folder can hold what shrinkit writes: made if it is missing, with its
+# subfolders, and writable. A folder on a disconnected drive, on a read-only NTFS volume or owned
+# by root is not, and registering it leaves an agent watching nothing.
+usable_folder() {
+  mkdir -p "$1/input" "$1/output" "$1/presets" "$1/.logs" "$1/.processed" 2> /dev/null && [[ -w "$1" ]]
+}
+
+# An install older than the folder file names its folder only in the agent's plist, and brew clears
+# SHRINKIT_DIR, so the plist is read before the default.
 registered_folder() {
   plutil -extract EnvironmentVariables.SHRINKIT_DIR raw -o - \
     "$HOME/Library/LaunchAgents/com.shrinkit.plist" 2> /dev/null
@@ -144,6 +151,8 @@ IN_DIR="$BASE_DIR/input"        # the watched folder
 DONE_DIR="$BASE_DIR/.processed" # originals end up here after a good encode
 LOG_DIR="$BASE_DIR/.logs"
 LOG="$LOG_DIR/optimizer.log"
+# Recordings whose result was made but which could not be filed away; see already_done().
+STUCK_FILE="$LOG_DIR/stuck"
 LOCK_DIR="$BASE_DIR/.optimizer.lock"
 
 CONFIG="$BASE_DIR/settings.conf"
@@ -169,20 +178,39 @@ log() {
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
 }
 
-# The part being written, so an interrupted run can take it away.
+# The part being written and the ffmpeg writing it, so an interrupted run can stop both.
 CURRENT_PART=""
+CURRENT_CHILD=""
 
-# Where ffmpeg writes before the result is moved into place. Not beside the result: a right-click
-# entry may rename or delete a file in Desktop, Documents or Downloads that it made itself, but not
-# one that ffmpeg made there, so the rename out of a .part next to a recording on the Desktop was
-# refused and the part left behind. Measured with a probe entry run on a Desktop file; moving the
-# finished file in from the temporary folder needs no grant at all.
-# Only when the temporary folder is on the destination's volume, though: across volumes the move is
-# a copy, and the result would sit under its final name, growing, until it finished. There a hidden
-# part beside the result keeps the rename atomic. Desktop, Documents and Downloads are always on
-# the temporary folder's volume, so they always get the temporary folder.
+# zsh runs a trap only once a foreground child exits, and launchd kills the agent five seconds after
+# asking it to stop, so ffmpeg runs in the background and is waited for: the trap then runs at once
+# and can stop it.
+run_ffmpeg() {
+  local rc
+  "$FFMPEG" "$@" &
+  CURRENT_CHILD=$!
+  wait "$CURRENT_CHILD"
+  rc=$?
+  CURRENT_CHILD=""
+  return $rc
+}
+
+# Where ffmpeg writes before the result is moved into place. A right-click entry may create, rename
+# and delete its own files in Desktop, Documents and Downloads, but not rename or delete one ffmpeg
+# created there, so the part is written in the temporary folder and moved in finished.
+# Only when the temporary folder is on the destination's volume: across volumes a move is a copy,
+# visible under the final name while it runs, so there the part is hidden beside the result.
+# Desktop, Documents and Downloads are on the temporary folder's volume.
+# The agent runs without TMPDIR, and /tmp is shared by every account on the Mac, so a name there
+# can be planted in advance; the per-user temporary folder cannot.
+temp_folder() {
+  local tmp="${TMPDIR:-$(getconf DARWIN_USER_TEMP_DIR 2> /dev/null)}"
+  print -r -- "${${tmp:-/tmp}%/}"
+}
+
 temp_part() {
-  local dir="$1" tmp="${${TMPDIR:-/tmp}%/}" dev_tmp dev_dir
+  local dir="$1" tmp dev_tmp dev_dir
+  tmp="$(temp_folder)"
   dev_tmp="$(stat -f %d "$tmp" 2> /dev/null)"
   dev_dir="$(stat -f %d "$dir" 2> /dev/null)"
   # Beside only when the devices are known to differ: a folder that will not even answer stat is a
@@ -827,7 +855,7 @@ encode() {
   CURRENT_PART="$part"
 
   log "encode ${src:t} ($label)"
-  "$FFMPEG" -nostdin -y -i "$src" "${filter_args[@]}" \
+  run_ffmpeg -nostdin -y -i "$src" "${filter_args[@]}" \
     "${audio[@]}" "${codec[@]}" -pix_fmt yuv420p -movflags +faststart \
     "$part" >> "$LOG" 2>&1 || {
     rm -f "$part"
@@ -885,16 +913,19 @@ shrink() {
       # touch: mv keeps the file's own mtime, but keep_days counts from when it was archived. The
       # sidecar move is gated on the first mv succeeding, so a locked or permission-denied source
       # cannot leave its .cuts sidecar archived while the video itself stays stuck in input/.
-      # Under a free name: a second recording with the same name used to replace the first one's
-      # original in .processed/ without a word.
+      # Under a free name, so a second recording with the same name does not replace the first.
       local kept
       kept="$(free_name "$DONE_DIR/${src:t}")"
-      mv "$src" "$kept" && {
+      if mv "$src" "$kept" 2>> "$LOG"; then
         touch "$kept"
         [[ -f "${src}.cuts" ]] && mv "${src}.cuts" "${kept}.cuts" && touch "${kept}.cuts"
-      }
-    else
-      rm -f "$src" "${src}.cuts"
+      else
+        mark_stuck "$src"
+        log "kept   ${src:t} in input/: it could not be moved to .processed/ (the reason is above)"
+      fi
+    elif ! rm -f "$src" "${src}.cuts" 2>> "$LOG"; then
+      mark_stuck "$src"
+      log "kept   ${src:t} in input/: it could not be deleted (the reason is above)"
     fi
   fi
   announce "${src:t:r}" "$out" "$before" "$after" "$note"
@@ -921,6 +952,22 @@ optimize_files() {
   done
 }
 
+# A recording that stays in input/ after its result was made, because it could not be moved to
+# .processed/ or deleted, is written down by what it is rather than by name or time: device, inode
+# and size. A later recording with the same name is a different file, and times cannot tell them
+# apart on every volume (exFAT keeps the copied modification time as the change time).
+source_id() {
+  stat -f '%d:%i:%z' "$1" 2> /dev/null
+}
+mark_stuck() {
+  source_id "$1" >> "$STUCK_FILE"
+}
+already_done() {
+  local id
+  id="$(source_id "$1")"
+  [[ -n "$id" ]] && grep -qxF -- "$id" "$STUCK_FILE" 2> /dev/null
+}
+
 # Re-scans after every file: launchd swallows drop events while a run is already in progress.
 process_queue() {
   local -a pending
@@ -932,10 +979,7 @@ process_queue() {
     for src in "${pending[@]}"; do
       seen=1
       out="$OUT_DIR/$(output_name "$src")"
-      # A result made after this file arrived in input/ is its own, from a run that could not move it
-      # out; shrinking it again would loop. One made before is an earlier recording's with the same
-      # name, and used to leave this one in input/ for good.
-      if [[ -e "$out" ]] && (($(stat -f %c "$src") <= $(stat -f %m "$out"))); then
+      if already_done "$src"; then
         log "skip   ${src:t} (already has an optimized copy)"
       elif ! is_settled "$src"; then
         log "skip   ${src:t} (still being written)"
@@ -1056,8 +1100,8 @@ config_folder() {
     return 0
   }
   new="${new:a}"
-  mkdir -p "$new" 2> /dev/null || {
-    print -u2 -r -- "cannot create $new; nothing was changed"
+  usable_folder "$new" || {
+    print -u2 -r -- "cannot create or write to $new; nothing was changed"
     return 1
   }
   save_folder "$new" || {
@@ -1466,9 +1510,10 @@ main() {
 }
 
 # Set at the top level: in zsh, a trap set inside a function fires when that function returns.
-# INT and TERM stop the run: releasing the lock and carrying on made Ctrl-C shrink the next file
-# anyway, and let brew's teardown unload an agent that went on working.
+# INT and TERM end the run there and then, with the half-written file removed, rather than
+# releasing the lock and going on to the next recording.
 stop_run() {
+  [[ -n "$CURRENT_CHILD" ]] && kill "$CURRENT_CHILD" 2> /dev/null && wait "$CURRENT_CHILD" 2> /dev/null
   [[ -n "$CURRENT_PART" ]] && rm -f "$CURRENT_PART"
   release_lock
   exit "$1"

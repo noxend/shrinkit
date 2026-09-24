@@ -112,7 +112,7 @@ merge_copy() {
   # -map, because ffmpeg's default selection keeps one stream per kind: a screen recording carrying
   # both system sound and a microphone would lose the microphone without a word. The ? makes the
   # audio side optional, so a set of silent takes still copies.
-  "$FFMPEG" -nostdin -y -f concat -safe 0 -i "$list" -map 0:v -map '0:a?' -c copy \
+  run_ffmpeg -nostdin -y -f concat -safe 0 -i "$list" -map 0:v -map '0:a?' -c copy \
     -movflags +faststart "$out" >> "$LOG" 2>&1
   rc=$?
   rm -f "$list"
@@ -184,7 +184,7 @@ merge_encode() {
     audio_args=(-an)
   fi
 
-  "$FFMPEG" -nostdin -y "${inputs[@]}" -filter_complex "$graph" "${maps[@]}" \
+  run_ffmpeg -nostdin -y "${inputs[@]}" -filter_complex "$graph" "${maps[@]}" \
     "${audio_args[@]}" -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p \
     -movflags +faststart "$out" >> "$LOG" 2>&1
 }
@@ -238,7 +238,7 @@ merge_files() {
   }
   CURRENT_PART=""
   log "merged ${#clips} clips into ${out:t} ($mode)"
-  print -r -- "$out"
+  MERGED_OUT="$out"
 }
 
 # The size line, clipboard copy and banner for a merge. Kept apart from announce(), which speaks in
@@ -296,10 +296,13 @@ merge_command() {
   log "merge  ${(j:, :)${(@)ordered:t}}"
   notify_start "${#ordered} clips" "Merging…"
 
-  out="$(merge_files "${ordered[@]}")" || {
+  # Called directly, not in $(...): the part it writes is recorded in CURRENT_PART, and a subshell's
+  # copy of that is out of reach of the INT and TERM trap.
+  merge_files "${ordered[@]}" || {
     log "FAILED merge of ${#ordered} clips (ffmpeg output is above)"
     notify "${ordered[1]:t}" "Could not merge"
     return 1
   }
+  out="$MERGED_OUT"
   announce_merge "$out" "${#ordered}" "$(human_size "$out")"
 }

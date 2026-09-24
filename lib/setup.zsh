@@ -86,6 +86,7 @@ PLIST_EOF
 # The working folder itself stays outside the privacy-protected locations, so the Desktop gets a
 # shortcut to it rather than the folder. A real folder already sitting on that name is never
 # touched: it is somebody's own, and replacing it would take their files with it.
+SHORTCUT_MADE=0
 setup_desktop_link() {
   local link="$HOME/Desktop/${BASE_DIR:t}"
   [[ "$BASE_DIR" == "$HOME/Desktop/"* ]] && return 0
@@ -93,14 +94,18 @@ setup_desktop_link() {
     print -r -- "!! $link already exists as a real folder; skipping the Desktop shortcut."
     return 0
   fi
-  # A link is taken over only when it is ours: it points here, or at another shrinkit working folder
-  # this one replaces. One of somebody else's that shares the name stays as it is.
-  if [[ -L "$link" && "$(readlink "$link")" != "$BASE_DIR" && ! -f "$(readlink "$link")/settings.conf" ]]; then
+  # A link is taken over when it points here, at another shrinkit working folder, or at nothing any
+  # more, which is what the shortcut is after its folder was moved by hand. One of somebody else's
+  # that still leads somewhere stays as it is.
+  local target
+  [[ -L "$link" ]] && target="$(readlink "$link")"
+  if [[ -L "$link" && "$target" != "$BASE_DIR" && -e "$target" && ! -f "$target/settings.conf" ]]; then
     print -r -- "!! $link already points somewhere else; skipping the Desktop shortcut."
     return 0
   fi
   ln -sfn "$BASE_DIR" "$link"
   print -r -- "==> Desktop shortcut: $link -> $BASE_DIR"
+  SHORTCUT_MADE=1
 }
 
 # Rebuilt from the presets folder every run, so a preset that was deleted leaves no entry behind.
@@ -239,12 +244,15 @@ FDA
 
 setup_command() {
   print -r -- "==> Base folder: $BASE_DIR"
-  # Checked before anything is registered: a folder on a drive that is not connected used to leave
-  # an agent watching nothing and the menu rebuilt from a presets folder that was not there.
-  mkdir -p "$BASE_DIR" 2> /dev/null || {
-    print -u2 -r -- "!! Cannot create the working folder $BASE_DIR."
-    print -u2 -r -- "!! If it is on a drive, connect it and run this again, or pick another with"
+  # Checked before anything is registered, so a folder on a drive that is not connected leaves the
+  # install as it was. Under brew the answer is still success: brew runs this before it links the
+  # command, and a failure there aborts the upgrade with the old version already torn down, leaving
+  # no agent, no menu and no command to run setup with later.
+  usable_folder "$BASE_DIR" || {
+    print -u2 -r -- "!! Cannot create or write to the working folder $BASE_DIR."
+    print -u2 -r -- "!! If it is on a drive, connect it and run 'shrinkit setup', or pick another with"
     print -u2 -r -- "!! 'shrinkit config folder <path>'. Nothing was registered."
+    installed_by_brew && return 0
     return 1
   }
   # The folder is remembered whichever way it was found, so an install that runs setup again
@@ -278,7 +286,9 @@ setup_command() {
   setup_agent
 
   print -r -- ""
-  print -r -- "Done. Open the '${BASE_DIR:t}' shortcut on your Desktop:"
+  ((SHORTCUT_MADE)) \
+    && print -r -- "Done. Open the '${BASE_DIR:t}' shortcut on your Desktop:" \
+    || print -r -- "Done. The working folder is $BASE_DIR:"
   print -r -- "  - drop recordings into  $IN_DIR"
   print -r -- "  - pick up results from  $OUT_DIR"
   print -r -- "  - change behaviour by editing  $CONFIG"

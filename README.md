@@ -139,9 +139,12 @@ is named after the working folder:
 ```bash
 launchctl bootout "gui/$(id -u)/com.shrinkit"
 rm -f ~/Library/LaunchAgents/com.shrinkit.plist
-rm -rf ~/Library/Services/shrinkit:*.workflow ~/.local/bin/shrinkit ~/.local/share/shrinkit
+rm -rf ~/Library/Services/shrinkit:*.workflow
 /System/Library/CoreServices/pbs -update
 ```
+
+An install from a clone also left `~/.local/bin/shrinkit` and `~/.local/share/shrinkit`; remove
+them too if they are shrinkit's.
 
 ## Running from a clone
 
