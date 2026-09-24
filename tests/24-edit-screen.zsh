@@ -212,7 +212,8 @@ test_run_on_a_terminal_spins_for_a_recording_that_does_not_say_how_long_it_is() 
   check "and the cursor shown again" contains "${screen##*${ESC}\[\?25l}" "${ESC}[?25h"
 }
 
-# TERM stops a run in the middle of an encode, as closing the window or kill does.
+# TERM stops a run in the middle of an encode, as kill does. Closing the window sends HUP, which
+# tests/21 sends a merged run.
 test_a_run_stopped_on_a_terminal_shows_the_cursor_again() {
   local box tools work file tmp runner pid screen code=0 _
   box="$(sandbox)"

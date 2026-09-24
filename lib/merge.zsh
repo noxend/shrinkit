@@ -318,7 +318,7 @@ merge_command() {
   notify_start "${#ordered} clips" "Merging…"
 
   # Called directly, not in $(...): the part it writes is recorded in CURRENT_PART, and a subshell's
-  # copy of that is out of reach of the INT and TERM trap.
+  # copy of that is out of reach of the signal traps.
   merge_files "${ordered[1]:r}" "${ordered[@]}" || {
     log "FAILED merge of ${#ordered} clips (the reason is above)"
     notify "${ordered[1]:t}" "Could not merge"
