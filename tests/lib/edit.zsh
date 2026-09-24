@@ -4,8 +4,10 @@
 # --------------------------------------------------------------------- edit and run
 
 # stub_tools <dir>: open and osascript in <dir>, each writing one line per call to <dir>/<name>.log.
-# osascript's line says what the script it was handed on stdin does (banner, clipboard, or close for
-# closing a Terminal window), then its arguments after the '-', separated by ' | '.
+# osascript's line says what the script it was handed on stdin does (banner, clipboard, window for
+# finding the Terminal window a run is in, or close for closing one), then its arguments after the
+# '-', separated by ' | '. Asked for a window, it answers with the id in <dir>/window-id: 4242, or
+# nothing once a test removes that file.
 stub_tools() {
   local dir="$1"
   sandboxed "$dir"
@@ -16,9 +18,13 @@ script="\$(cat)"
 kind=other
 [[ "\$script" == *displayNotification* ]] && kind=banner
 [[ "\$script" == *NSPasteboard* ]] && kind=clipboard
-[[ "\$script" == *'tty of selected tab'* ]] && kind=close
+[[ "\$script" == *'return id of w'* ]] && kind=window
+[[ "\$script" == *'close w'* ]] && kind=close
 print -r -- "\$kind \${(j: | :)@[4,-1]}" >> ${(qq)dir}/osascript.log
+[[ "\$kind" == window && -f ${(qq)dir}/window-id ]] && cat ${(qq)dir}/window-id
+exit 0
 STUB
+  print -r -- 4242 > "$dir/window-id"
   chmod +x "$dir/open" "$dir/osascript"
 }
 
