@@ -138,7 +138,7 @@ LIB_DIR="$(lib_dir)"
 
 # A missing part is a broken install, not a missing feature, so it stops here. Reported to stderr
 # and by exit code rather than to the log, which lives under a folder these parts help set up.
-for _part in merge setup; do
+for _part in merge setup doctor; do
   [[ -r "$LIB_DIR/$_part.zsh" ]] || {
     print -u2 -r -- "shrinkit is incomplete: cannot read $LIB_DIR/$_part.zsh"
     exit 1
@@ -163,10 +163,13 @@ PRESET_DIR="$BASE_DIR/presets"
 
 OUT_DIR="$BASE_DIR/output"
 
-# First hit wins: whatever is on PATH, then the two usual Homebrew prefixes.
+# First hit wins: whatever is on PATH, then the two usual Homebrew prefixes. SHRINKIT_TOOL_DIRS
+# replaces the prefixes for the tests: the machine running them has ffmpeg in one, and a missing
+# ffmpeg cannot be made there any other way.
+TOOL_DIRS=(${=SHRINKIT_TOOL_DIRS:-/opt/homebrew/bin /usr/local/bin})
 find_tool() {
   local name="$1" candidate
-  for candidate in "$(command -v "$name" 2> /dev/null)" "/opt/homebrew/bin/$name" "/usr/local/bin/$name"; do
+  for candidate in "$(command -v "$name" 2> /dev/null)" "${^TOOL_DIRS[@]}/$name"; do
     [[ -x "$candidate" ]] && {
       print -r -- "$candidate"
       return
@@ -1319,6 +1322,7 @@ usage() {
        ${ZSH_ARGZERO:t} mark-cuts <file>...
        ${ZSH_ARGZERO:t} merge <file>...
        ${ZSH_ARGZERO:t} setup | teardown
+       ${ZSH_ARGZERO:t} doctor
 
   no files       optimize everything waiting in $IN_DIR
   file ...       optimize those files where they are, next to each source
@@ -1356,6 +1360,9 @@ setup creates the folders, registers the launchd agent that watches input/,
 builds the right-click entries and puts shrinkit on your PATH. teardown undoes
 all of it and leaves your recordings and settings alone. Homebrew runs both on
 install, upgrade and uninstall; run them yourself only from a clone.
+
+doctor looks the install over and says what is wrong with it and what to run
+to fix it. It only reads: it changes nothing.
 
   settings       $CONFIG
   presets        $PRESET_DIR
@@ -1484,6 +1491,11 @@ main() {
     teardown)
       shift
       teardown_command "$@"
+      return
+      ;;
+    doctor)
+      shift
+      doctor_command "$@"
       return
       ;;
   esac

@@ -13,6 +13,10 @@ setup_box() {
   # service was never loaded. teardown reads that status to tell "there was no agent" from "there
   # was one and it is gone", so a stub that always succeeded would hide the difference. A test that
   # writes $box/refuse makes bootstrap fail the way launchd refuses a service.
+  # list answers as launchctl does on macOS 26: 113 for a service that is not loaded, otherwise the
+  # program of the plist it was bootstrapped with, the last exit status from $box/last-exit, which a
+  # test writes the way launchd keeps it (a wait status: exit 78 is 78 << 8), and a PID from
+  # $box/pid while a run is going on. managername answers Aqua, or what $box/session says.
   cat > "$box/stub/launchctl" << STUB
 #!/bin/zsh
 print -r -- "\$@" >> "$box/launchctl.log"
@@ -22,12 +26,24 @@ case "\$1" in
       print -u2 -r -- "Bootstrap failed: 5: Input/output error"
       exit 5
     }
-    : > "$box/loaded"
+    plutil -extract ProgramArguments.0 raw -o - "\$3" > "$box/loaded"
     ;;
   bootout)
     [[ -f "$box/loaded" ]] || exit 3
     rm -f "$box/loaded"
     ;;
+  list)
+    [[ -f "$box/loaded" ]] || {
+      print -u2 -r -- "Could not find service \"\$2\" in domain for port"
+      exit 113
+    }
+    printf '{\n\t"LimitLoadToSessionType" = "Aqua";\n\t"Label" = "%s";\n\t"OnDemand" = true;\n\t"LastExitStatus" = %s;\n' \
+      "\$2" "\$(cat "$box/last-exit" 2> /dev/null || print 0)"
+    [[ -f "$box/pid" ]] && printf '\t"PID" = %s;\n' "\$(< "$box/pid")"
+    printf '\t"Program" = "%s";\n\t"ProgramArguments" = (\n\t\t"%s";\n\t);\n};\n' \
+      "\$(< "$box/loaded")" "\$(< "$box/loaded")"
+    ;;
+  managername) cat "$box/session" 2> /dev/null || print Aqua ;;
 esac
 STUB
   chmod +x "$box/stub/launchctl"
