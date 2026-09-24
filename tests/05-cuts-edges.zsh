@@ -1,0 +1,136 @@
+# Sourced by tests/run-tests.sh: sidecars that are wrong, and cuts on odd footage.
+
+test_cuts_rich_text_sidecar_is_logged_and_skipped() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '{\rtf1\ansi 3-4}' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  # no dedicated check for this: the markup shows up verbatim in the ignoring-cut line, which says
+  # plainly enough that the file was saved as Rich Text rather than plain text
+  check "logs the markup it could not parse" logged "$box" 'ignoring cut .{.rtf1'
+  check "keeps the full length" duration_near "$box/output/clip.mp4" 12
+}
+
+test_cuts_smart_dash_is_named_specifically() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- $'3–4' > "$box/input/clip.mov.cuts" # en dash, not a hyphen
+
+  optimize "$box"
+  check "names the smart dash rather than a generic parse error" logged "$box" 'looks like a smart dash'
+}
+
+test_cuts_trims_whitespace_around_the_dash() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3 - 4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  check "still cuts it, spaces and all" duration_near "$out" 11
+}
+
+test_cuts_do_not_distort_footage_with_a_misleading_frame_rate() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/vfr.mov" "$box/input/clip.mov"
+  # well past the fixture's own ~6.9s, so nothing real is actually removed -- this is purely about
+  # whether going through the cuts machinery at all distorts the timing of what survives
+  print -r -- '900-901' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  # setpts=N/FRAME_RATE/TB read this fixture's declared 120fps instead of its real ~0.6fps and
+  # compressed it to a fraction of a second; trim+concat rebases on the frames' own timestamps
+  check "keeps the real length, not a frame-rate-based guess at it" duration_near "$out" 6.9
+}
+
+test_cuts_merge_overlapping_ranges() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -rl -- '3-5' '4-6' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  # two overlapping lines merge into one 3-6 cut (3s), not two independently-trimmed stretches
+  check "cuts the merged 3s span, not something narrower" duration_near "$out" 9
+}
+
+test_cuts_reaching_past_the_real_end_do_not_add_an_empty_trailing_stretch() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  # a CFR fixture does not reproduce this: the empty trailing branch only confuses fps= downstream
+  # on footage like vfr.mov's, where FRAME_RATE and the real spacing between frames disagree
+  cp "$FIXTURES/vfr.mov" "$box/input/clip.mov"
+  print -r -- '5-999' > "$box/input/clip.mov.cuts" # vfr.mov is ~6.9s; nothing survives past 5s
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  check "keeps the first 5s and nothing more" duration_near "$out" 5
+}
+
+test_cuts_in_the_middle_keep_both_sides_on_misleading_frame_rate_footage() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  # a single ordinary cut with footage before AND after it, on the fixture that mimics a real
+  # ReplayKit recording -- every existing vfr.mov test collapses to one kept stretch and missed a
+  # bug that reused one filter label ([vnorm]) for every stretch, silently feeding every stretch
+  # after the first the raw un-normalized frames: on this fixture that dropped ~89% of the video
+  cp "$FIXTURES/vfr.mov" "$box/input/clip.mov"
+  print -r -- '1-2' > "$box/input/clip.mov.cuts" # vfr.mov is ~6.9s; keeps [0,1) and [2,end)
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  check "keeps roughly all of both sides of the cut" duration_near "$out" 5.9
+}
+
+test_cuts_still_respect_the_fps_cap_once_speed_changes_the_frame_rate() {
+  local box out frames rate
+  box="$(sandbox)"
+  settings "$box" 'speed = 3' 'fps = 20'
+  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  print -r -- '3-4' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  # cutting keeps a fixed frame rate before speeding up, so speed x3 on that is real content moving
+  # 3x faster -- nothing re-applied the fps cap afterward, so this used to land near 60fps (native,
+  # doubled by an ffmpeg default) rather than the configured 20
+  rate="$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=nw=1:nk=1 "$out")"
+  frames="$("$FFPROBE" -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of default=nw=1:nk=1 "$out")"
+  check "declares the configured 20fps, not something speed-inflated" test "$rate" = "20/1"
+  check "and the frame count matches it" roughly_equal "$frames" 73 5
+}
+
+test_cuts_accept_a_range_that_is_exactly_the_minimum_length() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  cp "$FIXTURES/vfr.mov" "$box/input/clip.mov"
+  # 6.1 - 6.0 lands a hair under 0.1 in IEEE-754 double subtraction; a plain, deliberately-typed
+  # 0.1s cut should not be silently discarded over that
+  print -r -- '6.0-6.1' > "$box/input/clip.mov.cuts"
+
+  optimize "$box"
+  out="$box/output/clip.mp4"
+  check "accepts the exact-0.1s range" logged "$box" ', cut applied'
+  check "does not treat it as too short" not_logged "$box" 'too short'
+}
+
+test_mark_cuts_with_no_files_is_refused() {
+  local code=0
+  zsh "$OPTIMIZER" mark-cuts > /dev/null 2>&1 || code=$?
+  check "stops with a usage error" test "$code" = 2
+}
