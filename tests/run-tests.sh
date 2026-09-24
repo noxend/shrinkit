@@ -2862,7 +2862,7 @@ test_the_agent_also_runs_when_it_is_loaded() {
   setup_box "$box"
   run_setup "$box" > /dev/null 2>&1
 
-  # brew replaces the agent on every upgrade; a recording that arrived meanwhile is picked up at load.
+  # A recording that arrived while the agent was not loaded is picked up at login.
   check "at load" test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" RunAtLoad)" = true
 }
 
