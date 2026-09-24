@@ -48,6 +48,23 @@ typeset -a FAILURES
 TMPROOT="$(mktemp -d)"
 trap 'rm -rf "$TMPROOT"' EXIT INT TERM
 
+# A launchctl call that no test pointed at its own stub lands here, not on the real launchctl, which
+# would boot out the agent in use on this Mac. The stubs sit where an empty sandbox path names
+# nothing: "$box/stub/launchctl" with no box is /stub/launchctl.
+mkdir -p "$TMPROOT/refuse"
+print -rl -- '#!/bin/zsh' 'print -u2 -r -- "a test reached launchctl without its stub: $*"' 'exit 99' \
+  > "$TMPROOT/refuse/launchctl"
+chmod +x "$TMPROOT/refuse/launchctl"
+export SHRINKIT_LAUNCHCTL="$TMPROOT/refuse/launchctl"
+
+# A sandbox is a folder under TMPROOT; anything else stops the run before it is used.
+sandboxed() {
+  [[ "$1" == "$TMPROOT"/?* ]] || {
+    print -r -- "not a test sandbox: '$1'"
+    exit 1
+  }
+}
+
 # --------------------------------------------------------------------- helpers
 
 ok() {
@@ -2266,11 +2283,12 @@ test_a_comma_decimal_locale_does_not_move_a_fractional_cut() {
 # developer's machine a test would boot out the agent they are actually using.
 setup_box() {
   local box="$1"
-  mkdir -p "$box/home/Desktop" "$box/bin"
+  sandboxed "$box"
+  mkdir -p "$box/home/Desktop" "$box/stub"
   # Records what it was asked for, and answers bootout the way launchd does: non-zero when the
   # service was never loaded. teardown reads that status to tell "there was no agent" from "there
   # was one and it is gone", so a stub that always succeeded would hide the difference.
-  cat > "$box/bin/launchctl" << STUB
+  cat > "$box/stub/launchctl" << STUB
 #!/bin/zsh
 print -r -- "\$@" >> "$box/launchctl.log"
 case "\$1" in
@@ -2281,14 +2299,15 @@ case "\$1" in
     ;;
 esac
 STUB
-  chmod +x "$box/bin/launchctl"
+  chmod +x "$box/stub/launchctl"
 }
 
 # run_setup <box> [base folder]. SHRINKIT_REPO is deliberately left unset: finding presets/ and
 # quick-action/ beside the script is the thing a Homebrew install depends on.
 run_setup() {
   local box="$1" base="${2:-$1/work}"
-  HOME="$box/home" SHRINKIT_DIR="$base" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  sandboxed "$box"
+  HOME="$box/home" SHRINKIT_DIR="$base" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     zsh "$OPTIMIZER" setup
 }
 
@@ -2296,11 +2315,12 @@ run_setup() {
 # custom install is usually torn down: from a new shell that never exported it.
 run_teardown() {
   local box="$1" base="${2:-}"
+  sandboxed "$box"
   if [[ -n "$base" ]]; then
-    HOME="$box/home" SHRINKIT_DIR="$base" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+    HOME="$box/home" SHRINKIT_DIR="$base" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
       zsh "$OPTIMIZER" teardown
   else
-    HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" teardown
+    HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" zsh "$OPTIMIZER" teardown
   fi
 }
 
@@ -2315,6 +2335,15 @@ is_dir() {
 }
 action_count() {
   print -r -- "${#${(@f)$(print -rl -- "$1"/shrinkit:*.workflow(N))}}"
+}
+
+test_a_launchctl_call_without_a_stub_is_refused() {
+  local out code=0
+  # Asked for a listing only, so a broken guard reaches nothing but a read.
+  out="$("$SHRINKIT_LAUNCHCTL" list com.shrinkit 2>&1)" || code=$?
+
+  check "is refused" test "$code" = 99
+  check "and says why" contains "$out" "without its stub"
 }
 
 test_setup_registers_the_script_that_is_running() {
@@ -2430,7 +2459,7 @@ test_setup_run_from_the_path_link_leaves_itself_runnable() {
   chmod +x "$link"
   cp -R "$REPO_DIR/quick-action" "$REPO_DIR/presets" "$REPO_DIR/settings.conf" "${link:h}/"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$link" setup > /dev/null 2>&1
 
   # The shape an install takes once its checkout is gone: this file is the only shrinkit left, and
@@ -2479,7 +2508,7 @@ test_setup_copies_a_checkout_out_of_a_privacy_protected_folder() {
   setup_box "$box"
   script="$(guarded_checkout "$box")"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$script" setup > /dev/null 2>&1
 
   # Neither the agent nor a Finder entry can read a file in there, link or no link: zsh answers
@@ -2498,7 +2527,7 @@ test_setup_points_the_agent_and_the_entries_at_the_copy() {
   setup_box "$box"
   script="$(guarded_checkout "$box")"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$script" setup > /dev/null 2>&1
 
   plist="$box/home/Library/LaunchAgents/com.shrinkit.plist"
@@ -2522,7 +2551,7 @@ test_setup_replaces_a_link_left_by_an_older_install_with_the_copy() {
   mkdir -p "${link:h}"
   ln -sfn "$script" "$link"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$script" setup > /dev/null 2>&1
 
   # cp onto a symlink writes through it and leaves the link alone, which is exactly the shape an
@@ -2541,7 +2570,7 @@ test_setup_says_when_another_shrinkit_answers_on_the_path() {
 
   # What Homebrew's bin does on a default macOS PATH, where /opt/homebrew/bin comes before ~/.local/bin.
   out="$(PATH="$box/otherbin:$PATH" HOME="$box/home" SHRINKIT_DIR="$box/work" \
-    SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" setup 2>&1)"
+    SHRINKIT_LAUNCHCTL="$box/stub/launchctl" zsh "$OPTIMIZER" setup 2>&1)"
 
   check "names the one the terminal would run" contains "$out" "$box/otherbin/shrinkit"
   check "and the one the agent will run" \
@@ -2559,7 +2588,7 @@ test_setup_stays_quiet_when_the_path_agrees_with_what_it_registered() {
   setup_box "$box"
 
   out="$(PATH="$box/home/.local/bin:$PATH" HOME="$box/home" SHRINKIT_DIR="$box/work" \
-    SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" setup 2>&1)"
+    SHRINKIT_LAUNCHCTL="$box/stub/launchctl" zsh "$OPTIMIZER" setup 2>&1)"
 
   check "says nothing about a second install" lacks "$out" "Two installs"
   # Pins the quiet branch rather than just the absence of a word: a warning that crashed, or a
@@ -2589,7 +2618,7 @@ test_a_cask_install_registers_the_link_that_survives_an_upgrade() {
   setup_box "$box"
   brew_cask "$box"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
 
   # The staged folder is named for the version and goes on the next upgrade, taking every entry
@@ -2612,7 +2641,7 @@ test_a_cask_install_retires_an_earlier_checkout_copy() {
   cp "$OPTIMIZER" "$box/home/.local/bin/shrinkit"
   cp -R "$REPO_DIR/lib" "$box/home/.local/share/shrinkit/"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
 
   # Left in place, the old copy answers to "shrinkit" wherever ~/.local/bin comes first on the PATH
@@ -2629,7 +2658,7 @@ test_a_cask_install_leaves_a_different_shrinkit_alone() {
   mkdir -p "$box/home/.local/bin"
   print -rl -- '#!/bin/sh' 'echo somebody else' > "$box/home/.local/bin/shrinkit"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
 
   # This runs on every brew install and upgrade, so a file that only shares the name survives it.
@@ -2639,7 +2668,7 @@ test_a_cask_install_leaves_a_different_shrinkit_alone() {
 # setup the way Homebrew runs it: `env -i` with a short whitelist, so SHRINKIT_DIR never arrives.
 setup_as_brew_does() {
   local box="$1"
-  env -i HOME="$box/home" PATH="$PATH" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  env -i HOME="$box/home" PATH="$PATH" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     zsh "$OPTIMIZER" setup
 }
 
@@ -2666,7 +2695,7 @@ test_config_folder_refuses_a_folder_it_cannot_write_to() {
   mkdir -p "$box/readonly"
   chmod 555 "$box/readonly" # what a read-only NTFS drive or a folder owned by root looks like
 
-  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     zsh "$OPTIMIZER" config folder "$box/readonly" > /dev/null 2>&1 || code=$?
   chmod 755 "$box/readonly"
 
@@ -2684,7 +2713,7 @@ test_setup_under_brew_does_not_fail_the_upgrade_for_a_missing_drive() {
   mkdir -p "$box/home/Library/Application Support/shrinkit"
   print -r -- /Volumes/shrinkit-no-such-drive/work > "$box/home/Library/Application Support/shrinkit/folder"
 
-  out="$(env -i HOME="$box/home" PATH="$PATH" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  out="$(env -i HOME="$box/home" PATH="$PATH" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$box/brew/bin/shrinkit" setup 2>&1)" || code=$?
 
   # brew runs setup before it links the command; a failure aborts the upgrade after the old
@@ -2729,7 +2758,7 @@ test_config_folder_moves_the_install_to_the_new_folder() {
   run_setup "$box" > /dev/null 2>&1
   print -r -- "crf = 19" >> "$box/work/settings.conf"
 
-  out="$(HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" config folder "$box/elsewhere" 2>&1)"
+  out="$(HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" zsh "$OPTIMIZER" config folder "$box/elsewhere" 2>&1)"
 
   check "the agent watches the new folder" \
     test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/elsewhere/input"
@@ -2756,9 +2785,9 @@ test_teardown_leaves_a_different_shrinkit_alone() {
   print -rl -- '#!/bin/sh' 'echo somebody else' > "$box/home/.local/bin/shrinkit"
   print -r -- "notes" > "$box/home/.local/share/shrinkit/notes.txt"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$box/brew/bin/shrinkit" teardown > /dev/null 2>&1
 
   # brew runs teardown on every upgrade, so a stranger's file with this name would go every time.
@@ -2790,7 +2819,7 @@ test_config_folder_refuses_a_folder_it_cannot_create() {
   setup_box "$box"
   run_setup "$box" > /dev/null 2>&1
 
-  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     zsh "$OPTIMIZER" config folder /Volumes/shrinkit-no-such-drive/work > /dev/null 2>&1 || code=$?
 
   # A drive that is not connected used to be saved, registered and reported as done, and the
@@ -2822,7 +2851,7 @@ test_config_folder_does_not_recreate_a_folder_moved_away_by_hand() {
   run_setup "$box" "$box/old" > /dev/null 2>&1
   mv "$box/old" "$box/moved"
 
-  out="$(HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" zsh "$OPTIMIZER" config folder "$box/moved" 2>&1)"
+  out="$(HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" zsh "$OPTIMIZER" config folder "$box/moved" 2>&1)"
 
   check "the old path stays gone" missing "$box/old"
   check "and nothing claims recordings are waiting there" lacks "$out" "stay there"
@@ -2838,7 +2867,7 @@ test_config_folder_moves_the_shortcut_after_a_move_by_hand_to_the_same_name() {
   mkdir -p "$box/two"
   mv "$box/one/shrinkit" "$box/two/shrinkit" # moved in Finder; the shortcut now leads nowhere
 
-  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     zsh "$OPTIMIZER" config folder "$box/two/shrinkit" > /dev/null 2>&1
 
   check "the shortcut leads to the folder again" links_to "$box/home/Desktop/shrinkit" "$box/two/shrinkit"
@@ -2873,7 +2902,7 @@ test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {
   setup_box "$box"
   script="$(guarded_checkout "$box")"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$script" setup > /dev/null 2>&1
   check "the copy is there to begin with" exists "$box/home/.local/share/shrinkit/lib/merge.zsh"
 
@@ -2891,9 +2920,9 @@ test_teardown_under_brew_claims_no_path_entry_of_its_own() {
   setup_box "$box"
   brew_cask "$box"
 
-  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$box/brew/bin/shrinkit" setup > /dev/null 2>&1
-  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/bin/launchctl" \
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$box/brew/bin/shrinkit" teardown 2>&1)"
 
   # setup_bin makes no link under brew, so naming one here taught anyone reading the output that
