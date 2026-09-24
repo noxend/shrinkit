@@ -11,12 +11,19 @@ setup_box() {
   mkdir -p "$box/home/Desktop" "$box/stub"
   # Records what it was asked for, and answers bootout the way launchd does: non-zero when the
   # service was never loaded. teardown reads that status to tell "there was no agent" from "there
-  # was one and it is gone", so a stub that always succeeded would hide the difference.
+  # was one and it is gone", so a stub that always succeeded would hide the difference. A test that
+  # writes $box/refuse makes bootstrap fail the way launchd refuses a service.
   cat > "$box/stub/launchctl" << STUB
 #!/bin/zsh
 print -r -- "\$@" >> "$box/launchctl.log"
 case "\$1" in
-  bootstrap) : > "$box/loaded" ;;
+  bootstrap)
+    [[ -f "$box/refuse" ]] && {
+      print -u2 -r -- "Bootstrap failed: 5: Input/output error"
+      exit 5
+    }
+    : > "$box/loaded"
+    ;;
   bootout)
     [[ -f "$box/loaded" ]] || exit 3
     rm -f "$box/loaded"

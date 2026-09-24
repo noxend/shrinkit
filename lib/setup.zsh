@@ -292,7 +292,16 @@ setup_command() {
   setup_plist "$program"
   setup_desktop_link
   setup_actions
-  setup_agent
+  # launchctl prints its own reason. Under brew the answer is still success, for the reason the
+  # folder check above gives.
+  setup_agent || {
+    print -u2 -r -- ""
+    print -u2 -r -- "!! macOS refused to start the watcher; launchctl's reason is above."
+    print -u2 -r -- "!! If shrinkit is switched off in System Settings > General > Login Items &"
+    print -u2 -r -- "!! Extensions, switch it on and run 'shrinkit setup' again."
+    installed_by_brew && return 0
+    return 1
+  }
 
   print -r -- ""
   ((SHORTCUT_MADE)) \

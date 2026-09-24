@@ -42,6 +42,27 @@ test_a_right_click_entry_takes_names_as_written() {
   check "and shrinks with that preset" exists "$box/clips/clip-x \$(touch preset-ran).mp4"
 }
 
+test_setup_does_not_say_done_when_launchd_refuses_the_agent() {
+  local box out code=0 brew_code=0
+  box="$(scratch)"
+  setup_box "$box"
+  : > "$box/refuse"
+
+  out="$(run_setup "$box" 2>&1)" || code=$?
+
+  check "does not say it is done" lacks "$out" "Done."
+  check "says the watcher was refused" contains "$out" "refused to start the watcher"
+  check "and exits 1" test "$code" = 1
+
+  # Under brew the answer stays 0: brew runs setup before it links the command, and a failure
+  # there aborts the upgrade with the old version already torn down.
+  brew_cask "$box"
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
+    "$box/brew/bin/shrinkit" setup 2>&1)" || brew_code=$?
+  check "under brew it still says so" contains "$out" "refused to start the watcher"
+  check "and lets brew finish" test "$brew_code" = 0
+}
+
 test_setup_registers_the_script_that_is_running() {
   local box plist
   box="$(scratch)"
