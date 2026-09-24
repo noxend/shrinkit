@@ -8,12 +8,6 @@ recordings() {
   (($1 == 1)) && print -r -- "1 recording" || print -r -- "$1 recordings"
 }
 
-# M:SS, as a player shows it. Whole seconds, rounded down.
-minutes() {
-  local secs="${1%.*}"
-  printf '%d:%02d' $((secs / 60)) $((secs % 60))
-}
-
 # The edit file of a set of recordings, given in merge order: shrinkit-<code>.edit.txt, <code> the
 # first 6 hex digits of the SHA-256 of their paths with links resolved, one per line in byte order
 # whatever the locale, so a set has one name however its recordings were selected or reached. The
