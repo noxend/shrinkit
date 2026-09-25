@@ -202,7 +202,7 @@ log() {
   # output and mv's reason go to the log alone, so on the terminal they are in the log, not above.
   [[ -n "$SCREEN_FD" && "$*" != graph\ * ]] || return 0
   line="${*//ffmpeg output is above/ffmpeg output is in $LOG}"
-  print -r -u "$SCREEN_FD" -- "  ${line//the reason is on the line above/the reason is in $LOG}"
+  print -r -u "$SCREEN_FD" -- "  ${line//the reason is (on the line |)above/the reason is in $LOG}"
   ((++SCREEN_LINES))
   return 0
 }

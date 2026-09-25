@@ -402,7 +402,7 @@ edit_run_merged() {
   print -r -- "[join] $n parts"
   # Called directly, not in $(...): the traps find the part it writes in CURRENT_PART.
   merge_files "$(edit_source "${EDIT_NAMES[1]}" "${file:h}")" "${parts[@]}" || {
-    log "FAILED join of $n parts (ffmpeg output is above)"
+    log "FAILED join of $n parts (the reason is above)"
     remove_parts
     return 1
   }
@@ -692,7 +692,10 @@ edit_finder() {
     return 1
   }
   for src in "${videos[@]}"; do open -- "$src"; done
-  start_edit_window "$file"
+  start_edit_window "$file" || {
+    edit_finder_says "shrinkit: edit could not open a Terminal window. To run the file: shrinkit run ${(qq)file}"
+    return 1
+  }
 }
 
 edit_finder_says() {

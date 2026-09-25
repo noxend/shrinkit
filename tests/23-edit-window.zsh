@@ -294,6 +294,28 @@ test_the_edit_entry_opens_nothing_where_it_cannot_write() {
   check "and exits 1" test "$code" = 1
 }
 
+test_the_edit_entry_says_when_its_terminal_window_does_not_open() {
+  local box tools work file said code=0
+  box="$(installed_box)"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  # Terminal does not open the launcher; the players open as usual.
+  print -rl -- '#!/bin/zsh' "print -r -- \"\${(j: | :)@}\" >> ${(qq)tools}/open.log" \
+    '[[ "$1" != -a ]]' > "$tools/open"
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/it's.mov"
+  file="$work/it's.edit.txt"
+  said="shrinkit: edit could not open a Terminal window. To run the file: shrinkit run ${(qq)file}"
+
+  run_entry "$box" "$tools" edit "$work/it's.mov" 2> /dev/null || code=$?
+
+  check "says so in a banner, with the command that runs the file by hand" \
+    test "$(< "$tools/osascript.log")" = "banner shrinkit | $said | Glass"
+  check "and in the log" test "$(grep -c -F -- "$said" "$box/work/.logs/optimizer.log")" = 1
+  check "leaving the file that command runs" exists "$file"
+  check "and exits 1" test "$code" = 1
+}
+
 # The folder, the program and the recordings reach the entry's command, the launcher and the window
 # as the words they are, never as code.
 test_the_edit_entry_takes_names_as_written() {
