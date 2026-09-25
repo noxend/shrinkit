@@ -495,25 +495,28 @@ edit_announce() {
   fi
 }
 
-# shrinkit run <file>: an edit file written before, run again. The Terminal window runs it as run
-# --wait <file>, or takes the one a right-click left for it with run --next; neither is in the usage
-# text.
+# shrinkit run <file>: an edit file written before, run again. The right-click entry runs it as run
+# --finder <file>..., and the Terminal window it opens takes the file with run --next; neither is in
+# the usage text.
 run_command() {
   local window=false file
-  if [[ "${1-}" == (--next|--wait) ]]; then
-    window=true
-    # Terminal's Last login line and the launcher's path go with the screen and what scrolled off it.
-    print -rn -- $'\e[H\e[2J\e[3J'
-    if [[ "$1" == --next ]]; then
+  case "${1-}" in
+    --finder)
+      shift
+      run_finder "$@"
+      return
+      ;;
+    --next)
+      window=true
+      # Terminal's Last login line and the launcher's path go with the screen and what scrolled off it.
+      print -rn -- $'\e[H\e[2J\e[3J'
       file="$(take_edit_request)" || {
-        print -r -- "No edit file is waiting. Select recordings in Finder and pick shrinkit: edit."
+        print -r -- "No edit file is waiting. Select one in Finder and pick shrinkit: run."
         return 1
       }
       set -- "$file"
-    else
-      shift
-    fi
-  fi
+      ;;
+  esac
   (($# == 1)) || {
     print -u2 -r -- "run needs one edit file: shrinkit run <file>"
     return 2
@@ -531,16 +534,16 @@ run_command() {
 
 # --------------------------------------------------------------------- the Terminal window
 
-# shrinkit: edit opens its Terminal window on this launcher, which setup writes once beside the
-# folder file, as it writes the plist and the folder file themselves, so no file written at click
-# time is ever handed to Terminal. Each right-click leaves the path of its edit file in the queue
-# beside it, one request per file, and each window takes the oldest.
+# shrinkit: run opens a Terminal window on this launcher for each edit file it is handed. setup
+# writes it once beside the folder file, as it writes the plist and the folder file themselves, so
+# no file written at click time is ever handed to Terminal. Each edit file leaves its path in the
+# queue beside it, one request per file, and each window takes the oldest.
 EDIT_LAUNCHER="${FOLDER_FILE:h}/shrinkit edit.command"
 EDIT_QUEUE="${FOLDER_FILE:h}/edit-queue"
 
 # The request for file left in the queue, then a Terminal window opened on the launcher to take it.
-# When no window opens the request goes too, or the next click's window, which takes the oldest,
-# would open this file instead of its own.
+# When no window opens the request goes too, or the next window, which takes the oldest, would run
+# this file instead of its own.
 start_edit_window() {
   local file="$1" request queued
   mkdir -p "$EDIT_QUEUE" && request="$(mktemp "$EDIT_QUEUE/.new.XXXXXX")" || return 1
@@ -576,37 +579,15 @@ take_edit_request() {
   return 1
 }
 
-# The window: the file in TextEdit, then one Enter runs it. TextEdit is opened from here rather
-# than by the Finder entry, so it comes up after the window and stays in front, and the file in it
-# is always the one this window runs.
+# The window: the file run at once, then how to run it again, and what came out shown in Finder.
 edit_window() {
-  local file="${1:a}" made rc
-  print -r -- "$file"
-  print
-  print -r -- "Edit the file in TextEdit, save it (Cmd-S), then press Enter here to run it."
-  print -r -- "Ctrl-C cancels; the file stays, and 'shrinkit run <file>' runs it later."
-  made="$(stat -f %Fm "$file")"
-  open -e "$file"
-  edit_window_enter || return 1
-  # TextEdit may save a document on its own when another app comes to the front, so this catches a
-  # file nobody touched, not every edit left unsaved.
-  if [[ "$(stat -f %Fm "$file" 2> /dev/null)" == "$made" ]]; then
-    print -r -- "${file:t} has not been saved since it was made. Save it and press Enter, or press Enter to run it as it is."
-    edit_window_enter || return 1
-  fi
+  local file="${1:a}" rc
   run_edit_file "$file"
   rc=$?
   print
   print -r -- "To run it again: shrinkit run ${(qq)file}"
   ((${#EDIT_MADE})) && open -R "${EDIT_MADE[@]}"
   return $rc
-}
-
-# Enter, or the end of the input, after which nothing is run.
-edit_window_enter() {
-  read -r && return 0
-  print -r -- "Nothing was run."
-  return 1
 }
 
 # --------------------------------------------------------------------- shrinkit edit
@@ -676,35 +657,67 @@ install_edit_action() {
     "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} edit --finder \"\$@\""
 }
 
-# What the entry runs: the edit file beside the first recording, each recording opened in its
-# player, then the Terminal window, which opens the file in TextEdit. A problem is said in a banner
-# as well, since nothing a Quick Action prints is ever seen.
+# What the entry runs: the edit file beside the first recording, opened in TextEdit, and nothing
+# else; shrinkit: run runs it once it is saved. A problem is said in a banner as well, since nothing
+# a Quick Action prints is ever seen.
 edit_finder() {
-  local file src
+  local file
   local -a videos
   mkdir -p "$LOG_DIR"
   read_config
   validate_config
   videos=(${(f)"$(edit_videos "$@")"})
   ((${#videos})) || {
-    edit_finder_says "shrinkit: edit needs a video"
+    finder_says "shrinkit: edit needs a video"
     return 2
   }
   file="$(free_name "${videos[1]:r}.edit.txt" edit.txt)"
-  write_edit_file "$file" "Edit this file, save it, then press Enter in the Terminal window." \
+  write_edit_file "$file" \
+    "Edit this file, save it, then right-click it in Finder and pick shrinkit: run." \
     "${videos[@]}" || {
-    edit_finder_says "shrinkit: edit cannot write in ${file:h}"
+    finder_says "shrinkit: edit cannot write in ${file:h}"
     return 1
   }
-  for src in "${videos[@]}"; do open -- "$src"; done
-  start_edit_window "$file" || {
-    edit_finder_says "shrinkit: edit could not open a Terminal window. To run the file: shrinkit run ${(qq)file}"
-    return 1
-  }
+  open -e "$file"
 }
 
-edit_finder_says() {
+finder_says() {
   print -u2 -r -- "$1"
   log "$1"
   notify "$1"
+}
+
+# --------------------------------------------------------------------- shrinkit: run
+
+# The right-click entry for edit files, which Finder takes for plain text.
+install_run_action() {
+  install_quick_action run \
+    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} run --finder \"\$@\"" public.plain-text
+}
+
+# What the entry runs: for each edit file among the files it is handed, a request in the queue and
+# a Terminal window to take it.
+run_finder() {
+  local src
+  local -a files
+  mkdir -p "$LOG_DIR"
+  read_config
+  validate_config
+  for src in "$@"; do
+    if [[ -f "$src" && "$src" == (#i)*.edit.txt ]]; then
+      files+=("${src:a}")
+    else
+      log "skip   ${src:t} (not an edit file)"
+    fi
+  done
+  ((${#files})) || {
+    finder_says "shrinkit: run takes an edit file (<first recording>.edit.txt)"
+    return 2
+  }
+  for src in "${files[@]}"; do
+    start_edit_window "$src" || {
+      finder_says "shrinkit: run could not open a Terminal window. To run the file: shrinkit run ${(qq)src}"
+      return 1
+    }
+  done
 }

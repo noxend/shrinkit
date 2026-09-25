@@ -217,9 +217,9 @@ our_entries() {
   done
 }
 
-# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name>, edit, merge, or what
-# an older setup built. The command is split into words the way zsh splits it, so the quoting of an
-# older setup reads the same as today's. Sets ENTRY_NAME, ENTRY_FOLDER, ENTRY_PROGRAM,
+# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name>, edit, run, merge, or
+# what an older setup built. The command is split into words the way zsh splits it, so the quoting
+# of an older setup reads the same as today's. Sets ENTRY_NAME, ENTRY_FOLDER, ENTRY_PROGRAM,
 # ENTRY_COMMAND and ENTRY_PRESET.
 read_entry() {
   local -a words
@@ -234,7 +234,7 @@ read_entry() {
   fi
 }
 
-# One entry per preset in the working folder, plus edit and merge, each running a program and,
+# One entry per preset in the working folder, plus edit, run and merge, each running a program and,
 # for a preset's entry, a preset that is there. Whether an entry is switched on in System Settings
 # is kept where no command reads it.
 doctor_check_right_click() {
@@ -244,11 +244,11 @@ doctor_check_right_click() {
   for preset in "$PRESET_DIR"/*.conf(N.); do
     in_menu "${preset:t:r}" && expected+=("${preset:t:r}")
   done
-  expected+=(edit merge)
+  expected+=(edit run merge)
   for entry in ${(f)"$(our_entries)"}; do
     read_entry "$entry" || continue
     # Anything else was built by an older shrinkit, such as 3.x's mark cuts; setup sweeps it away.
-    [[ "$ENTRY_COMMAND" == (--preset|edit|merge) ]] || {
+    [[ "$ENTRY_COMMAND" == (--preset|edit|run|merge) ]] || {
       doctor_found warn "right-click $ENTRY_NAME is left from an older shrinkit" \
         "Build the entries again with:" \
         "  $DOCTOR_SELF setup"
@@ -270,17 +270,17 @@ doctor_check_right_click() {
         "  chmod +x ${(qq)program}"
     fi
   done
-  # The edit entry opens its Terminal window on the launcher setup writes beside the folder file.
+  # The run entry opens its Terminal windows on the launcher setup writes beside the folder file.
   if [[ ! -f "$EDIT_LAUNCHER" ]]; then
-    doctor_found FAIL "right-click edit cannot open its window: there is no $EDIT_LAUNCHER" \
+    doctor_found FAIL "right-click run cannot open its window: there is no $EDIT_LAUNCHER" \
       "Write it again with:" "  $DOCTOR_SELF setup"
   elif [[ ! -x "$EDIT_LAUNCHER" ]]; then
-    doctor_found FAIL "right-click edit cannot open its window: $EDIT_LAUNCHER is not executable" \
+    doctor_found FAIL "right-click run cannot open its window: $EDIT_LAUNCHER is not executable" \
       "Write it again with:" "  $DOCTOR_SELF setup"
   fi
   for name in "${expected[@]}"; do
     ((${present[(Ie)$name]})) && continue
-    if [[ "$name" == (edit|merge) ]]; then
+    if [[ "$name" == (edit|run|merge) ]]; then
       doctor_found warn "no right-click entry for $name" "Build it again with:" "  $DOCTOR_SELF setup"
     else
       doctor_found warn "no right-click entry for the preset $name" "Add it with:" \

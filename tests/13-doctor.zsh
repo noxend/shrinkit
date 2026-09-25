@@ -14,7 +14,7 @@ test_doctor_finds_nothing_wrong_with_a_fresh_install() {
   check "finds the watcher loaded" \
     test "$(doctor_line "$out" watcher)" = "ok    watcher        loaded: $box/home/.local/bin/shrinkit"
   check "counts the right-click entries" test "$(doctor_line "$out" right-click)" = \
-    "ok    right-click    5 entries (whether each is switched on, doctor cannot see)"
+    "ok    right-click    6 entries (whether each is switched on, doctor cannot see)"
   check "reads the settings" \
     test "$(doctor_line "$out" settings)" = "ok    settings       $box/work/settings.conf"
   check "names the presets it read" test "$(doctor_line "$out" presets)" = "ok    presets        2x, sharp, tiny"

@@ -18,7 +18,8 @@ test_doctor_warns_about_entries_that_are_missing() {
   box="$(installed_box)"
   # A preset made after setup and never given an entry, and an entry deleted by hand.
   print -r -- 'speed = 3' > "$box/work/presets/quick one.conf"
-  rm -rf "$box/home/Library/Services/shrinkit: merge.workflow" "$box/home/Library/Services/shrinkit: edit.workflow"
+  rm -rf "$box/home/Library/Services/shrinkit: merge.workflow" "$box/home/Library/Services/shrinkit: edit.workflow" \
+    "$box/home/Library/Services/shrinkit: run.workflow"
 
   out="$(run_doctor "$box" 2>&1)" || code=$?
 
@@ -28,6 +29,7 @@ test_doctor_warns_about_entries_that_are_missing() {
     contains "$(doctor_block "$out" right-click)" "  shrinkit preset install 'quick one'"
   check "and about the entries that went" contains "$(doctor_block "$out" right-click)" "no right-click entry for merge"
   check "edit among them" contains "$(doctor_block "$out" right-click)" "no right-click entry for edit"
+  check "and run" contains "$(doctor_block "$out" right-click)" "no right-click entry for run"
   check "and exits 0" test "$code" = 0
 }
 
@@ -50,9 +52,9 @@ test_doctor_warns_about_an_entry_an_older_shrinkit_left() {
   check "and exits 0" test "$code" = 0
 }
 
-# shrinkit: edit opens its window on the launcher setup writes, so without it the entry opens
+# shrinkit: run opens its windows on the launcher setup writes, so without it the entry opens
 # nothing.
-test_doctor_fails_the_edit_entry_without_its_launcher() {
+test_doctor_fails_the_run_entry_without_its_launcher() {
   local box out launcher code=0
   box="$(installed_box)"
   launcher="$box/home/Library/Application Support/shrinkit/shrinkit edit.command"
@@ -61,7 +63,7 @@ test_doctor_fails_the_edit_entry_without_its_launcher() {
   out="$(run_doctor "$box" 2>&1)" || code=$?
 
   check "fails when Terminal cannot run it" test "$(doctor_line "$out" right-click)" = \
-    "FAIL  right-click    right-click edit cannot open its window: $launcher is not executable"
+    "FAIL  right-click    right-click run cannot open its window: $launcher is not executable"
   check "says how to write it again" contains "$(doctor_block "$out" right-click)" "  shrinkit setup"
   check "and exits 1" test "$code" = 1
 
@@ -69,7 +71,7 @@ test_doctor_fails_the_edit_entry_without_its_launcher() {
   out="$(run_doctor "$box" 2>&1)"
 
   check "and when it is gone" test "$(doctor_line "$out" right-click)" = \
-    "FAIL  right-click    right-click edit cannot open its window: there is no $launcher"
+    "FAIL  right-click    right-click run cannot open its window: there is no $launcher"
 }
 
 test_doctor_reads_an_entry_an_older_setup_wrote() {
@@ -83,7 +85,7 @@ test_doctor_reads_an_entry_an_older_setup_wrote() {
 
   out="$(run_doctor "$box" 2>&1)"
 
-  check "counts it with the others" contains "$(doctor_line "$out" right-click)" "ok    right-click    5 entries"
+  check "counts it with the others" contains "$(doctor_line "$out" right-click)" "ok    right-click    6 entries"
 }
 
 test_doctor_does_not_warn_about_a_preset_taken_out_of_the_menu() {
@@ -94,5 +96,5 @@ test_doctor_does_not_warn_about_a_preset_taken_out_of_the_menu() {
   out="$(run_doctor "$box" 2>&1)"
 
   check "counts the entries there are, and warns about none" contains "$(doctor_line "$out" right-click)" \
-    "ok    right-click    4 entries"
+    "ok    right-click    5 entries"
 }
