@@ -614,6 +614,11 @@ run_edit_file() {
     edit_ends "No recording in ${file:t}, nothing to run."
     return 1
   }
+  ((n <= MAX_RECORDINGS)) || {
+    print -u2 -r -- "run takes up to $MAX_RECORDINGS recordings at a time; ${file:t} has $n"
+    log "run takes up to $MAX_RECORDINGS recordings at a time; ${file:t} has $n"
+    return 2
+  }
   [[ "$EDIT_MERGE" == true ]] && ((n > 1)) && merged=true
   log "run    $file"
   print -r -- "${PAINT[bold]}shrinkit run${PAINT[reset]}  ${file:t}"
@@ -881,6 +886,11 @@ edit_command() {
     print -u2 -r -- "edit needs at least one video (.mov, .mp4 or .m4v)"
     return 2
   }
+  ((${#videos} <= MAX_RECORDINGS)) || {
+    print -u2 -r -- "edit takes up to $MAX_RECORDINGS recordings at a time; ${#videos} were given"
+    log "edit takes up to $MAX_RECORDINGS recordings at a time; ${#videos} were given"
+    return 2
+  }
   file="$(edit_file_for "${videos[@]}")"
   if [[ ! -e "$file" ]]; then
     write_edit_file "$file" \
@@ -921,6 +931,10 @@ edit_finder() {
   videos=(${(f)"$(edit_videos "$@")"})
   ((${#videos})) || {
     finder_says "shrinkit: edit needs a video"
+    return 2
+  }
+  ((${#videos} <= MAX_RECORDINGS)) || {
+    finder_says "shrinkit: edit takes up to $MAX_RECORDINGS recordings at a time; ${#videos} were selected"
     return 2
   }
   file="$(edit_file_for "${videos[@]}")"

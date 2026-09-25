@@ -277,3 +277,31 @@ test_edit_opens_visual_then_editor_then_vi() {
     zsh "$OPTIMIZER" edit "$work/clip.mov" 2> /dev/null
   check "then vi, as git does" grep -q '^vi ' <<< "$(tail -1 "$tools/editor.log")"
 }
+
+# SPEC.md, At most 10 recordings.
+test_edit_takes_at_most_ten_recordings() {
+  local box tools work out code=0 i
+  local -a takes files
+  box="$(sandbox)"
+  settings "$box"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'exit 1'
+  work="$(scratch)"
+  for i in {1..11}; do
+    cp "$FIXTURES/take-red.mov" "$work/$i take.mov"
+    takes+=("$work/$i take.mov")
+  done
+
+  out="$(run_edit "$box" "$tools" "${takes[@]}" 2>&1)" || code=$?
+  files=("$work"/*.edit.txt(N))
+
+  check "refuses 11" test "$code" = 2
+  check "saying why" contains "$out" "edit takes up to 10 recordings at a time; 11 were given"
+  check "and in the log" logged "$box" "edit takes up to 10 recordings at a time; 11 were given"
+  check "writes no edit file" test "${#files}" = 0
+  check "and opens no editor" missing "$tools/editor.log"
+
+  run_edit "$box" "$tools" "${takes[@]:0:10}" 2> /dev/null
+  check "takes 10" test "$(headers_of "$tools/given" | wc -l | tr -d ' ')" = 10
+}
