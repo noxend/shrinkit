@@ -260,3 +260,22 @@ test_a_preset_that_sets_nothing_says_so() {
   check "and in a banner" grep -qF "banner shrinkit | The preset '320p' sets nothing" "$tools/osascript.log"
   check "and still runs with settings.conf" exists "$box/clip-320p.mp4"
 }
+
+# A preset that cannot be read stops the run, as one that is not there does.
+test_a_preset_that_cannot_be_read_stops_the_run() {
+  local box out code=0
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  mkdir -p "$box/presets"
+  print -r -- 'speed = 4' > "$box/presets/locked.conf"
+  chmod 000 "$box/presets/locked.conf"
+  cp "$FIXTURES/silent.mov" "$box/clip.mov"
+
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --preset locked "$box/clip.mov" 2>&1)" || code=$?
+  chmod 644 "$box/presets/locked.conf"
+
+  check "exits 2" test "$code" = 2
+  check "says it cannot read it" contains "$out" "cannot read the preset 'locked'"
+  check "without calling it empty" lacks "$out" "sets nothing"
+  check "and encodes nothing" missing "$box/clip-locked.mp4"
+}
