@@ -217,17 +217,19 @@ our_entries() {
   done
 }
 
-# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name> or merge.
-# The command is split into words the way zsh splits it, so the quoting of an older setup reads the
-# same as today's. Sets ENTRY_NAME, ENTRY_FOLDER, ENTRY_PROGRAM and ENTRY_PRESET.
+# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name>, merge, or what an
+# older setup built. The command is split into words the way zsh splits it, so the quoting of an
+# older setup reads the same as today's. Sets ENTRY_NAME, ENTRY_FOLDER, ENTRY_PROGRAM,
+# ENTRY_COMMAND and ENTRY_PRESET.
 read_entry() {
   local -a words
   words=(${(Q)${(z)"$(plutil -extract actions.0.action.ActionParameters.COMMAND_STRING raw -o - \
     "$1/Contents/document.wflow" 2> /dev/null)"}})
   ENTRY_NAME="${${1:t:r}#shrinkit: }"
   [[ "${words[1]-}" == SHRINKIT_DIR=* ]] || return 1
-  ENTRY_FOLDER="${words[1]#SHRINKIT_DIR=}" ENTRY_PROGRAM="${words[2]-}" ENTRY_PRESET=""
-  if [[ "${words[3]-}" == --preset ]]; then
+  ENTRY_FOLDER="${words[1]#SHRINKIT_DIR=}" ENTRY_PROGRAM="${words[2]-}" ENTRY_COMMAND="${words[3]-}"
+  ENTRY_PRESET=""
+  if [[ "$ENTRY_COMMAND" == --preset ]]; then
     ENTRY_PRESET="${words[4]-}"
   fi
 }
@@ -245,6 +247,13 @@ doctor_check_right_click() {
   expected+=(merge)
   for entry in ${(f)"$(our_entries)"}; do
     read_entry "$entry" || continue
+    # Anything else was built by an older shrinkit, such as 3.x's mark cuts; setup sweeps it away.
+    [[ "$ENTRY_COMMAND" == (--preset|merge) ]] || {
+      doctor_found warn "right-click $ENTRY_NAME is left from an older shrinkit" \
+        "Build the entries again with:" \
+        "  $DOCTOR_SELF setup"
+      continue
+    }
     present+=("$ENTRY_NAME")
     programs+=("$ENTRY_PROGRAM")
     [[ -z "$ENTRY_PRESET" || -f "$ENTRY_FOLDER/presets/$ENTRY_PRESET.conf" ]] \

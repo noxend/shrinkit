@@ -30,6 +30,25 @@ test_doctor_warns_about_entries_that_are_missing() {
   check "and exits 0" test "$code" = 0
 }
 
+# git pull without setup leaves 3.x's mark cuts entry in the menu, running a subcommand that only
+# answers now.
+test_doctor_warns_about_an_entry_an_older_shrinkit_left() {
+  local box out entry code=0
+  box="$(installed_box)"
+  entry="$box/home/Library/Services/shrinkit: mark cuts.workflow"
+  cp -R "$REPO_DIR/quick-action/shrinkit.workflow" "$entry"
+  plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string \
+    "SHRINKIT_DIR=${(qq):-$box/work} ${(qq):-$box/home/.local/bin/shrinkit} mark-cuts \"\$@\"" \
+    "$entry/Contents/document.wflow"
+
+  out="$(run_doctor "$box" 2>&1)" || code=$?
+
+  check "warns, naming it as left from an older shrinkit" test "$(doctor_line "$out" right-click)" = \
+    "warn  right-click    right-click mark cuts is left from an older shrinkit"
+  check "says how to clear it" contains "$(doctor_block "$out" right-click)" "  shrinkit setup"
+  check "and exits 0" test "$code" = 0
+}
+
 test_doctor_reads_an_entry_an_older_setup_wrote() {
   local box out entry
   box="$(installed_box)"
