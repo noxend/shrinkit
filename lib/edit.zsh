@@ -260,7 +260,7 @@ edit_block_refused() {
 edit_say_problems() {
   local problem
   for problem in "${EDIT_PROBLEMS[@]}"; do log "$problem"; done
-  ((${#EDIT_PROBLEMS} + ${#IGNORED})) && print
+  ((SCREEN_LINES)) && print
   return 0
 }
 
@@ -419,7 +419,6 @@ edit_run_merged() {
 run_edit_file() {
   local file="${1:a}" n merged=false rc out
   mkdir -p "$LOG_DIR"
-  read_config
   [[ -x "$FFMPEG" ]] || {
     log "ffmpeg is not on PATH or in the Homebrew folders"
     print -u2 -r -- "ffmpeg is not on PATH or in the Homebrew folders"
@@ -442,7 +441,9 @@ run_edit_file() {
 
   EDIT_MADE=() EDIT_FAILED=()
   exec {SCREEN_FD}>&1
-  # Checked once for the whole run: a value in settings.conf that does not fit is said here, once.
+  # Read and checked once for the whole run, with the screen open: a line of settings.conf that
+  # cannot be read, or a value that does not fit, is said here, once.
+  read_config
   validate_config
   EDIT_BASE=("${(@kv)CFG}")
   if [[ "$merged" == true ]]; then
