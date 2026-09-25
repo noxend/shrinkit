@@ -9,6 +9,24 @@ test_a_launchctl_call_without_a_stub_is_refused() {
   check "and says why" contains "$out" "without its stub"
 }
 
+test_setup_teardown_and_preset_remove_refresh_the_finder_menu() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+
+  run_setup "$box" > /dev/null 2>&1
+  check "setup rebuilds it" grep -qx -- -update "$box/pbs.log"
+
+  : > "$box/pbs.log"
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_PBS="$box/stub/pbs" \
+    zsh "$OPTIMIZER" preset remove 2x > /dev/null 2>&1
+  check "so does taking a preset out of the menu" grep -qx -- -update "$box/pbs.log"
+
+  : > "$box/pbs.log"
+  run_teardown "$box" "$box/work" > /dev/null 2>&1
+  check "and teardown" grep -qx -- -update "$box/pbs.log"
+}
+
 test_setup_writes_a_folder_with_an_ampersand_into_a_valid_plist() {
   local box plist
   box="$(scratch)"

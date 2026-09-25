@@ -369,7 +369,7 @@ teardown_command() {
     }
   done
   ((entries)) && removed+=("$entries Finder entries")
-  /System/Library/CoreServices/pbs -update 2> /dev/null || true
+  "$PBS" -update 2> /dev/null || true
 
   if ((${#removed})); then
     print -r -- "Removed: ${(j:, :)removed}."

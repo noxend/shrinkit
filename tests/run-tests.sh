@@ -59,6 +59,14 @@ print -rl -- '#!/bin/zsh' 'print -u2 -r -- "a test reached launchctl without its
 chmod +x "$TMPROOT/refuse/launchctl"
 export SHRINKIT_LAUNCHCTL="$TMPROOT/refuse/launchctl"
 
+# pbs is kept off the real one too, or every setup and teardown test would refresh the Services menu
+# of this Mac. A no-op rather than a refusal: every caller ignores how pbs answers, so a refusal
+# would never be seen.
+mkdir -p "$TMPROOT/stub"
+print -rl -- '#!/bin/zsh' 'exit 0' > "$TMPROOT/stub/pbs"
+chmod +x "$TMPROOT/stub/pbs"
+export SHRINKIT_PBS="$TMPROOT/stub/pbs"
+
 # A sandbox is a folder under TMPROOT; anything else stops the run before it is used.
 sandboxed() {
   [[ "$1" == "$TMPROOT"/?* ]] || {

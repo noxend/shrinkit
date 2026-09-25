@@ -4,7 +4,7 @@
 setup_as_brew_does() {
   local box="$1"
   env -i HOME="$box/home" PATH="$PATH" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
-    zsh "$OPTIMIZER" setup
+    SHRINKIT_PBS="$SHRINKIT_PBS" zsh "$OPTIMIZER" setup
 }
 
 test_a_folder_named_once_survives_a_setup_without_it() {
@@ -49,7 +49,7 @@ test_setup_under_brew_does_not_fail_the_upgrade_for_a_missing_drive() {
   print -r -- /Volumes/shrinkit-no-such-drive/work > "$box/home/Library/Application Support/shrinkit/folder"
 
   out="$(env -i HOME="$box/home" PATH="$PATH" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
-    "$box/brew/bin/shrinkit" setup 2>&1)" || code=$?
+    SHRINKIT_PBS="$SHRINKIT_PBS" "$box/brew/bin/shrinkit" setup 2>&1)" || code=$?
 
   # brew runs setup before it links the command; a failure aborts the upgrade after the old
   # version was already torn down, leaving nothing at all to run setup with later.

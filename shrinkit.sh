@@ -1192,6 +1192,9 @@ config_command() {
 # --------------------------------------------------------------------- presets
 
 SERVICES_DIR="$HOME/Library/Services"
+# Reached through a variable, as launchctl is, so a test refreshes a stub rather than the Services
+# menu of the Mac running it.
+PBS="${SHRINKIT_PBS:-/System/Library/CoreServices/pbs}"
 
 # Copied rather than built from scratch; any existing menu entry works as the template too.
 quick_action_template() {
@@ -1226,7 +1229,7 @@ install_quick_action() {
   plutil -replace CFBundleName -string "shrinkit: $name" "$action/Contents/Info.plist"
   plutil -replace NSServices.0.NSMenuItem.default -string "shrinkit: $name" \
     "$action/Contents/Info.plist"
-  /System/Library/CoreServices/pbs -update 2> /dev/null || true
+  "$PBS" -update 2> /dev/null || true
 
   print -r -- "right-click a video > shrinkit: $name"
 }
@@ -1244,7 +1247,7 @@ install_preset_action() {
 remove_preset_action() {
   rm -rf "$SERVICES_DIR/shrinkit: $1.workflow"
   in_menu "$1" && print -r -- "$1" >> "$MENU_OFF"
-  /System/Library/CoreServices/pbs -update 2> /dev/null || true
+  "$PBS" -update 2> /dev/null || true
   print -r -- "removed the Quick Action for '$1'"
 }
 

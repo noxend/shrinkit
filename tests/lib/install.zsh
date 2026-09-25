@@ -1,9 +1,10 @@
-# Sourced by tests/run-tests.sh: the sandboxed HOME and launchctl stub that setup and teardown run against.
+# Sourced by tests/run-tests.sh: the sandboxed HOME and the launchctl and pbs stubs that setup and
+# teardown run against.
 
 # --------------------------------------------------------------------- setup and teardown
 
-# A sandboxed HOME, a Desktop to put the shortcut on, and a launchctl that records what it was
-# asked for instead of doing it. The real one needs an Aqua session CI does not have, and on a
+# A sandboxed HOME, a Desktop to put the shortcut on, and a launchctl and a pbs that record what they
+# were asked for instead of doing it. The real one needs an Aqua session CI does not have, and on a
 # developer's machine a test would boot out the agent they are actually using.
 setup_box() {
   local box="$1"
@@ -47,6 +48,8 @@ case "\$1" in
 esac
 STUB
   chmod +x "$box/stub/launchctl"
+  print -rl -- '#!/bin/zsh' "print -r -- \"\$*\" >> ${(qq)box}/pbs.log" > "$box/stub/pbs"
+  chmod +x "$box/stub/pbs"
 }
 
 # run_setup <box> [base folder]. SHRINKIT_REPO is deliberately left unset: finding presets/ and
@@ -55,7 +58,7 @@ run_setup() {
   local box="$1" base="${2:-$1/work}"
   sandboxed "$box"
   HOME="$box/home" SHRINKIT_DIR="$base" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
-    zsh "$OPTIMIZER" setup
+    SHRINKIT_PBS="$box/stub/pbs" zsh "$OPTIMIZER" setup
 }
 
 # run_teardown <box> [base folder]. With no base folder the variable is unset, which is how a
@@ -65,9 +68,10 @@ run_teardown() {
   sandboxed "$box"
   if [[ -n "$base" ]]; then
     HOME="$box/home" SHRINKIT_DIR="$base" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
-      zsh "$OPTIMIZER" teardown
+      SHRINKIT_PBS="$box/stub/pbs" zsh "$OPTIMIZER" teardown
   else
-    HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" zsh "$OPTIMIZER" teardown
+    HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" SHRINKIT_PBS="$box/stub/pbs" \
+      zsh "$OPTIMIZER" teardown
   fi
 }
 
