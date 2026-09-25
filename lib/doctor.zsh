@@ -284,7 +284,7 @@ doctor_check_right_click() {
       doctor_found warn "no right-click entry for $name" "Build it again with:" "  $DOCTOR_SELF setup"
     else
       doctor_found warn "no right-click entry for the preset $name" "Add it with:" \
-        "  $DOCTOR_SELF preset install ${(qq)name}"
+        "  $DOCTOR_SELF preset add ${(qq)name}"
     fi
   done
   DOCTOR_OK="${#present} entries (whether each is switched on, doctor cannot see)"
