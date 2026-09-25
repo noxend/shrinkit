@@ -190,6 +190,27 @@ test_a_same_named_recording_that_cannot_be_filed_away_is_shrunk_once() {
   check "saying why it is still in input/" logged "$box" 'could not be moved to .processed/'
 }
 
+# The same with keep_original = false, where the recording is deleted rather than filed away: one
+# that cannot be deleted stays, and has to be marked so the rescan passes over it.
+test_a_recording_that_cannot_be_deleted_is_shrunk_once() {
+  local box pid
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'keep_original = false'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  chflags uchg "$box/input/clip.mov"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" > /dev/null 2>&1 &
+  pid=$!
+  sleep 12
+  kill "$pid" 2> /dev/null && pkill -P "$pid" 2> /dev/null
+  wait "$pid" 2> /dev/null
+  chflags nouchg "$box/input/clip.mov"
+
+  check "is shrunk once" test "$(ls "$box/output" | grep -c '^clip.*\.mp4$')" = 1
+  check "and the run ends by itself" test "$(log_count "$box" 'kept   clip.mov in input/')" = 1
+  check "saying why it is still in input/" logged "$box" 'could not be deleted'
+}
+
 test_a_recording_arriving_the_same_second_as_an_earlier_result_is_not_taken_for_done() {
   local box
   box="$(sandbox)"

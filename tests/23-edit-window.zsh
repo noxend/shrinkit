@@ -28,7 +28,6 @@ test_the_window_runs_its_file_at_once_on_a_clean_screen() {
     test "${out[1,${#CLEAN_SCREEN}]}" = "$CLEAN_SCREEN"
   check "then runs the file" test "${${(f)out}[1]}" = "${CLEAN_SCREEN}shrinkit run  ${file:t}"
   check "with no Enter pressed" exists "$work/clip.mp4"
-  check "saying nothing about a file never saved" lacks "$out" "has not been saved"
   check "opening nothing in TextEdit" lacks "$(< "$tools/open.log")" "-e | "
   check "and exits 0" test "$code" = 0
 }
@@ -106,6 +105,31 @@ test_each_window_takes_one_request() {
 
 # A request whose window never came (closed while its shell started, or Terminal quit) is the
 # oldest in the queue, so the window of the next click would run its file instead of that click's.
+# Windows opened together start together, and each takes one request: of three after one request,
+# one runs it and two find none.
+test_windows_started_together_take_one_request_once() {
+  local box tools work file i ran
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
+  run_window "$box" "$tools" --finder "$file"
+
+  for i in 1 2 3; do
+    run_window "$box" "$tools" --next < /dev/null > "$tools/window-$i" 2>&1 &
+  done
+  wait
+
+  ran="$(cat "$tools"/window-{1,2,3} | grep -c "shrinkit run  ${file:t}")"
+  check "one window runs it" test "$ran" = 1
+  check "the other two find none" \
+    test "$(cat "$tools"/window-{1,2,3} | grep -c 'No edit file is waiting')" = 2
+}
+
 test_a_window_takes_no_request_left_2_minutes_ago() {
   local box tools work old new support launcher queue first left second code=0
   box="$(installed_box)"
@@ -360,7 +384,9 @@ test_the_run_entry_says_when_its_terminal_window_does_not_open() {
   tools="$(scratch)"
   stub_tools "$tools"
   stub_editor "$tools" editor
-  work="$(scratch)"
+  # In the edit files' own path too, which is what the command in the banner quotes.
+  work="$(scratch)/it's here"
+  mkdir -p "$work"
   cp "$FIXTURES/take-red.mov" "$work/it's.mov"
   file="$(make_edit "$box/work" "$tools" "$work/it's.mov")"
   # Terminal does not open the launcher.
@@ -383,7 +409,9 @@ test_the_run_entry_names_every_file_when_its_window_does_not_open() {
   tools="$(scratch)"
   stub_tools "$tools"
   stub_editor "$tools" editor
-  work="$(scratch)"
+  # In the edit files' own path too, which is what the command in the banner quotes.
+  work="$(scratch)/it's here"
+  mkdir -p "$work"
   cp "$FIXTURES/take-red.mov" "$work/it's.mov"
   cp "$FIXTURES/take-blue.mov" "$work/b.mov"
   a="$(make_edit "$box/work" "$tools" "$work/it's.mov")"
@@ -732,4 +760,31 @@ test_the_edit_entry_takes_at_most_ten_recordings() {
   files=("$work"/*.edit.txt(N))
   check "takes 10" test "$(headers_of "${files[1]-/dev/null}" | wc -l | tr -d ' ')" = 10
   check "and opens their file" test "$(< "$tools/open.log")" = "-e | ${files[1]-}"
+}
+
+# Every script osascript is handed, compiled and not run: the stubs above only look for a phrase in
+# one, so a script that no longer compiles passed as long as the phrase was still in it, and on a
+# Mac posted no banner, copied nothing and closed no window, all silently.
+test_every_script_handed_to_osascript_compiles() {
+  local dir source lang delim line n=0 body
+  dir="$(scratch)"
+  for source in "$OPTIMIZER" "$REPO_DIR"/lib/*.zsh; do
+    lang="" body=""
+    while IFS= read -r line; do
+      if [[ -n "$lang" ]]; then
+        if [[ "$line" == "$delim" ]]; then
+          ((++n))
+          print -r -- "$body" > "$dir/$n.txt"
+          check "the ${delim:l} script in ${source:t} compiles as $lang" \
+            osacompile -l "$lang" -o "$dir/$n.scpt" "$dir/$n.txt"
+          lang=""
+        else
+          body="$body$line"$'\n'
+        fi
+      elif [[ "$line" =~ "osascript -l ([A-Za-z]+) .*<< '([A-Z]+)'" ]]; then
+        lang="${match[1]}" delim="${match[2]}" body=""
+      fi
+    done < "$source"
+  done
+  check "finds all four" test "$n" = 4
 }

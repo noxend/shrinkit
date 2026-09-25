@@ -33,7 +33,8 @@ test_a_hash_inside_a_value_is_kept() {
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
 
   optimize "$box"
-  check "keeps the # in the value" not_logged "$box" 'ignoring notify_sound'
+  check "keeps the # in the value" grep -qx 'notify_sound = Gla#ss' \
+    <<< "$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" config)"
   check "and the rest of the config still lands" duration_near "$box/output/clip.mp4" 4
 }
 
@@ -192,6 +193,23 @@ test_an_empty_recording_is_logged_as_empty() {
 
   check "says it is empty" logged "$box" "skip   clip.mov (empty"
   check "rather than still being written" not_logged "$box" "still being written"
+}
+
+# A recorder writes its file as it goes, and one shrunk before it stops is cut short.
+test_a_recording_still_growing_is_left_for_later() {
+  local box writer
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  # Grows for longer than the 2 seconds the check waits.
+  (for _ in {1..20}; do print -rn -- 0123456789 >> "$box/input/clip.mov"; sleep 0.3; done) &
+  writer=$!
+
+  optimize "$box"
+  wait "$writer"
+
+  check "says it is still being written" logged "$box" "skip   clip.mov (still being written)"
+  check "and shrinks nothing yet" missing "$box/output/clip.mp4"
 }
 
 test_a_broken_file_does_not_wedge_the_queue() {

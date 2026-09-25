@@ -116,8 +116,9 @@ TESTS=("${(f)$(grep -hoE '^test_[a-zA-Z0-9_]+' "${TEST_FILES[@]}")}")
 # Every file is sourced into this one shell, so a function defined twice, a test or a helper, in
 # one file or in two, keeps only its later body, and a test would run it twice or call the wrong
 # helper: that stops the run instead. A name inside a heredoc counts too (the stub editor's in
-# tests/lib/edit.zsh), a false alarm at worst.
-TWICE="$(grep -hoE '^[a-zA-Z_][a-zA-Z0-9_]*\(\)' "$TESTS_DIR"/lib/*.zsh "${TEST_FILES[@]}" | sort | uniq -d)"
+# tests/lib/edit.zsh), a false alarm at worst, and so does one defined inside a test.
+TWICE="$(grep -hoE '^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*\(\)' "$TESTS_DIR"/lib/*.zsh "${TEST_FILES[@]}" \
+  | sed 's/^[[:space:]]*//' | sort | uniq -d)"
 [[ -z "$TWICE" ]] || {
   print -r -- "defined twice: ${${TWICE//\(\)/}//$'\n'/, }"
   exit 1

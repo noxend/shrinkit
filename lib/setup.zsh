@@ -178,6 +178,10 @@ setup_bin() {
   mkdir -p "$BIN_DIR"
 
   if guarded_path "$SELF"; then
+    if [[ -e "$share" ]] && ! our_share "$share"; then
+      print -u2 -r -- "!! $share is not shrinkit's, so setup leaves it alone: move it away and run setup again"
+      return 1
+    fi
     rm -rf "$share"
     mkdir -p "$share"
     # rm first: cp onto an existing symlink writes through it to whatever it points at, leaving
@@ -289,7 +293,7 @@ setup_command() {
   setup_folders
   setup_presets
   setup_config
-  setup_bin
+  setup_bin || return 1
   # After the symlink, since that is the path the agent and the entries are told to run.
   local program
   program="$(registered_path)"

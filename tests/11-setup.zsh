@@ -312,7 +312,7 @@ test_setup_run_from_the_path_link_leaves_itself_runnable() {
   mkdir -p "${link:h}"
   cp "$OPTIMIZER" "$link"
   chmod +x "$link"
-  cp -R "$REPO_DIR/quick-action" "$REPO_DIR/presets" "$REPO_DIR/settings.conf" "${link:h}/"
+  cp -R "$REPO_DIR/lib" "$REPO_DIR/quick-action" "$REPO_DIR/presets" "$REPO_DIR/settings.conf" "${link:h}/"
 
   HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     "$link" setup > /dev/null 2>&1
@@ -320,6 +320,7 @@ test_setup_run_from_the_path_link_leaves_itself_runnable() {
   # The shape an install takes once its checkout is gone: this file is the only shrinkit left, and
   # it is the one running. Relinking it over itself leaves a link pointing at its own name, and
   # there is then no shrinkit at all.
+  check "setup went through" exists "$box/home/Library/LaunchAgents/com.shrinkit.plist"
   check "the script it was run from survives" test -f "$link"
   check "and is still a script" zsh -n "$link"
 }
@@ -520,7 +521,7 @@ test_a_cask_install_leaves_a_different_shrinkit_alone() {
   check "keeps a file that is not this script" grep -q "somebody else" "$box/home/.local/bin/shrinkit"
 }
 
-# preset add: the file with the usual settings commented out at the values in effect, its
+# preset add: the file with a note naming what a preset can set and what settings.conf has now, its
 # right-click entry, and the file opened in the editor, the way config edit opens settings.conf.
 test_preset_add_makes_the_file_and_its_entry_and_opens_it() {
   local box tools file out code=0
@@ -617,6 +618,11 @@ test_preset_add_on_a_preset_there_is_opens_it_as_it_is() {
 }
 
 # The way a person goes through it: make one, take it away, make it again, change it.
+# run_preset <args...>: shrinkit preset in the box and with the editor of the test calling it.
+run_preset() {
+  HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR="$tools/editor" zsh "$OPTIMIZER" preset "$@" 2>&1
+}
+
 test_preset_add_remove_add_edit() {
   local box tools file services out code
   box="$(scratch)"
@@ -627,7 +633,6 @@ test_preset_add_remove_add_edit() {
   chmod +x "$tools/editor"
   file="$box/work/presets/320p.conf"
   services="$box/home/Library/Services"
-  run_preset() { HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR="$tools/editor" zsh "$OPTIMIZER" preset "$@" 2>&1; }
 
   run_preset add 320p > /dev/null
   check "add makes it" exists "$file"
