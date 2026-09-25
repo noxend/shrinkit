@@ -7,8 +7,7 @@
 # Not tied to a preset: this entry joins the recordings it is handed instead of shrinking any of
 # them.
 install_merge_action() {
-  install_quick_action merge \
-    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} merge \"\$@\""
+  install_quick_action merge "$(entry_command merge '"$@"')"
 }
 
 # When a recording was made, in epoch seconds. Its own creation_time first, which QuickTime writes
@@ -291,7 +290,7 @@ merge_command() {
       log "skip   $src (not a file)"
       continue
     }
-    [[ "$src" == (#i)*.(mov|mp4|m4v) ]] || {
+    [[ "$src" == $~VIDEO_NAME ]] || {
       log "skip   ${src:t} (not a video)"
       continue
     }
@@ -306,10 +305,7 @@ merge_command() {
     return 2
   }
   ((${#clips} <= MAX_RECORDINGS)) || {
-    local said="shrinkit: merge takes up to $MAX_RECORDINGS recordings at a time; ${#clips} were selected"
-    print -u2 -r -- "$said"
-    log "$said"
-    notify "$said"
+    finder_says "shrinkit: merge takes up to $MAX_RECORDINGS recordings at a time; ${#clips} were selected"
     return 2
   }
 
