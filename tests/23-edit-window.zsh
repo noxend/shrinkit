@@ -137,6 +137,35 @@ test_a_window_takes_no_request_left_2_minutes_ago() {
   check "and exits 1" test "$code" = 1
 }
 
+# A click writes its request under a hidden name and a window takes one under another, each for a
+# moment; a process that ended in between leaves that file behind, and nothing else would remove it.
+test_a_window_clears_hidden_requests_left_2_minutes_ago() {
+  local box tools work file support launcher queue left
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  file="$(make_edit "$box/work" "$tools" "$work/clip.mov")"
+  support="$box/home/Library/Application Support/shrinkit"
+  launcher="$support/shrinkit edit.command"
+  queue="$support/edit-queue"
+  mkdir -p "$queue"
+  print -rN -- "$file" > "$queue/.new.left"
+  print -rN -- "$file" > "$queue/.taken.4321"
+  print -rN -- "$file" > "$queue/.new.being-written"
+  touch -t "$(seconds_ago 150)" "$queue/.new.left" "$queue/.taken.4321"
+
+  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null > /dev/null)
+  left="$(ls -A "$queue")"
+
+  check "removes the hidden ones left 150 seconds ago" test "$left" = .new.being-written
+  check "keeping the one a click is writing now" exists "$queue/.new.being-written"
+  check "and takes neither kind" missing "$work/clip.mp4"
+}
+
 # --------------------------------------------------------------------- shrinkit: edit
 
 test_the_edit_entry_opens_the_file_in_textedit_and_nothing_else() {

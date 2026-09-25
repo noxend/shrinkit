@@ -40,11 +40,12 @@ write_edit_launcher() {
 # of two windows renaming one request only one succeeds. A request whose file is gone is dropped,
 # and so is one left 2 minutes ago or more: a window reaches this within seconds of its click, so
 # the window that request was for never came (closed while its shell started, or Terminal quit),
-# and taken now it would run in a window opened for a later click. Prints the edit file's path, and
-# fails when none is waiting.
+# and taken now it would run in a window opened for a later click. The hidden ones go at 2 minutes
+# too: a request is written or taken under a hidden name for a moment, and one still there was left
+# by a process that ended in between. Prints the edit file's path, and fails when none is waiting.
 take_edit_request() {
   local request mine="$EDIT_QUEUE/.taken.$$" file
-  rm -f "$EDIT_QUEUE"/*(N.mm+1)
+  rm -f "$EDIT_QUEUE"/*(DN.mm+1)
   for request in "$EDIT_QUEUE"/*(N.mm-2Om); do
     mv "$request" "$mine" 2> /dev/null || continue
     file="$(< "$mine")"
