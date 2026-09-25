@@ -97,11 +97,11 @@ edited() {
 }
 
 # name_for <recording>...: the name SPEC.md gives the edit file of a set of recordings, from their
-# absolute paths: shrinkit-<code>.edit.txt, <code> the first 6 hex digits of the SHA-256 of the
-# paths sorted byte by byte, one per line.
+# absolute paths with links resolved: shrinkit-<code>.edit.txt, <code> the first 6 hex digits of
+# the SHA-256 of the paths sorted byte by byte, one per line.
 name_for() {
   local sum
-  sum="$(print -rl -- "$@" | LC_ALL=C sort | shasum -a 256)"
+  sum="$(print -rl -- ${^@:A} | LC_ALL=C sort | shasum -a 256)"
   print -r -- "shrinkit-${sum[1,6]}.edit.txt"
 }
 

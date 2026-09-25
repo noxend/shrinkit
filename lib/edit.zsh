@@ -14,13 +14,22 @@ minutes() {
   printf '%d:%02d' $((secs / 60)) $((secs % 60))
 }
 
-# The edit file of a set of recordings, given in merge order: shrinkit-<code>.edit.txt beside the
-# first, <code> the first 6 hex digits of the SHA-256 of their paths, one per line in byte order
-# whatever the locale, so a set has one name however its recordings were selected.
+# The edit file of a set of recordings, given in merge order: shrinkit-<code>.edit.txt, <code> the
+# first 6 hex digits of the SHA-256 of their paths with links resolved, one per line in byte order
+# whatever the locale, so a set has one name however its recordings were selected or reached. The
+# file an earlier edit left in any of their folders, else a new one beside the first: recordings
+# from two folders recorded in the same second come first in the order they were selected in.
 edit_file_for() {
-  local sum
-  sum="$(print -rl -- "$@" | LC_ALL=C sort | shasum -a 256)"
-  print -r -- "${1:h}/shrinkit-${sum[1,6]}.edit.txt"
+  local sum folder name
+  sum="$(print -rl -- ${^@:A} | LC_ALL=C sort | shasum -a 256)"
+  name="shrinkit-${sum[1,6]}.edit.txt"
+  for folder in ${(u)@:h}; do
+    [[ -e "$folder/$name" ]] && {
+      print -r -- "$folder/$name"
+      return
+    }
+  done
+  print -r -- "${1:h}/$name"
 }
 
 # write_edit_file <file> <how to run it> <recording>...: one block per recording, in the order
