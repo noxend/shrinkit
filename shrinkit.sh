@@ -1280,17 +1280,37 @@ install_quick_action() {
   print -r -- "right-click a video > shrinkit: $name"
 }
 
+# The name of each preset in presets/, one per line.
+preset_names() {
+  local file
+  for file in "$PRESET_DIR"/*.conf(N); do print -r -- "${file:t:r}"; done
+}
+
+# That there is no preset of that name, and which there are.
+no_such_preset() {
+  local -a names
+  print -u2 -r -- "no preset called '$1' (looked in $PRESET_DIR)"
+  names=(${(f)"$(preset_names)"})
+  ((${#names})) && print -u2 -r -- "the presets there are: ${(j:, :)names}"
+  return 0
+}
+
 install_preset_action() {
   local name="$1"
   [[ -f "$(preset_file "$name")" ]] || {
-    print -u2 -r -- "no preset called '$name' (looked in $PRESET_DIR)"
+    no_such_preset "$name"
     return 1
   }
   install_quick_action "$name" \
     "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} --preset ${(qq)name} \"\$@\""
 }
 
+# A name that is neither a preset nor an entry is said to be none, and nothing is written down for it.
 remove_preset_action() {
+  [[ -d "$SERVICES_DIR/shrinkit: $1.workflow" || -f "$(preset_file "$1")" ]] || {
+    no_such_preset "$1"
+    return 2
+  }
   rm -rf "$SERVICES_DIR/shrinkit: $1.workflow"
   in_menu "$1" && print -r -- "$1" >> "$MENU_OFF"
   "$PBS" -update 2> /dev/null || true

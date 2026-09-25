@@ -576,3 +576,31 @@ test_preset_add_refuses_a_name_that_is_no_file_name() {
   done
   check "and nothing is written" test "$(ls -A "$box/work/presets" | sort | tr '\n' ' ')" = "2x.conf sharp.conf tiny.conf "
 }
+
+# preset remove on a name that is neither a preset nor an entry.
+test_preset_remove_of_no_preset_says_so_and_lists_them() {
+  local box out code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset remove 320 2>&1)" || code=$?
+
+  check "exits 2" test "$code" = 2
+  check "says there is no such preset" contains "$out" "no preset called '320'"
+  check "names the ones there are" contains "$out" "the presets there are: 2x, sharp, tiny"
+  check "and says nothing was removed" lacks "$out" "removed"
+  check "writing nothing down for it" missing "$box/work/presets/.not-in-menu"
+}
+
+test_preset_install_of_no_preset_lists_them() {
+  local box out code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset install 320 2>&1)" || code=$?
+
+  check "exits 2" test "$code" = 2
+  check "names the ones there are" contains "$out" "the presets there are: 2x, sharp, tiny"
+}
