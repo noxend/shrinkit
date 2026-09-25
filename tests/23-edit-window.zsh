@@ -1,27 +1,16 @@
-# Sourced by tests/run-tests.sh: the Terminal window a right-click on recordings opens, and the
-# launcher setup writes for it. The window reads Enter from its stdin, which every test here feeds
-# itself, and opens TextEdit and Finder through an open that only writes down what it was asked.
+# Sourced by tests/run-tests.sh: the two right-click entries and the Terminal window. shrinkit: edit
+# writes the edit file and opens it in TextEdit; shrinkit: run leaves a request for each edit file it
+# is handed and opens a window on the launcher setup writes; the window takes one request and runs
+# its file. open and osascript only write down what they were asked.
 
 # The one sequence a window prints before anything else: the cursor home, the screen cleared, and
 # what scrolled off it cleared too.
 CLEAN_SCREEN=$'\e[H\e[2J\e[3J'
 
-running() {
-  kill -0 "$1" 2> /dev/null
-}
-
-# wait_for_line <file> <pattern>: up to ten seconds for a line matching pattern to be in file.
-wait_for_line() {
-  local _
-  for _ in {1..200}; do
-    grep -q -- "$2" "$1" 2> /dev/null && return 0
-    sleep 0.05
-  done
-  return 1
-}
-
-test_the_window_starts_on_a_clean_screen() {
-  local box tools work file out
+# A request left the way shrinkit: run leaves one, then the window that takes it, as the launcher
+# runs it; its input is at an end, so nothing it could wait for ever comes.
+test_the_window_runs_its_file_at_once_on_a_clean_screen() {
+  local box tools work file out code=0
   box="$(sandbox)"
   settings "$box"
   tools="$(scratch)"
@@ -31,123 +20,18 @@ test_the_window_starts_on_a_clean_screen() {
   cp "$FIXTURES/take-red.mov" "$work/clip.mov"
   make_edit "$box" "$tools" "$work/clip.mov"
   file="$work/clip.edit.txt"
+  run_window "$box" "$tools" --finder "$file"
 
-  out="$(run_window "$box" "$tools" --wait "$file" < /dev/null)"
+  out="$(run_window "$box" "$tools" --next < /dev/null)" || code=$?
 
   check "clears the screen and what scrolled off it before anything else" \
     test "${out[1,${#CLEAN_SCREEN}]}" = "$CLEAN_SCREEN"
-  check "then names the file" test "${${(f)out}[1]}" = "$CLEAN_SCREEN$file"
-  check "and says what to do with it" contains "$out" \
-    $'\nEdit the file in TextEdit, save it (Cmd-S), then press Enter here to run it.\n'
-  check "and how to leave it for later" contains "$out" \
-    $'\nCtrl-C cancels; the file stays, and \'shrinkit run <file>\' runs it later.\n'
-}
-
-test_the_window_opens_the_file_in_textedit_then_waits_for_enter() {
-  local box tools work file pid keep code=0
-  box="$(sandbox)"
-  settings "$box" 'speed = 2'
-  tools="$(scratch)"
-  stub_tools "$tools"
-  stub_editor "$tools" editor
-  # What is typed into TextEdit and saved while the window waits.
-  stub_textedit "$tools" 'speed = 4'
-  work="$(scratch)"
-  cp "$FIXTURES/silent.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
-  file="$work/clip.edit.txt"
-  mkfifo "$tools/keys"
-  # Held open, so the window reads nothing until the test presses Enter, and no end of input either.
-  # The window gets no copy of it, or closing it here would never end its input.
-  exec {keep}<> "$tools/keys"
-
-  HOME="$box/home" PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
-    zsh "$OPTIMIZER" run --wait "$file" < "$tools/keys" {keep}>&- > "$tools/screen" 2>&1 &
-  pid=$!
-  wait_for_line "$tools/open.log" '^-e '
-  sleep 1
-
-  check "opens the file in TextEdit" test "$(< "$tools/open.log")" = "-e | $file"
-  check "then waits" running "$pid"
-  check "running nothing before Enter" missing "$work/clip.mp4"
-  # One Enter, then the end of the input, so a window that waits for more stops instead of hanging.
-  print -u "$keep"
-  exec {keep}>&-
-  wait "$pid" || code=$?
-
-  check "runs it on Enter" exists "$work/clip.mp4"
-  check "as it was saved in TextEdit" duration_near "$work/clip.mp4" 3
-  check "saying nothing about a file never saved" lacks "$(< "$tools/screen")" "has not been saved"
+  check "then runs the file" \
+    test "${${(f)out}[1]}" = "${CLEAN_SCREEN}Running clip.edit.txt: 1 recording, merge = false"
+  check "with no Enter pressed" exists "$work/clip.mp4"
+  check "saying nothing about a file never saved" lacks "$out" "has not been saved"
+  check "opening nothing in TextEdit" lacks "$(< "$tools/open.log")" "-e | "
   check "and exits 0" test "$code" = 0
-}
-
-test_the_window_runs_nothing_when_enter_never_comes() {
-  local box tools work file out pid keep code=0 _
-  local -a made
-  box="$(sandbox)"
-  settings "$box"
-  tools="$(scratch)"
-  stub_tools "$tools"
-  stub_editor "$tools" editor
-  work="$(scratch)"
-  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
-  file="$work/clip.edit.txt"
-  # Nothing before Enter logs, so the log is made here for the last check to read.
-  : > "$box/.logs/optimizer.log"
-
-  out="$(run_window "$box" "$tools" --wait "$file" < /dev/null)" || code=$?
-
-  check "at the end of the input, says so" test "${${(f)out}[-1]}" = "Nothing was run."
-  check "and exits 1" test "$code" = 1
-  check "having opened the file in TextEdit all the same" test "$(< "$tools/open.log")" = "-e | $file"
-
-  # Ctrl-C while it waits: the terminal sends INT to the window's process.
-  : > "$tools/open.log"
-  mkfifo "$tools/keys"
-  exec {keep}<> "$tools/keys"
-  HOME="$box/home" PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
-    zsh "$OPTIMIZER" run --wait "$file" < "$tools/keys" {keep}>&- > /dev/null 2>&1 &
-  pid=$!
-  wait_for_line "$tools/open.log" '^-e ' && sleep 0.5
-  code=0
-  kill -INT "$pid"
-  for _ in {1..40}; do
-    running "$pid" || break
-    sleep 0.05
-  done
-  exec {keep}>&-
-  wait "$pid" || code=$?
-  check "Ctrl-C ends it with the signal's status" test "$code" = 130
-
-  made=("$work"/*.mp4(N))
-  check "and neither ran anything" test "${#made}" = 0
-  check "nor logged a run" not_logged "$box" 'run    '
-}
-
-test_the_window_warns_once_about_a_file_never_saved() {
-  local box tools work file out
-  box="$(sandbox)"
-  settings "$box"
-  tools="$(scratch)"
-  stub_tools "$tools"
-  stub_editor "$tools" editor
-  work="$(scratch)"
-  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
-  file="$work/clip.edit.txt"
-
-  out="$(print | run_window "$box" "$tools" --wait "$file")"
-
-  check "says the file was never saved" contains "$out" \
-    $'\nclip.edit.txt has not been saved since it was made. Save it and press Enter, or press Enter to run it as it is.\n'
-  check "then waits for Enter again" test "${${(f)out}[-1]}" = "Nothing was run."
-  check "running nothing" missing "$work/clip.mp4"
-
-  out="$(printf '\n\n' | run_window "$box" "$tools" --wait "$file")"
-
-  check "says it once" test "$(grep -c 'has not been saved' <<< "$out")" = 1
-  check "and runs it as it is on the second Enter" exists "$work/clip.mp4"
 }
 
 test_the_window_reveals_the_result_and_says_how_to_run_it_again() {
@@ -157,24 +41,24 @@ test_the_window_reveals_the_result_and_says_how_to_run_it_again() {
   tools="$(scratch)"
   stub_tools "$tools"
   stub_editor "$tools" editor
-  stub_textedit "$tools"
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
   make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
   file="$work/1 a.edit.txt"
+  run_window "$box" "$tools" --finder "$file"
 
-  out="$(print | run_window "$box" "$tools" --wait "$file")"
+  out="$(run_window "$box" "$tools" --next < /dev/null)"
 
-  check "runs the file" contains "$out" $'\nRunning 1 a.edit.txt: 2 recordings, merge = false\n'
+  check "runs the file" contains "$out" $'Running 1 a.edit.txt: 2 recordings, merge = false\n'
   check "says how to run it again" test "${${(f)out}[-1]}" = "To run it again: shrinkit run ${(qq)file}"
   check "and shows what came out in Finder" \
     test "$(tail -1 "$tools/open.log")" = "-R | $work/1 a.mp4 | $work/2 b.mp4"
 }
 
-# One request per right-click, holding the path of its edit file (SPEC.md, How the window is
-# started), and one window per request: each takes the oldest one there is. The launcher itself is
-# run here, as Terminal runs it, with open stubbed and its input at an end, so it runs nothing.
+# One request per edit file (SPEC.md, How the window is started), and one window per request: each
+# takes the oldest one there is. The launcher itself is run here, as Terminal runs it, with open
+# stubbed.
 test_each_window_takes_one_request() {
   local box tools work support launcher queue first second third code=0
   box="$(installed_box)"
@@ -203,19 +87,20 @@ test_each_window_takes_one_request() {
   third="$(HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null)" || code=$?
 
   check "the first window takes the oldest request whose file is there" \
-    test "${${(f)first}[1]}" = "$CLEAN_SCREEN$work/a.edit.txt"
-  check "the second takes the next" test "${${(f)second}[1]}" = "$CLEAN_SCREEN$work/b.edit.txt"
-  check "each opening its own file in TextEdit" \
-    test "$(< "$tools/open.log")" = "-e | $work/a.edit.txt"$'\n'"-e | $work/b.edit.txt"
+    test "${${(f)first}[1]}" = "${CLEAN_SCREEN}Running a.edit.txt: 1 recording, merge = false"
+  check "the second takes the next" \
+    test "${${(f)second}[1]}" = "${CLEAN_SCREEN}Running b.edit.txt: 1 recording, merge = false"
+  check "each running its own file" \
+    test "$(< "$tools/open.log")" = "-R | $work/a.mp4"$'\n'"-R | $work/b.mp4"
   check "a third finds none waiting" test "$third" = \
-    "${CLEAN_SCREEN}No edit file is waiting. Select recordings in Finder and pick shrinkit: edit."
+    "${CLEAN_SCREEN}No edit file is waiting. Select one in Finder and pick shrinkit: run."
   check "and exits 1" test "$code" = 1
   check "leaving no request behind" empty_dir "$queue"
 }
 
-# --------------------------------------------------------------------- the Finder entry
+# --------------------------------------------------------------------- shrinkit: edit
 
-test_the_edit_entry_opens_the_recordings_then_the_terminal_window() {
+test_the_edit_entry_opens_the_file_in_textedit_and_nothing_else() {
   local box tools work support file
   box="$(installed_box)"
   print -r -- 'notify = false' >> "$box/work/settings.conf"
@@ -229,14 +114,9 @@ test_the_edit_entry_opens_the_recordings_then_the_terminal_window() {
 
   run_entry "$box" "$tools" edit "$work/blue.mov" "$work/red.mov"
 
-  check "opens each recording in its player, then a Terminal window on the launcher" \
-    test "$(< "$tools/open.log")" = "-- | $work/red.mov"$'\n'"-- | $work/blue.mov"$'\n'"-a | Terminal | $support/shrinkit edit.command"
-  check "leaving it the edit file to take" test "$(cat "$support/edit-queue"/*(N.))" = "$file"
-
-  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$support/shrinkit edit.command" < /dev/null > /dev/null)
-
-  check "which the window opens in TextEdit" test "$(tail -1 "$tools/open.log")" = "-e | $file"
-  check "and takes, so no other window does" empty_dir "$support/edit-queue"
+  check "opens the edit file in TextEdit, and no player and no Terminal window" \
+    test "$(< "$tools/open.log")" = "-e | $file"
+  check "leaving no request for a window" empty_dir "$support/edit-queue"
 }
 
 test_the_edit_entry_writes_the_file_beside_the_first_recording() {
@@ -254,8 +134,8 @@ test_the_edit_entry_writes_the_file_beside_the_first_recording() {
   run_entry "$box" "$tools" edit "$work/notes.txt" "$work/2 bug.mov" "$work/1 intro.mov" 2> /dev/null
 
   check "writes <first recording>.edit.txt beside it" exists "$file"
-  check "saying where it is run" test "$(head -1 "$file")" = \
-    "# shrinkit edit: 2 recordings. Edit this file, save it, then press Enter in the Terminal window."
+  check "saying how it is run" test "$(head -1 "$file")" = \
+    "# shrinkit edit: 2 recordings. Edit this file, save it, then right-click it in Finder and pick shrinkit: run."
   check "with a block per recording, in the order they join in" \
     test "$(headers_of "$file")" = $'[1 intro.mov]\n[2 bug.mov]'
 }
@@ -296,58 +176,119 @@ test_the_edit_entry_opens_nothing_where_it_cannot_write() {
   check "and exits 1" test "$code" = 1
 }
 
-test_the_edit_entry_says_when_its_terminal_window_does_not_open() {
+# --------------------------------------------------------------------- shrinkit: run
+
+test_the_run_entry_opens_a_window_for_each_edit_file() {
+  local box tools work support launcher
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/b.mov"
+  make_edit "$box/work" "$tools" "$work/a.mov"
+  make_edit "$box/work" "$tools" "$work/b.mov"
+  print -r -- 'not an edit file' > "$work/notes.txt"
+  support="$box/home/Library/Application Support/shrinkit"
+  launcher="$support/shrinkit edit.command"
+
+  run_entry "$box" "$tools" run "$work/a.edit.txt" "$work/notes.txt" "$work/a.mov" "$work/b.edit.txt"
+
+  check "opens one Terminal window on the launcher for each edit file" \
+    test "$(< "$tools/open.log")" = "-a | Terminal | $launcher"$'\n'"-a | Terminal | $launcher"
+  check "leaving each window one of them to take" \
+    test "$(cat "$support/edit-queue"/*(N.) | sort)" = "$work/a.edit.txt"$'\n'"$work/b.edit.txt"
+
+  : > "$tools/open.log"
+  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null > /dev/null)
+  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null > /dev/null)
+
+  check "which run one file each" \
+    test "$(sort "$tools/open.log")" = "-R | $work/a.mp4"$'\n'"-R | $work/b.mp4"
+  check "and take their requests, so no other window does" empty_dir "$support/edit-queue"
+}
+
+test_the_run_entry_without_an_edit_file_says_so() {
+  local box tools work support code=0
+  box="$(installed_box)"
+  print -r -- 'notify_sound = Ping' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  print -r -- 'not an edit file' > "$work/notes.txt"
+  support="$box/home/Library/Application Support/shrinkit"
+
+  run_entry "$box" "$tools" run "$work/clip.mov" "$work/notes.txt" 2> /dev/null || code=$?
+
+  check "says what it takes in a banner" test "$(< "$tools/osascript.log")" = \
+    "banner shrinkit | shrinkit: run takes an edit file (<first recording>.edit.txt) | Ping"
+  check "exits 2" test "$code" = 2
+  check "opens nothing" missing "$tools/open.log"
+  check "and leaves no request" empty_dir "$support/edit-queue"
+}
+
+test_the_run_entry_says_when_its_terminal_window_does_not_open() {
   local box tools work file said code=0
   box="$(installed_box)"
   tools="$(scratch)"
   stub_tools "$tools"
-  # Terminal does not open the launcher; the players open as usual.
-  print -rl -- '#!/bin/zsh' "print -r -- \"\${(j: | :)@}\" >> ${(qq)tools}/open.log" \
-    '[[ "$1" != -a ]]' > "$tools/open"
+  stub_editor "$tools" editor
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/it's.mov"
+  make_edit "$box/work" "$tools" "$work/it's.mov"
   file="$work/it's.edit.txt"
-  said="shrinkit: edit could not open a Terminal window. To run the file: shrinkit run ${(qq)file}"
+  # Terminal does not open the launcher.
+  print -rl -- '#!/bin/zsh' "print -r -- \"\${(j: | :)@}\" >> ${(qq)tools}/open.log" \
+    '[[ "$1" != -a ]]' > "$tools/open"
+  said="shrinkit: run could not open a Terminal window. To run the file: shrinkit run ${(qq)file}"
 
-  run_entry "$box" "$tools" edit "$work/it's.mov" 2> /dev/null || code=$?
+  run_entry "$box" "$tools" run "$file" 2> /dev/null || code=$?
 
   check "says so in a banner, with the command that runs the file by hand" \
     test "$(< "$tools/osascript.log")" = "banner shrinkit | $said | Glass"
   check "and in the log" test "$(grep -c -F -- "$said" "$box/work/.logs/optimizer.log")" = 1
-  check "leaving the file that command runs" exists "$file"
   check "and exits 1" test "$code" = 1
 }
 
-# Each window takes the oldest request, so one left by a click whose window never opened would be
-# taken by the next click's window instead of that click's own.
-test_a_click_whose_window_does_not_open_leaves_no_request() {
+# Each window takes the oldest request, so one left by a run whose window never opened would be
+# taken by the next run's window instead of that run's own.
+test_a_run_whose_window_does_not_open_leaves_no_request() {
   local box tools work support
   box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
   tools="$(scratch)"
   stub_tools "$tools"
-  print -rl -- '#!/bin/zsh' "print -r -- \"\${(j: | :)@}\" >> ${(qq)tools}/open.log" \
-    '[[ "$1" != -a ]]' > "$tools/open"
+  stub_editor "$tools" editor
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/first.mov"
   cp "$FIXTURES/take-blue.mov" "$work/second.mov"
+  make_edit "$box/work" "$tools" "$work/first.mov"
+  make_edit "$box/work" "$tools" "$work/second.mov"
   support="$box/home/Library/Application Support/shrinkit"
+  print -rl -- '#!/bin/zsh' "print -r -- \"\${(j: | :)@}\" >> ${(qq)tools}/open.log" \
+    '[[ "$1" != -a ]]' > "$tools/open"
 
-  run_entry "$box" "$tools" edit "$work/first.mov" 2> /dev/null
+  run_entry "$box" "$tools" run "$work/first.edit.txt" 2> /dev/null
 
   check "leaves no request in the queue" empty_dir "$support/edit-queue"
 
-  # Terminal opens again for the next click.
+  # Terminal opens again for the next run.
   stub_tools "$tools"
-  run_entry "$box" "$tools" edit "$work/second.mov"
+  run_entry "$box" "$tools" run "$work/second.edit.txt"
   (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$support/shrinkit edit.command" < /dev/null > /dev/null)
 
-  check "so the next click's window opens that click's own file" \
-    test "$(tail -1 "$tools/open.log")" = "-e | $work/second.edit.txt"
+  check "so the next window runs that run's own file" \
+    test "$(tail -1 "$tools/open.log")" = "-R | $work/second.mp4"
 }
 
-# The folder, the program and the recordings reach the entry's command, the launcher and the window
-# as the words they are, never as code.
-test_the_edit_entry_takes_names_as_written() {
+# --------------------------------------------------------------------- both
+
+# The folder, the program and the recordings reach the entries' commands, the launcher and the
+# window as the words they are, never as code.
+test_the_entries_take_names_as_written() {
   local box folder tools work support
   box="$(scratch)"
   setup_box "$box"
@@ -362,10 +303,11 @@ test_the_edit_entry_takes_names_as_written() {
   support="$box/home/Library/Application Support/shrinkit"
 
   run_entry "$box" "$tools" edit "$work/it's.mov"
+  run_entry "$box" "$tools" run "$work/it's.edit.txt"
   (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$support/shrinkit edit.command" < /dev/null > /dev/null)
 
   check "runs nothing named in the folder" missing "$box/folder-ran"
   check "or in the recording's" missing "$box/clip-ran"
   check "writes the file beside the recording" exists "$work/it's.edit.txt"
-  check "and the window opens it" test "$(tail -1 "$tools/open.log")" = "-e | $work/it's.edit.txt"
+  check "and the window runs it" test "$(tail -1 "$tools/open.log")" = "-R | $work/it's.mp4"
 }

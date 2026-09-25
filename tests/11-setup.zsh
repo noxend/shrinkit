@@ -169,11 +169,47 @@ test_setup_builds_one_entry_per_preset_and_sweeps_the_rest() {
 
   run_setup "$box" > /dev/null 2>&1
 
-  # three stock presets, plus edit and merge
-  check "one entry per preset plus the one that is not a preset" \
-    test "$(action_count "$services")" = 5
+  # three stock presets, plus edit, run and merge
+  check "one entry per preset plus the ones that are not a preset" \
+    test "$(action_count "$services")" = 6
   check "a preset that no longer exists leaves no entry" missing "$services/shrinkit: gone.workflow"
   check "and the preset entries are there" exists "$services/shrinkit: 2x.workflow/Contents/Info.plist"
+}
+
+# Finder lists an entry for the files its Info.plist names: an edit file is plain text to it, and
+# every other entry takes recordings.
+test_setup_offers_run_for_edit_files_and_the_rest_for_recordings() {
+  local box services name
+  box="$(scratch)"
+  setup_box "$box"
+  services="$box/home/Library/Services"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  check "run is offered for plain text alone" \
+    test "$(entry_types "$services/shrinkit: run.workflow")" = '["public.plain-text"]'
+  for name in 2x sharp tiny edit merge; do
+    check "$name for movies alone" \
+      test "$(entry_types "$services/shrinkit: $name.workflow")" = '["public.movie"]'
+  done
+}
+
+# With no template beside the program, an entry already in the menu is copied instead, and the run
+# entry may be the one there is.
+test_an_entry_copied_from_the_run_entry_is_offered_for_recordings() {
+  local box services entry
+  box="$(installed_box)"
+  services="$box/home/Library/Services"
+  for entry in "$services"/shrinkit:*.workflow; do
+    [[ "$entry" == */"shrinkit: run.workflow" ]] || rm -rf "$entry"
+  done
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_REPO="" SHRINKIT_PBS="$box/stub/pbs" \
+    zsh "$OPTIMIZER" preset install 2x > /dev/null 2>&1
+
+  check "the preset's entry is built" exists "$services/shrinkit: 2x.workflow/Contents/Info.plist"
+  check "for movies, not for the text files run takes" \
+    test "$(entry_types "$services/shrinkit: 2x.workflow")" = '["public.movie"]'
 }
 
 # A clone upgraded with git pull and setup, no teardown: the mark cuts entry 3.x built goes with
@@ -195,9 +231,10 @@ test_setup_run_again_removes_the_mark_cuts_entry_an_older_version_built() {
   check "leaves no mark cuts entry" missing "$entry"
   check "and builds merge's" exists "$services/shrinkit: merge.workflow/Contents/Info.plist"
   check "and edit's, which replaced it" exists "$services/shrinkit: edit.workflow/Contents/Info.plist"
+  check "with run's beside it" exists "$services/shrinkit: run.workflow/Contents/Info.plist"
 }
 
-# The Terminal window of shrinkit: edit runs a launcher setup writes once, beside the folder file.
+# The Terminal window shrinkit: run opens runs a launcher setup writes once, beside the folder file.
 test_setup_writes_the_launcher_and_teardown_removes_it() {
   local box support launcher entry out
   box="$(scratch)"

@@ -1218,11 +1218,13 @@ quick_action_template() {
 }
 
 # One entry in the right-click menu: the template copied into ~/Library/Services, with the command
-# it runs and the name it shows replaced. Every entry differs only in those two. The folder, the
+# it runs, the name it shows and the file type Finder offers it for (movies unless another is named)
+# replaced. Every entry differs only in those three. The workflow itself takes any file or folder
+# (com.apple.Automator.fileSystemObject), so the type is named in Info.plist alone. The folder, the
 # program and the preset go into that command single-quoted, since zsh runs it: inside double
 # quotes a $ or a backtick in a folder or preset name ran as code on every right-click.
 install_quick_action() {
-  local name="$1" command="$2" template action
+  local name="$1" command="$2" type="${3:-public.movie}" template action
   template="$(quick_action_template)" || {
     print -u2 -r -- "cannot find a Quick Action to copy (looked in ${REPO_DIR:-<unset>}/quick-action)"
     return 1
@@ -1238,6 +1240,7 @@ install_quick_action() {
   plutil -replace CFBundleName -string "shrinkit: $name" "$action/Contents/Info.plist"
   plutil -replace NSServices.0.NSMenuItem.default -string "shrinkit: $name" \
     "$action/Contents/Info.plist"
+  plutil -replace NSServices.0.NSSendFileTypes -json "[\"$type\"]" "$action/Contents/Info.plist"
   "$PBS" -update 2> /dev/null || true
 
   print -r -- "right-click a video > shrinkit: $name"

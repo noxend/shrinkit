@@ -37,7 +37,7 @@ test_config_folder_refuses_a_folder_it_cannot_write_to() {
   check "says no" test "$code" != 0
   check "keeps the folder it had" \
     test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/work/input"
-  check "and keeps every menu entry" test "$(action_count "$box/home/Library/Services")" = 5
+  check "and keeps every menu entry" test "$(action_count "$box/home/Library/Services")" = 6
 }
 
 test_setup_under_brew_does_not_fail_the_upgrade_for_a_missing_drive() {
@@ -164,7 +164,7 @@ test_config_folder_refuses_a_folder_it_cannot_create() {
     test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" WatchPaths.0)" = "$box/work/input"
   check "remembers the folder it had" \
     test "$(< "$box/home/Library/Application Support/shrinkit/folder")" = "$box/work"
-  check "and keeps every menu entry" test "$(action_count "$box/home/Library/Services")" = 5
+  check "and keeps every menu entry" test "$(action_count "$box/home/Library/Services")" = 6
 }
 
 test_setup_registers_nothing_for_a_folder_it_cannot_create() {
