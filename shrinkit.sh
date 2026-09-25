@@ -1367,9 +1367,9 @@ A preset is a file of the same settings in $PRESET_DIR.
 Use one for a run with --preset <name>, or turn it into its own right-click
 entry with 'preset install <name>'.
 
-edit writes one file for several recordings, with a block for each, and opens it
-in \$VISUAL or \$EDITOR, or vi when neither is set. Under a recording's name go
-its own preset, cut, keep and settings, and merge = true at the top joins the
+edit writes one file for up to 10 recordings, with a block for each, and opens
+it in \$VISUAL or \$EDITOR, or vi when neither is set. Under a recording's name
+go its own preset, cut, keep and settings, and merge = true at the top joins the
 results in the order of the blocks. The file runs when the editor closes; delete
 every block to cancel. The right-click 'shrinkit: edit' entry writes the same
 file and opens it in TextEdit; 'shrinkit: run' on the saved file runs it in a
@@ -1378,9 +1378,10 @@ Terminal window, which closes itself when everything went through.
 run runs an edit file again, here in the terminal. The file stays beside the
 first recording as shrinkit-<code>.edit.txt, the code made from the recordings'
 paths, so an edit of the same recordings opens it again as it was left. Delete
-it to start over.
+it to start over. On a terminal each step shows in colour, with a bar while
+ffmpeg works on it; with NO_COLOR set the words come plain.
 
-merge joins several recordings into one, in the order they were recorded, or by
+merge joins up to 10 recordings into one, in the order they were recorded, or by
 a number at the start of the file name (1 intro.mov, 2 bug.mov) for any that
 carry one. The result lands beside the first clip and the originals stay where
 they are. It does not shrink: run a preset on the result afterwards. Same as the
