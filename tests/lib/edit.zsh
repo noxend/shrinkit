@@ -4,8 +4,8 @@
 # --------------------------------------------------------------------- edit and run
 
 # stub_tools <dir>: open and osascript in <dir>, each writing one line per call to <dir>/<name>.log.
-# osascript's line says what the script it was handed on stdin does (banner or clipboard), then its
-# arguments after the '-', separated by ' | '.
+# osascript's line says what the script it was handed on stdin does (banner, clipboard, or close for
+# closing a Terminal window), then its arguments after the '-', separated by ' | '.
 stub_tools() {
   local dir="$1"
   sandboxed "$dir"
@@ -16,6 +16,7 @@ script="\$(cat)"
 kind=other
 [[ "\$script" == *displayNotification* ]] && kind=banner
 [[ "\$script" == *NSPasteboard* ]] && kind=clipboard
+[[ "\$script" == *'tty of selected tab'* ]] && kind=close
 print -r -- "\$kind \${(j: | :)@[4,-1]}" >> ${(qq)dir}/osascript.log
 STUB
   chmod +x "$dir/open" "$dir/osascript"
@@ -118,6 +119,17 @@ run_entry() {
   shift 3
   [[ -n "$command" ]] || return 1
   (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" zsh -c "$command" zsh "$@")
+}
+
+# in_terminal <tools> <command...>: the command on a terminal of its own, run by a shell with job
+# control and followed by exit, the way Terminal runs a .command. The terminal's name goes to
+# <tools>/tty first, and what the terminal shows to <tools>/screen, with its carriage returns.
+in_terminal() {
+  local tools="$1"
+  shift
+  sandboxed "$tools"
+  script -q /dev/null zsh -o monitor -c 'tty > "$1"; shift; "$@"; exit' zsh "$tools/tty" "$@" \
+    < /dev/null > "$tools/screen" 2>&1
 }
 
 # The block headers of an edit file, one per line, in the order they are written.

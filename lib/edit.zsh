@@ -230,12 +230,13 @@ edit_source() {
 # What a run made, and the blocks it could not shrink, for its summary and its one banner.
 typeset -a EDIT_MADE EDIT_FAILED
 
-# One line on the terminal as it is, and the same words in the log.
+# edit_say <mark> <line>: the line on the terminal after the mark for what it says, and the same
+# words alone in the log.
 edit_say() {
   local fd="$SCREEN_FD"
-  print -r -- "$1"
+  print -r -- "$1 $2"
   SCREEN_FD=""
-  log "$1"
+  log "$2"
   SCREEN_FD="$fd"
 }
 
@@ -268,7 +269,7 @@ edit_say_problems() {
 edit_block_header() {
   local i="$1" summary
   summary="$(edit_block_summary $i)"
-  print -r -- "[$i/${#EDIT_NAMES}] ${EDIT_NAMES[i]}${summary:+   $summary}"
+  print -r -- "🎬 [$i/${#EDIT_NAMES}] ${EDIT_NAMES[i]}${summary:+   $summary}"
 }
 
 # What block i's settings come to, one line per key asked for, with nothing said on the terminal
@@ -340,7 +341,7 @@ edit_run_apart() {
   edit_say_problems
   for ((i = 1; i <= n; i++)); do
     refused="$(edit_block_refused $i "$file")" && {
-      edit_say "[$i/$n] $refused"
+      edit_say ⚠️ "[$i/$n] $refused"
       EDIT_FAILED+=("${EDIT_NAMES[i]}")
       continue
     }
@@ -356,7 +357,7 @@ edit_run_apart() {
   done
   # One block has nothing to be joined to, so it is shrunk the way merge = false would.
   [[ "$EDIT_MERGE" == true ]] && ((${#EDIT_MADE})) \
-    && edit_say "merge = true needs two recordings; ${EDIT_NAMES[1]} was shrunk on its own"
+    && edit_say ⚠️ "merge = true needs two recordings; ${EDIT_NAMES[1]} was shrunk on its own"
   ((${#EDIT_FAILED} == 0))
 }
 
@@ -377,12 +378,12 @@ edit_run_merged() {
   ((${#refusals})) || edit_merge_format "$file"
   edit_say_problems
   if ((${#refusals})); then
-    for refused in "${refusals[@]}"; do edit_say "$refused"; done
-    edit_say "$nothing"
+    for refused in "${refusals[@]}"; do edit_say ⚠️ "$refused"; done
+    edit_say ❌ "$nothing"
     return 1
   fi
   PARTS_DIR="$(mktemp -d "$(temp_folder)/shrinkit.$$.edit.XXXXXX")" || {
-    edit_say "cannot make a folder for the parts in $(temp_folder)"
+    edit_say ❌ "cannot make a folder for the parts in $(temp_folder)"
     return 1
   }
   for ((i = 1; i <= n; i++)); do
@@ -394,12 +395,12 @@ edit_run_merged() {
     mkdir "${out:h}" && shrink "$src" "$out" false || {
       EDIT_FAILED+=("${EDIT_NAMES[i]}")
       remove_parts
-      edit_say "$nothing"
+      edit_say ❌ "$nothing"
       return 1
     }
     parts+=("$out")
   done
-  print -r -- "[join] $n parts"
+  print -r -- "🔗 [join] $n parts"
   # Called directly, not in $(...): the traps find the part it writes in CURRENT_PART.
   merge_files "$(edit_source "${EDIT_NAMES[1]}" "${file:h}")" "${parts[@]}" || {
     log "FAILED join of $n parts (the reason is above)"
@@ -426,12 +427,12 @@ run_edit_file() {
   }
   read_edit_file "$file"
   ((EDIT_RTF)) && {
-    edit_say "${file:t} was saved as rich text: in TextEdit, Format > Make Plain Text, save, and run it again"
+    edit_say ❌ "${file:t} was saved as rich text: in TextEdit, Format > Make Plain Text, save, and run it again"
     return 1
   }
   n=${#EDIT_NAMES}
   ((n > 0)) || {
-    edit_say "No recording in ${file:t}, nothing to run."
+    edit_say ❌ "No recording in ${file:t}, nothing to run."
     return 1
   }
   [[ "$EDIT_MERGE" == true ]] && ((n > 1)) && merged=true
@@ -458,11 +459,11 @@ run_edit_file() {
 
   print
   if ((rc == 0)); then
-    print -r -- "Done."
+    print -r -- "✅ Done."
   elif [[ "$merged" == true ]]; then
-    print -r -- "Nothing was joined."
+    print -r -- "❌ Nothing was joined."
   else
-    print -r -- "Not every recording was shrunk."
+    print -r -- "❌ Not every recording was shrunk."
   fi
   for out in "${EDIT_MADE[@]}"; do print -r -- "  $out  ($(human_size "$out"))"; done
   ((${#EDIT_FAILED})) && print -r -- "Not shrunk: ${(j:, :)EDIT_FAILED}"
@@ -579,7 +580,8 @@ take_edit_request() {
   return 1
 }
 
-# The window: the file run at once, then how to run it again, and what came out shown in Finder.
+# The window: the file run at once, then how to run it again, what came out shown in Finder, and
+# the window closed when the run went through.
 edit_window() {
   local file="${1:a}" rc
   run_edit_file "$file"
@@ -587,7 +589,30 @@ edit_window() {
   print
   print -r -- "To run it again: shrinkit run ${(qq)file}"
   ((${#EDIT_MADE})) && open -R "${EDIT_MADE[@]}"
+  ((rc == 0)) && close_window_later
   return $rc
+}
+
+# Terminal keeps a window open once its shell has ended, so the window asks Terminal to close it:
+# from a step that outlives this process, 3 seconds on, when the shell around it has ended, the
+# window whose selected tab is on the terminal this reads from. Asked that way, Terminal closes it
+# without a prompt (measured 2026-09-25).
+close_window_later() {
+  local tty
+  tty="$(tty)" || return 0
+  print -r -- "This window closes in 3 seconds."
+  (
+    sleep 3
+    osascript -l AppleScript - "$tty" << 'CLOSE'
+on run argv
+  tell application "Terminal"
+    repeat with w in windows
+      if tty of selected tab of w is (item 1 of argv) then close w
+    end repeat
+  end tell
+end run
+CLOSE
+  ) < /dev/null > /dev/null 2>&1 &|
 }
 
 # --------------------------------------------------------------------- shrinkit edit

@@ -196,13 +196,21 @@ SCREEN_LINES=0
 typeset -A PART_FORMAT
 
 log() {
-  local line
+  local line mark
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
   # The filter graph is for reading a cut back in the log, not for reading along. ffmpeg's own
   # output and mv's reason go to the log alone, so on the terminal they are in the log, not above.
   [[ -n "$SCREEN_FD" && "$*" != graph\ * ]] || return 0
+  # On the terminal a line is marked by what it says: an encode starting, a result made, a failure.
+  # Anything else an edit run logs is a line, a block or a range that is not used as written.
+  case "$*" in
+    encode\ *) mark="⏳" ;;
+    done\ * | merged\ *) mark="✅" ;;
+    FAILED\ *) mark="❌" ;;
+    *) mark="⚠️" ;;
+  esac
   line="${*//ffmpeg output is above/ffmpeg output is in $LOG}"
-  print -r -u "$SCREEN_FD" -- "  ${line//the reason is (on the line |)above/the reason is in $LOG}"
+  print -r -u "$SCREEN_FD" -- "  $mark ${line//the reason is (on the line |)above/the reason is in $LOG}"
   ((++SCREEN_LINES))
   return 0
 }

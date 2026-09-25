@@ -1,7 +1,8 @@
 # Sourced by tests/run-tests.sh: the two right-click entries and the Terminal window. shrinkit: edit
 # writes the edit file and opens it in TextEdit; shrinkit: run leaves a request for each edit file it
-# is handed and opens a window on the launcher setup writes; the window takes one request and runs
-# its file. open and osascript only write down what they were asked.
+# is handed and opens a window on the launcher setup writes; the window takes one request, runs its
+# file, and closes itself when the run went through. open and osascript only write down what they
+# were asked.
 
 # The one sequence a window prints before anything else: the cursor home, the screen cleared, and
 # what scrolled off it cleared too.
@@ -310,4 +311,87 @@ test_the_entries_take_names_as_written() {
   check "or in the recording's" missing "$box/clip-ran"
   check "writes the file beside the recording" exists "$work/it's.edit.txt"
   check "and the window runs it" test "$(tail -1 "$tools/open.log")" = "-R | $work/it's.mp4"
+}
+
+# --------------------------------------------------------------------- closing itself
+
+# Asked to close a window, the osascript stub writes a line starting with close.
+never_asked_to_close() {
+  ! grep -q '^close ' "$1/osascript.log" 2> /dev/null
+}
+
+# Terminal keeps a window open once its shell has ended, so a window whose run went through asks
+# Terminal to close it: the window whose selected tab is on the terminal it ran on.
+test_a_window_whose_run_went_through_closes_itself() {
+  local box tools work launcher ended waited _
+  zmodload zsh/datetime
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  make_edit "$box/work" "$tools" "$work/clip.mov"
+  run_entry "$box" "$tools" run "$work/clip.edit.txt"
+  launcher="$box/home/Library/Application Support/shrinkit/shrinkit edit.command"
+
+  in_terminal "$tools" env HOME="$box/home" PATH="$tools:$PATH" "$launcher"
+  ended=$EPOCHREALTIME
+  for _ in {1..200}; do
+    grep -q '^close ' "$tools/osascript.log" 2> /dev/null && break
+    sleep 0.05
+  done
+  waited=$((EPOCHREALTIME - ended))
+
+  check "runs the file" exists "$work/clip.mp4"
+  check "then says it closes in 3 seconds" \
+    test "$(tr -d '\r' < "$tools/screen" | tail -1)" = "This window closes in 3 seconds."
+  check "and asks Terminal to close the window on its terminal" \
+    test "$(< "$tools/osascript.log")" = "close $(< "$tools/tty")"
+  # A lower bound alone: a loaded machine starts the stub late, never early.
+  check "3 seconds on, once the shell there has ended" awk -v w="$waited" 'BEGIN { exit !(w >= 2.5) }'
+}
+
+test_a_window_whose_run_failed_stays_open() {
+  local box tools work launcher
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  make_edit "$box/work" "$tools" "$work/clip.mov"
+  rm "$work/clip.mov"
+  run_entry "$box" "$tools" run "$work/clip.edit.txt"
+  launcher="$box/home/Library/Application Support/shrinkit/shrinkit edit.command"
+
+  in_terminal "$tools" env HOME="$box/home" PATH="$tools:$PATH" "$launcher"
+  sleep 4.5 # past the 3 seconds a window whose run went through waits
+
+  check "runs the file, which fails" contains "$(tr -d '\r' < "$tools/screen")" "Not shrunk: clip.mov"
+  check "says nothing about closing" lacks "$(< "$tools/screen")" "closes in"
+  check "and never asks Terminal to close it" never_asked_to_close "$tools"
+}
+
+# Only the launcher's window closes itself: a terminal someone typed shrinkit run into is theirs.
+test_shrinkit_run_typed_in_a_terminal_leaves_it_open() {
+  local box tools work
+  box="$(sandbox)"
+  settings "$box"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  make_edit "$box" "$tools" "$work/clip.mov"
+
+  in_terminal "$tools" env PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO= \
+    zsh "$OPTIMIZER" run "$work/clip.edit.txt"
+  sleep 4.5 # past the 3 seconds a window whose run went through waits
+
+  check "runs the file" exists "$work/clip.mp4"
+  check "says nothing about closing" lacks "$(< "$tools/screen")" "closes in"
+  check "and never asks Terminal to close it" never_asked_to_close "$tools"
 }
