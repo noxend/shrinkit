@@ -52,6 +52,151 @@ write_edit_file() {
   } 2> /dev/null
 }
 
+# --------------------------------------------------------------------- reading it
+
+# What read_edit_file found: merge from above the first block, each block's name as its header
+# gives it, and every setting line of every block, one entry per line across the four arrays.
+EDIT_MERGE=false
+typeset -a EDIT_NAMES EDIT_BLOCK EDIT_LINE EDIT_KEY EDIT_VALUE
+
+# The rules read_settings has for settings.conf, plus the [headers]. A key is read whatever its
+# case and with '-' for '_', since TextEdit capitalises a line and a flag spells it with '-'.
+read_edit_file() {
+  local line key value n=0 block=0
+  EDIT_MERGE=false
+  EDIT_NAMES=() EDIT_BLOCK=() EDIT_LINE=() EDIT_KEY=() EDIT_VALUE=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    ((++n))
+    ((n == 1)) && line="${line#$'\xef\xbb\xbf'}"
+    line="$(trim "$line")"
+    [[ -z "$line" || "$line" == '#'* ]] && continue
+    # From the first [ to the last ], so a name that holds brackets reads right.
+    if [[ "$line" == '['*']' ]]; then
+      EDIT_NAMES+=("$(trim "${${line#\[}%\]*}")")
+      block=${#EDIT_NAMES}
+      continue
+    fi
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    key="${${(L)key//[[:space:]]/}//-/_}"
+    value="$(trim "${line#*=}")"
+    value="${value//\"/}"
+    if ((block == 0)); then
+      [[ "$key" == merge ]] && EDIT_MERGE="${(L)value}"
+      continue
+    fi
+    EDIT_BLOCK+=("$block")
+    EDIT_LINE+=("$n")
+    EDIT_KEY+=("$key")
+    EDIT_VALUE+=("$value")
+  done < "$1"
+}
+
+# A block's settings in the order written, "key value, key value", for the line that heads it.
+edit_block_summary() {
+  local i="$1" j
+  local -a parts
+  for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
+    ((EDIT_BLOCK[j] == i)) && parts+=("${EDIT_KEY[j]} ${EDIT_VALUE[j]}")
+  done
+  print -r -- "${(j:, :)parts}"
+}
+
+# settings.conf as the run read it, kept to start every block from.
+typeset -A EDIT_BASE
+
+# The settings for block i, in the order a command line has them: settings.conf, the block's preset,
+# its own lines, then the checks every run makes. Everything a block can set is set afresh, so
+# nothing one block asked for reaches the next.
+edit_block_settings() {
+  local i="$1" j key value
+  CFG=("${(@kv)EDIT_BASE}")
+  IGNORED=()
+  PRESET=""
+  CUT_RANGES=()
+  KEEP_RANGES=()
+  RANGE_ORIGIN="in the block for ${EDIT_NAMES[i]}"
+  for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
+    ((EDIT_BLOCK[j] == i)) && [[ "${EDIT_KEY[j]}" == preset ]] && PRESET="${EDIT_VALUE[j]}"
+  done
+  [[ -n "$PRESET" ]] && { read_preset "$PRESET" || PRESET=""; }
+  for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
+    ((EDIT_BLOCK[j] == i)) || continue
+    key="${EDIT_KEY[j]}"
+    value="${EDIT_VALUE[j]}"
+    case "$key" in
+      cut) CUT_RANGES+=("$value") ;;
+      keep) KEEP_RANGES+=("$value") ;;
+      speed | fps | crf | max_height) CFG[$key]="$value" ;;
+      codec | remove_audio) CFG[$key]="${(L)value}" ;;
+    esac
+  done
+  validate_config
+}
+
+# A header names a recording beside the edit file by its name, any other by its path.
+edit_source() {
+  [[ "$1" == /* ]] && print -r -- "$1" || print -r -- "$2/$1"
+}
+
+# --------------------------------------------------------------------- running it
+
+# Every block in order, each through the one-shot path with its own settings, the log on the
+# terminal as it goes. 0 when every recording was shrunk.
+run_edit_file() {
+  local file="${1:a}" i n src out summary
+  local -a made failed
+  mkdir -p "$LOG_DIR"
+  read_config
+  EDIT_BASE=("${(@kv)CFG}")
+  [[ -x "$FFMPEG" ]] || {
+    log "ffmpeg is not on PATH or in the Homebrew folders"
+    print -u2 -r -- "ffmpeg is not on PATH or in the Homebrew folders"
+    return 1
+  }
+  read_edit_file "$file"
+  n=${#EDIT_NAMES}
+  print -r -- "Running ${file:t}: $(recordings $n), merge = $EDIT_MERGE"
+  print
+
+  exec {SCREEN_FD}>&1
+  for ((i = 1; i <= n; i++)); do
+    summary="$(edit_block_summary $i)"
+    print -r -- "[$i/$n] ${EDIT_NAMES[i]}${summary:+   $summary}"
+    src="$(edit_source "${EDIT_NAMES[i]}" "${file:h}")"
+    edit_block_settings $i
+    out="$(free_name "${src:h}/$(output_name "$src")")"
+    if shrink "$src" "$out" false; then
+      made+=("$out")
+    else
+      failed+=("${EDIT_NAMES[i]}")
+    fi
+  done
+  exec {SCREEN_FD}>&-
+  SCREEN_FD=""
+
+  print
+  ((${#failed})) && print -r -- "Not every recording was shrunk." || print -r -- "Done."
+  for out in "${made[@]}"; do print -r -- "  $out  ($(human_size "$out"))"; done
+  ((${#failed} == 0)) || {
+    print -r -- "Not shrunk: ${(j:, :)failed}"
+    return 1
+  }
+}
+
+# shrinkit run <file>: an edit file written before, run again.
+run_command() {
+  (($# == 1)) || {
+    print -u2 -r -- "run needs one edit file: shrinkit run <file>"
+    return 2
+  }
+  [[ -f "$1" && -r "$1" ]] || {
+    print -u2 -r -- "cannot read $1"
+    return 2
+  }
+  run_edit_file "$1"
+}
+
 # --------------------------------------------------------------------- shrinkit edit
 
 # The videos among the names given, as absolute paths in merge order, one per line. What is not a
@@ -102,4 +247,5 @@ edit_command() {
     print -u2 -r -- "${editor[1]:t} exited with $rc, so nothing was run. The file stays: $file"
     return 1
   }
+  run_edit_file "$file"
 }
