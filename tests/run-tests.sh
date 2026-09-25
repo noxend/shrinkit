@@ -67,6 +67,10 @@ print -rl -- '#!/bin/zsh' 'exit 0' > "$TMPROOT/stub/pbs"
 chmod +x "$TMPROOT/stub/pbs"
 export SHRINKIT_PBS="$TMPROOT/stub/pbs"
 
+# An editor of this machine's own would open for real where a test names none, or win over the one
+# it names: VISUAL outranks EDITOR.
+unset VISUAL EDITOR
+
 # open and osascript are reached through the PATH, so a test without stubs of its own finds these
 # first, not the ones that would open windows and post banners on this Mac. Each call is written
 # down as well, since every banner throws away what osascript says, and the test that made it fails.

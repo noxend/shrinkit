@@ -90,7 +90,9 @@ test_each_window_takes_one_request() {
   third="$(HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null)" || code=$?
 
   check "the first window takes the oldest request with a file that is there" \
-    test "${${(f)first}[1]}" = "${CLEAN_SCREEN}shrinkit run  ${a:t}"
+    test "${${(f)first}[1]}" = "${CLEAN_SCREEN}gone too.edit.txt is gone from $work"
+  check "naming the one gone from it, then running the other" \
+    test "$(sed -n 3p <<< "$first")" = "shrinkit run  ${a:t}"
   check "running that file alone" test "$(grep -c 'shrinkit run  ' <<< "$first")" = 1
   check "the second takes the next" \
     test "${${(f)second}[1]}" = "${CLEAN_SCREEN}shrinkit run  ${b:t}"
@@ -652,6 +654,32 @@ test_a_window_whose_first_run_failed_runs_the_next_and_stays_open() {
   check "says nothing about closing" lacks "$text" "closes in"
   check "shows what came out in Finder" test "$(tail -1 "$tools/open.log")" = "-R | $work/b.mp4"
   check "and never asks Terminal to close it" never_asked_to_close "$tools"
+}
+
+# settings.conf is read again for each file in a window, and a line taken out of it in between
+# kept its value for the next file, since each read laid the file over the last one's settings.
+test_a_window_reads_settings_conf_afresh_for_each_file() {
+  local box tools work a b
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'max_height = 120'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  # The line goes as the first file's encode ends.
+  print -rl -- '#!/bin/zsh' "${(qq)FFMPEG} \"\$@\"" 'rc=$?' \
+    "sed -i '' '/^max_height/d' ${(qq)box}/settings.conf" 'exit $rc' > "$tools/ffmpeg"
+  chmod +x "$tools/ffmpeg"
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/b.mov"
+  a="$(make_edit "$box" "$tools" "$work/a.mov")"
+  b="$(make_edit "$box" "$tools" "$work/b.mov")"
+  run_window "$box" "$tools" --finder "$a" "$b"
+
+  run_window "$box" "$tools" --next < /dev/null > /dev/null 2>&1
+
+  check "the first file at the line's height" test "$(height_of "$work/a.mp4")" = 120
+  check "the second at its own, the line gone" test "$(height_of "$work/b.mp4")" = 180
 }
 
 # Only the launcher's window closes itself: a terminal someone typed shrinkit run into is theirs.
