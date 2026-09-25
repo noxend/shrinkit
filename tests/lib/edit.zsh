@@ -26,7 +26,7 @@ STUB
 # <dir>/given, then runs the edit lines as zsh, with $file set and the helpers below:
 #   add <block> <line...>   the lines go right under the block's [header]
 #   set_merge <value>       the merge line at the top says merge = <value>
-# An edit line of 'exit 1' is an editor that fails.
+# An edit line of 'exit 1' is an editor that fails, and so is any editor while <dir>/cancel exists.
 stub_editor() {
   local dir="$1" name="$2"
   shift 2
@@ -48,6 +48,8 @@ set_merge() {
 }
 HELPERS
     print -rl -- "$@"
+    print -r -- '[[ -f "$dir/cancel" ]] && exit 1'
+    print -r -- 'exit 0'
   } > "$dir/$name"
   chmod +x "$dir/$name"
 }
@@ -62,6 +64,26 @@ run_edit() {
   sandboxed "$tools"
   env -u VISUAL EDITOR="$tools/editor" PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" edit "$@"
+}
+
+# make_edit <box> <tools> <recording>...: the edit file shrinkit edit writes for the recordings, with
+# the edits of the editor in <tools>, which is cancelled so the file is left to run by hand.
+make_edit() {
+  local box="$1" tools="$2"
+  shift 2
+  sandboxed "$tools"
+  : > "$tools/cancel"
+  run_edit "$box" "$tools" "$@" 2> /dev/null
+  rm -f "$tools/cancel"
+}
+
+# run_file <box> <tools> <args...>: shrinkit run, with open and osascript from <tools>.
+run_file() {
+  local box="$1" tools="$2"
+  shift 2
+  sandboxed "$box"
+  sandboxed "$tools"
+  PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" run "$@"
 }
 
 # The block headers of an edit file, one per line, in the order they are written.

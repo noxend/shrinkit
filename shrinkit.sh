@@ -183,8 +183,15 @@ find_tool() {
 FFMPEG="$(find_tool ffmpeg)"
 FFPROBE="$(find_tool ffprobe)"
 
+# The terminal an edit run shows its log on, as a file descriptor: a copy of its stdout taken before
+# any $(...) capture, so a line logged inside one still reaches the screen. Empty outside a run.
+SCREEN_FD=""
+
 log() {
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
+  # The filter graph is for reading a cut back in the log, not for reading along.
+  [[ -n "$SCREEN_FD" && "$*" != graph\ * ]] && print -r -u "$SCREEN_FD" -- "  $*"
+  return 0
 }
 
 # The part being written and the ffmpeg writing it, so an interrupted run can stop both.
@@ -1421,6 +1428,11 @@ main() {
     edit)
       shift
       edit_command "$@"
+      return
+      ;;
+    run)
+      shift
+      run_command "$@"
       return
       ;;
     setup)
