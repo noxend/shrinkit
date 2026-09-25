@@ -207,13 +207,34 @@ test_merge_re_encodes_takes_that_do_not_match() {
 
   run_merge "$box" "$work/one.mov" "$work/two.mov"
 
-  check "says why it had to re-encode" logged "$box" 'differ in size, codec or sound'
+  check "says why it had to re-encode" logged "$box" 'differ in size, codec, encoder settings or sound'
   check "still produces one file" exists "$out"
   check "that plays" playable "$out"
   check "as long as the takes together" duration_near "$out" 4
   check "at the larger of the two sizes" test "$(height_of "$out")" = 360
   check "with the sound the other take had" has_audio "$out"
   check "and keeps the order" takes_are "$out" red grey
+}
+
+# Two results shrinkit made at different crf: the same codec, size and pixel format, and picture
+# parameter sets that differ, which a copy would put under the first result's header.
+test_merge_re_encodes_takes_whose_parameter_sets_differ() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 red.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 blue.mov"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --crf 18 "$work/1 red.mov"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --crf 32 "$work/2 blue.mov"
+  out="$work/1 red-merged.mp4"
+
+  run_merge "$box" "$work/1 red.mp4" "$work/2 blue.mp4"
+
+  check "says why it had to re-encode" logged "$box" 'differ in size, codec, encoder settings or sound'
+  check "rather than copying the streams" not_logged "$box" 'streams copied'
+  check "into one picture parameter set" test "$(pps_values "$out" | wc -l | tr -d ' ')" = 1
+  check "and keeps the order" takes_are "$out" red blue
 }
 
 test_merge_needs_at_least_two_videos() {
