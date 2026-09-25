@@ -138,7 +138,7 @@ LIB_DIR="$(lib_dir)"
 
 # A missing part is a broken install, not a missing feature, so it stops here. Reported to stderr
 # and by exit code rather than to the log, which lives under a folder these parts help set up.
-for _part in merge setup doctor edit screen; do
+for _part in merge setup doctor edit screen window; do
   [[ -r "$LIB_DIR/$_part.zsh" ]] || {
     print -u2 -r -- "shrinkit is incomplete: cannot read $LIB_DIR/$_part.zsh"
     exit 1
