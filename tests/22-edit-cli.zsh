@@ -105,6 +105,55 @@ test_edit_opens_the_file_of_the_same_recordings_as_it_was_left() {
   check "and writes no other" test "${#files}" = 1
 }
 
+# A folder reached through a symlink is the same set of recordings as its real path, and names the
+# same file: /tmp is /private/tmp, and Finder hands over the real path.
+test_edit_names_the_file_the_same_through_a_symlinked_folder() {
+  local box tools work link file
+  box="$(sandbox)"
+  settings "$box"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'exit 1'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/b.mov"
+  link="$(scratch)/link"
+  ln -s "${work:A}" "$link"
+
+  run_edit "$box" "$tools" "$link/a.mov" "$link/b.mov" 2> /dev/null
+  file="$(edited "$tools")"
+  run_edit "$box" "$tools" "${work:A}/a.mov" "${work:A}/b.mov" 2> /dev/null
+
+  check "names it after the real paths" \
+    test "${file:t}" = "$(print -rl -- "${work:A}/a.mov" "${work:A}/b.mov" | LC_ALL=C sort | shasum -a 256 | cut -c1-6 | sed 's/^/shrinkit-/;s/$/.edit.txt/')"
+  check "and the real path opens that same file" test "$(edited "$tools")" = "${work:A}/${file:t}"
+}
+
+# Two recordings from two folders recorded in the same second come first in the order they were
+# selected in, so the file an earlier edit left beside one of them is looked for in both folders.
+test_edit_opens_the_file_of_the_same_recordings_from_either_folder() {
+  local box tools one two file
+  local -a files
+  box="$(sandbox)"
+  settings "$box"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'exit 1'
+  one="$(scratch)"
+  two="$(scratch)"
+  recorded_copy "$FIXTURES/take-red.mov" "$one/a.mov" 2026-01-01T10:00:00
+  recorded_copy "$FIXTURES/take-blue.mov" "$two/b.mov" 2026-01-01T10:00:00
+
+  run_edit "$box" "$tools" "$one/a.mov" "$two/b.mov" 2> /dev/null
+  file="$(edited "$tools")"
+  run_edit "$box" "$tools" "$two/b.mov" "$one/a.mov" 2> /dev/null
+
+  check "the first edit left it beside the first selected" test "${file:h}" = "$one"
+  check "the other order opens that file" test "$(edited "$tools")" = "$file"
+  files=("$one"/*.edit.txt(N) "$two"/*.edit.txt(N))
+  check "and no second one is written" test "${#files}" = 1
+}
+
 test_edit_names_each_recordings_length_and_the_presets_there_are() {
   local box tools work
   box="$(sandbox)"
