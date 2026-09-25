@@ -323,11 +323,13 @@ test_run_merge_says_when_the_join_fails() {
   chmod u+w "$work"
   banners=(${(f)"$(grep '^banner ' "$tools/osascript.log")"})
 
-  check "says the join failed" contains "$out" "  FAILED join of 2 parts"
+  check "says the join failed" contains "$out" \
+    $'\n'"  FAILED join of 2 parts (the reason is in $box/.logs/optimizer.log)"$'\n'
   check "sends the terminal to the log for why" contains "$out" \
     "  FAILED merge: could not move 1 a-merged.mp4 into $work (the reason is in $box/.logs/optimizer.log)"
   check "while the log keeps its own words" logged "$box" \
     "could not move 1 a-merged.mp4 into .* (the reason is on the line above)"
+  check "and does not blame ffmpeg for a move" logged "$box" "FAILED join of 2 parts (the reason is above)$"
   check "sums it up" contains "$out" $'\n\nNothing was joined.'
   merged=("$work"/*merged*(N))
   check "leaves no merged file" test "${#merged}" = 0
