@@ -587,8 +587,8 @@ test_preset_add_remove_add_edit() {
   run_preset() { HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR="$tools/editor" zsh "$OPTIMIZER" preset "$@" 2>&1; }
 
   run_preset add 320p > /dev/null
-  print -r -- 'max_height = 320' >> "$file"
   check "add makes it" exists "$file"
+  print -r -- 'max_height = 320' >> "$file"
   check "and lists it" contains "$(run_preset)" 320p
 
   code=0
@@ -613,19 +613,72 @@ test_preset_add_remove_add_edit() {
   check "and opens it" test "$(tail -1 "$tools/editor.log")" = "$file"
 }
 
-# The name is a file name in presets/ and a menu title.
-test_preset_add_refuses_a_name_that_is_no_file_name() {
-  local box name code
+# The name is a file name in presets/ and a menu title, and edit, run and merge are shrinkit's own
+# entries.
+test_preset_names_that_cannot_be_presets_are_refused() {
+  local box services command name out code before
   box="$(scratch)"
   setup_box "$box"
   run_setup "$box" > /dev/null 2>&1
-  for name in '' 'a/b' '.hidden'; do
-    code=0
-    HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR=false \
-      zsh "$OPTIMIZER" preset add "$name" > /dev/null 2>&1 || code=$?
-    check "'$name' is refused" test "$code" = 2
+  services="$box/home/Library/Services"
+  before="$(action_command "$services/shrinkit: merge.workflow")"
+  for command in add edit remove; do
+    for name in '' 'a/b' '.hidden' '../settings'; do
+      code=0
+      out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR=false \
+        zsh "$OPTIMIZER" preset $command "$name" 2>&1)" || code=$?
+      check "$command '$name' is refused" test "$code" = 2
+      [[ -n "$name" ]] && check "$command '$name' says why" \
+        contains "$out" "a preset name cannot be empty, hold a /, or start with a dot"
+    done
+    for name in edit run merge; do
+      code=0
+      out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR=false \
+        zsh "$OPTIMIZER" preset $command "$name" 2>&1)" || code=$?
+      check "$command $name is refused" test "$code" = 2
+      check "$command $name says it is shrinkit's own entry" contains "$out" "is shrinkit's own right-click entry"
+    done
   done
-  check "and nothing is written" test "$(ls -A "$box/work/presets" | sort | tr '\n' ' ')" = "2x.conf sharp.conf tiny.conf "
+  check "nothing is written in presets/" \
+    test "$(ls -A "$box/work/presets" | sort | tr '\n' ' ')" = "2x.conf sharp.conf tiny.conf "
+  check "settings.conf stays" exists "$box/work/settings.conf"
+  check "and the merge entry is as it was" test "$(action_command "$services/shrinkit: merge.workflow")" = "$before"
+}
+
+# A file named after one of shrinkit's own entries, put into presets/ by hand.
+test_preset_sync_leaves_shrinkits_own_entries_alone() {
+  local box services before out
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  before="$(action_command "$services/shrinkit: edit.workflow")"
+  print -r -- 'speed = 3' > "$box/work/presets/edit.conf"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset sync 2>&1)"
+
+  check "keeps the edit entry as it was" test "$(action_command "$services/shrinkit: edit.workflow")" = "$before"
+  check "says it left the file out" contains "$out" "left out $box/work/presets/edit.conf"
+  check "and adds nothing for it" lacks "$out" "added to the menu: edit"
+}
+
+# Removing presets of one name again and again keeps every one of them in the Trash.
+test_preset_remove_never_writes_over_the_trash() {
+  local box trash preset
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  preset="$(< "$box/work/presets/sharp.conf")"
+  trash="$box/home/.Trash"
+  mkdir -p "$trash"
+  print -r -- first > "$trash/sharp.conf"
+  print -r -- second > "$trash/sharp 2.conf"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset remove sharp > /dev/null 2>&1
+
+  check "the Trash's files stay as they were" test "$(< "$trash/sharp.conf") $(< "$trash/sharp 2.conf")" = "first second"
+  check "and the preset lands beside them" test "$(< "$trash/sharp 3.conf")" = "$preset"
+  check "gone from presets/" missing "$box/work/presets/sharp.conf"
 }
 
 # preset remove on a name that is neither a preset nor an entry.
