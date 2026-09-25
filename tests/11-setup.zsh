@@ -169,9 +169,9 @@ test_setup_builds_one_entry_per_preset_and_sweeps_the_rest() {
 
   run_setup "$box" > /dev/null 2>&1
 
-  # three stock presets, plus merge
+  # three stock presets, plus edit and merge
   check "one entry per preset plus the one that is not a preset" \
-    test "$(action_count "$services")" = 4
+    test "$(action_count "$services")" = 5
   check "a preset that no longer exists leaves no entry" missing "$services/shrinkit: gone.workflow"
   check "and the preset entries are there" exists "$services/shrinkit: 2x.workflow/Contents/Info.plist"
 }
@@ -194,6 +194,7 @@ test_setup_run_again_removes_the_mark_cuts_entry_an_older_version_built() {
 
   check "leaves no mark cuts entry" missing "$entry"
   check "and builds merge's" exists "$services/shrinkit: merge.workflow/Contents/Info.plist"
+  check "and edit's, which replaced it" exists "$services/shrinkit: edit.workflow/Contents/Info.plist"
 }
 
 # The Terminal window of shrinkit: edit runs a launcher setup writes once, beside the folder file.

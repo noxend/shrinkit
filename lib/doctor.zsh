@@ -217,8 +217,8 @@ our_entries() {
   done
 }
 
-# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name>, merge, or what an
-# older setup built. The command is split into words the way zsh splits it, so the quoting of an
+# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name>, edit, merge, or what
+# an older setup built. The command is split into words the way zsh splits it, so the quoting of an
 # older setup reads the same as today's. Sets ENTRY_NAME, ENTRY_FOLDER, ENTRY_PROGRAM,
 # ENTRY_COMMAND and ENTRY_PRESET.
 read_entry() {
@@ -234,7 +234,7 @@ read_entry() {
   fi
 }
 
-# One entry per preset in the working folder, plus merge, each running a program and,
+# One entry per preset in the working folder, plus edit and merge, each running a program and,
 # for a preset's entry, a preset that is there. Whether an entry is switched on in System Settings
 # is kept where no command reads it.
 doctor_check_right_click() {
@@ -244,11 +244,11 @@ doctor_check_right_click() {
   for preset in "$PRESET_DIR"/*.conf(N.); do
     in_menu "${preset:t:r}" && expected+=("${preset:t:r}")
   done
-  expected+=(merge)
+  expected+=(edit merge)
   for entry in ${(f)"$(our_entries)"}; do
     read_entry "$entry" || continue
     # Anything else was built by an older shrinkit, such as 3.x's mark cuts; setup sweeps it away.
-    [[ "$ENTRY_COMMAND" == (--preset|merge) ]] || {
+    [[ "$ENTRY_COMMAND" == (--preset|edit|merge) ]] || {
       doctor_found warn "right-click $ENTRY_NAME is left from an older shrinkit" \
         "Build the entries again with:" \
         "  $DOCTOR_SELF setup"
@@ -280,7 +280,7 @@ doctor_check_right_click() {
   fi
   for name in "${expected[@]}"; do
     ((${present[(Ie)$name]})) && continue
-    if [[ "$name" == merge ]]; then
+    if [[ "$name" == (edit|merge) ]]; then
       doctor_found warn "no right-click entry for $name" "Build it again with:" "  $DOCTOR_SELF setup"
     else
       doctor_found warn "no right-click entry for the preset $name" "Add it with:" \
