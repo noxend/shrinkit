@@ -356,6 +356,16 @@ read_preset() {
     return 1
   }
   read_settings "$file"
+  preset_sets_something "$file" || {
+    log "the preset '$1' sets nothing: every line of $file is a comment, so settings.conf applies"
+    print -u2 -r -- "the preset '$1' sets nothing: take the # off the lines in $file"
+  }
+  return 0
+}
+
+# Whether a preset file has a line that is not a comment, which is what makes it change anything.
+preset_sets_something() {
+  grep -qv -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$1"
 }
 
 # Written as regexes rather than zsh's <-> globs so shell tooling can still parse this file.
@@ -1355,10 +1365,13 @@ preset_add() {
   else
     read_config
     {
-      print -r -- "# shrinkit preset '$name': the settings it changes, one per line. Anything it does not"
-      print -r -- "# set comes from settings.conf. Take the # off a line to use it."
-      print -r -- "#"
-      for key in "${PRESET_KEYS[@]}"; do print -r -- "# $key = ${CFG[$key]}"; done
+      print -r -- "# shrinkit preset '$name'. Write the settings it changes under this note, one per line,"
+      print -r -- "# for example:"
+      print -r -- "#     max_height = 720"
+      print -r -- "#     speed = 3"
+      print -r -- "# It can set ${(j:, :)PRESET_KEYS}. Whatever it does not set comes"
+      print -r -- "# from settings.conf, which has now: $(for key in "${PRESET_KEYS[@]}"; do print -rn -- "$key ${CFG[$key]}, "; done | sed 's/, $//')."
+      print
     } > "$file" || return 1
     print -r -- "created $file"
   fi
@@ -1703,6 +1716,10 @@ main() {
   mkdir -p "$IN_DIR" "$OUT_DIR" "$DONE_DIR" "$LOG_DIR" "$PRESET_DIR"
   read_config
   [[ -n "$PRESET" ]] && { read_preset "$PRESET" || return 2; }
+  # A right-click run shows nothing but a banner, and this one would otherwise look like it did
+  # nothing.
+  [[ -n "$PRESET" ]] && ! preset_sets_something "$(preset_file "$PRESET")" \
+    && notify "The preset '$PRESET' sets nothing: every line is a comment. Take the # off a line in presets/$PRESET.conf."
   apply_overrides
   validate_config
   [[ -x "$FFMPEG" ]] || {
