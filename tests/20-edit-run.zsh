@@ -203,6 +203,31 @@ test_run_says_a_bad_value_in_settings_conf_once() {
   check "and encodes both at the default" test "$(log_count "$box" 'encode .* crf28)')" = 2
 }
 
+# A line of settings.conf the run cannot read is said with the lines of the edit file too, not only
+# written to the log.
+test_run_says_a_line_of_settings_conf_it_cannot_read() {
+  local box tools work out before
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'crf 30' 'sped = 3'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  make_edit "$box" "$tools" "$work/clip.mov"
+
+  out="$(run_file "$box" "$tools" "$work/clip.edit.txt")"
+  before="${out%%\[1/1\]*}"
+
+  check "says a line with no '=' before the first recording" contains "$before" \
+    "  ignoring settings.conf line 3: 'crf 30' has no '='"$'\n'
+  check "and a key that is not a setting" contains "$before" \
+    "  ignoring 'sped' in settings.conf line 4: not a setting"$'\n'
+  check "once each on the terminal" test "$(grep -c 'settings.conf line' <<< "$out")" = 2
+  check "and once each in the log" test "$(log_count "$box" 'settings.conf line')" = 2
+  check "with a blank line before the first recording" contains "$out" $'not a setting\n\n[1/1] clip.mov'
+}
+
 test_edit_runs_the_file_once_the_editor_closes() {
   local box tools work out
   box="$(sandbox)"
