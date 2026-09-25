@@ -538,6 +538,15 @@ run_command() {
 EDIT_LAUNCHER="${FOLDER_FILE:h}/shrinkit edit.command"
 EDIT_QUEUE="${FOLDER_FILE:h}/edit-queue"
 
+# The request for file left in the queue, then a Terminal window opened on the launcher to take it.
+start_edit_window() {
+  local file="$1" request
+  mkdir -p "$EDIT_QUEUE" && request="$(mktemp "$EDIT_QUEUE/.new.XXXXXX")" || return 1
+  # Written under a hidden name and renamed once whole, so no window takes a request half written.
+  print -r -- "$file" > "$request" && mv "$request" "$EDIT_QUEUE/${${request:t}#.new.}" || return 1
+  open -a Terminal "$EDIT_LAUNCHER"
+}
+
 # The launcher runs the folder and the program every right-click entry runs.
 write_edit_launcher() {
   mkdir -p "${EDIT_LAUNCHER:h}" \
@@ -620,10 +629,16 @@ edit_videos() {
 }
 
 # shrinkit edit <file>...: the edit file beside the first recording, opened in the editor the way
-# git opens one, and run once the editor closes without an error.
+# git opens one, and run once the editor closes without an error. edit --finder is the right-click
+# entry's, not in the usage text.
 edit_command() {
   local file rc
   local -a videos editor
+  [[ "${1-}" == --finder ]] && {
+    shift
+    edit_finder "$@"
+    return
+  }
   mkdir -p "$LOG_DIR"
   videos=(${(f)"$(edit_videos "$@")"})
   ((${#videos})) || {
@@ -646,4 +661,42 @@ edit_command() {
     return 1
   }
   run_edit_file "$file"
+}
+
+# --------------------------------------------------------------------- shrinkit: edit
+
+# The right-click entry for several recordings at once.
+install_edit_action() {
+  install_quick_action edit \
+    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} edit --finder \"\$@\""
+}
+
+# What the entry runs: the edit file beside the first recording, each recording opened in its
+# player, then the Terminal window, which opens the file in TextEdit. A problem is said in a banner
+# as well, since nothing a Quick Action prints is ever seen.
+edit_finder() {
+  local file src
+  local -a videos
+  mkdir -p "$LOG_DIR"
+  read_config
+  validate_config
+  videos=(${(f)"$(edit_videos "$@")"})
+  ((${#videos})) || {
+    edit_finder_says "shrinkit: edit needs a video"
+    return 2
+  }
+  file="$(free_name "${videos[1]:r}.edit.txt" edit.txt)"
+  write_edit_file "$file" "Edit this file, save it, then press Enter in the Terminal window." \
+    "${videos[@]}" || {
+    edit_finder_says "shrinkit: edit cannot write in ${file:h}"
+    return 1
+  }
+  for src in "${videos[@]}"; do open -- "$src"; done
+  start_edit_window "$file"
+}
+
+edit_finder_says() {
+  print -u2 -r -- "$1"
+  log "$1"
+  notify "$1"
 }

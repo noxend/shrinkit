@@ -210,3 +210,111 @@ test_each_window_takes_one_request() {
   check "and exits 1" test "$code" = 1
   check "leaving no request behind" empty_dir "$queue"
 }
+
+# --------------------------------------------------------------------- the Finder entry
+
+test_the_edit_entry_opens_the_recordings_then_the_terminal_window() {
+  local box tools work support file
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  work="$(scratch)"
+  recorded_copy "$FIXTURES/take-red.mov" "$work/red.mov" 2026-01-01T10:00:00
+  recorded_copy "$FIXTURES/take-blue.mov" "$work/blue.mov" 2026-01-01T10:05:00
+  support="$box/home/Library/Application Support/shrinkit"
+  file="$work/red.edit.txt"
+
+  run_entry "$box" "$tools" edit "$work/blue.mov" "$work/red.mov"
+
+  check "opens each recording in its player, then a Terminal window on the launcher" \
+    test "$(< "$tools/open.log")" = "-- | $work/red.mov"$'\n'"-- | $work/blue.mov"$'\n'"-a | Terminal | $support/shrinkit edit.command"
+  check "leaving it the edit file to take" test "$(cat "$support/edit-queue"/*(N.))" = "$file"
+
+  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$support/shrinkit edit.command" < /dev/null > /dev/null)
+
+  check "which the window opens in TextEdit" test "$(tail -1 "$tools/open.log")" = "-e | $file"
+  check "and takes, so no other window does" empty_dir "$support/edit-queue"
+}
+
+test_the_edit_entry_writes_the_file_beside_the_first_recording() {
+  local box tools work file
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 intro.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 bug.mov"
+  print -r -- 'not a recording' > "$work/notes.txt"
+  file="$work/1 intro.edit.txt"
+
+  run_entry "$box" "$tools" edit "$work/notes.txt" "$work/2 bug.mov" "$work/1 intro.mov" 2> /dev/null
+
+  check "writes <first recording>.edit.txt beside it" exists "$file"
+  check "saying where it is run" test "$(head -1 "$file")" = \
+    "# shrinkit edit: 2 recordings. Edit this file, save it, then press Enter in the Terminal window."
+  check "with a block per recording, in the order they join in" \
+    test "$(headers_of "$file")" = $'[1 intro.mov]\n[2 bug.mov]'
+}
+
+test_the_edit_entry_without_a_video_says_so() {
+  local box tools work code=0
+  box="$(installed_box)"
+  print -r -- 'notify_sound = Ping' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  work="$(scratch)"
+  print -r -- 'not a recording' > "$work/notes.txt"
+
+  run_entry "$box" "$tools" edit "$work/notes.txt" 2> /dev/null || code=$?
+
+  check "says so in a banner, since nothing else it says is seen" \
+    test "$(< "$tools/osascript.log")" = "banner shrinkit | shrinkit: edit needs a video | Ping"
+  check "exits 2" test "$code" = 2
+  check "opens nothing" missing "$tools/open.log"
+  check "and writes nothing" test "$(ls "$work")" = notes.txt
+}
+
+test_the_edit_entry_opens_nothing_where_it_cannot_write() {
+  local box tools work code=0
+  box="$(installed_box)"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  chmod a-w "$work"
+
+  run_entry "$box" "$tools" edit "$work/clip.mov" 2> /dev/null || code=$?
+  chmod u+w "$work"
+
+  check "says so in a banner naming the folder" \
+    test "$(< "$tools/osascript.log")" = "banner shrinkit | shrinkit: edit cannot write in $work | Glass"
+  check "opens nothing" missing "$tools/open.log"
+  check "and exits 1" test "$code" = 1
+}
+
+# The folder, the program and the recordings reach the entry's command, the launcher and the window
+# as the words they are, never as code.
+test_the_edit_entry_takes_names_as_written() {
+  local box folder tools work support
+  box="$(scratch)"
+  setup_box "$box"
+  folder="$box/w \$(touch folder-ran)"
+  run_setup "$box" "$folder" > /dev/null 2>&1
+  print -r -- 'notify = false' >> "$folder/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  work="$box/clips \$(touch clip-ran)"
+  mkdir -p "$work"
+  cp "$FIXTURES/take-red.mov" "$work/it's.mov"
+  support="$box/home/Library/Application Support/shrinkit"
+
+  run_entry "$box" "$tools" edit "$work/it's.mov"
+  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$support/shrinkit edit.command" < /dev/null > /dev/null)
+
+  check "runs nothing named in the folder" missing "$box/folder-ran"
+  check "or in the recording's" missing "$box/clip-ran"
+  check "writes the file beside the recording" exists "$work/it's.edit.txt"
+  check "and the window opens it" test "$(tail -1 "$tools/open.log")" = "-e | $work/it's.edit.txt"
+}

@@ -122,6 +122,20 @@ stub_textedit() {
   chmod +x "$dir/open"
 }
 
+# run_entry <box> <tools> <entry> <file>...: the command of the right-click entry called <entry>
+# in an install made by setup_box and run_setup, run the way a Quick Action runs it (zsh, the
+# selected files as arguments), from inside the box, with HOME there and open and osascript from
+# <tools>.
+run_entry() {
+  local box="$1" tools="$2" command
+  sandboxed "$box"
+  sandboxed "$tools"
+  command="$(action_command "$box/home/Library/Services/shrinkit: $3.workflow")"
+  shift 3
+  [[ -n "$command" ]] || return 1
+  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" zsh -c "$command" zsh "$@")
+}
+
 # The block headers of an edit file, one per line, in the order they are written.
 headers_of() {
   grep '^\[' "$1"

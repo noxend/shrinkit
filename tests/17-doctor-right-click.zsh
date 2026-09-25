@@ -18,7 +18,7 @@ test_doctor_warns_about_entries_that_are_missing() {
   box="$(installed_box)"
   # A preset made after setup and never given an entry, and an entry deleted by hand.
   print -r -- 'speed = 3' > "$box/work/presets/quick one.conf"
-  rm -rf "$box/home/Library/Services/shrinkit: merge.workflow"
+  rm -rf "$box/home/Library/Services/shrinkit: merge.workflow" "$box/home/Library/Services/shrinkit: edit.workflow"
 
   out="$(run_doctor "$box" 2>&1)" || code=$?
 
@@ -26,7 +26,8 @@ test_doctor_warns_about_entries_that_are_missing() {
     contains "$(doctor_block "$out" right-click)" "no right-click entry for the preset quick one"
   check "saying how to add it, quoted to paste" \
     contains "$(doctor_block "$out" right-click)" "  shrinkit preset install 'quick one'"
-  check "and about the entry that went" contains "$(doctor_block "$out" right-click)" "no right-click entry for merge"
+  check "and about the entries that went" contains "$(doctor_block "$out" right-click)" "no right-click entry for merge"
+  check "edit among them" contains "$(doctor_block "$out" right-click)" "no right-click entry for edit"
   check "and exits 0" test "$code" = 0
 }
 
@@ -82,7 +83,7 @@ test_doctor_reads_an_entry_an_older_setup_wrote() {
 
   out="$(run_doctor "$box" 2>&1)"
 
-  check "counts it with the others" contains "$(doctor_line "$out" right-click)" "ok    right-click    4 entries"
+  check "counts it with the others" contains "$(doctor_line "$out" right-click)" "ok    right-click    5 entries"
 }
 
 test_doctor_does_not_warn_about_a_preset_taken_out_of_the_menu() {
@@ -93,5 +94,5 @@ test_doctor_does_not_warn_about_a_preset_taken_out_of_the_menu() {
   out="$(run_doctor "$box" 2>&1)"
 
   check "counts the entries there are, and warns about none" contains "$(doctor_line "$out" right-click)" \
-    "ok    right-click    3 entries"
+    "ok    right-click    4 entries"
 }
