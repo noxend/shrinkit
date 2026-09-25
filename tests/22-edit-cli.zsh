@@ -13,7 +13,7 @@ test_edit_writes_one_block_per_recording_in_merge_order() {
   recorded_copy "$FIXTURES/take-green.mov" "$work/2 bug.mov" 2026-01-01T11:00:00
   recorded_copy "$FIXTURES/take-green.mov" "$work/1 intro.mov" 2026-01-01T12:00:00
 
-  run_edit "$box" "$tools" "$work/a-second.mov" "$work/2 bug.mov" "$work/z-first.mov" "$work/1 intro.mov"
+  make_edit "$box" "$tools" "$work/a-second.mov" "$work/2 bug.mov" "$work/z-first.mov" "$work/1 intro.mov"
 
   check "one block per recording, numbered takes first, then in the order they were shot" \
     test "$(headers_of "$tools/given")" = $'[1 intro.mov]\n[2 bug.mov]\n[z-first.mov]\n[a-second.mov]'
