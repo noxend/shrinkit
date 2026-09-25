@@ -41,7 +41,7 @@ test_doctor_reads_an_entry_an_older_setup_wrote() {
 
   out="$(run_doctor "$box" 2>&1)"
 
-  check "counts it with the others" contains "$(doctor_line "$out" right-click)" "ok    right-click    5 entries"
+  check "counts it with the others" contains "$(doctor_line "$out" right-click)" "ok    right-click    4 entries"
 }
 
 test_doctor_does_not_warn_about_a_preset_taken_out_of_the_menu() {
@@ -52,5 +52,5 @@ test_doctor_does_not_warn_about_a_preset_taken_out_of_the_menu() {
   out="$(run_doctor "$box" 2>&1)"
 
   check "counts the entries there are, and warns about none" contains "$(doctor_line "$out" right-click)" \
-    "ok    right-click    4 entries"
+    "ok    right-click    3 entries"
 }

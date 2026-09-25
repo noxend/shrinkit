@@ -217,7 +217,7 @@ our_entries() {
   done
 }
 
-# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name>, mark-cuts or merge.
+# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name> or merge.
 # The command is split into words the way zsh splits it, so the quoting of an older setup reads the
 # same as today's. Sets ENTRY_NAME, ENTRY_FOLDER, ENTRY_PROGRAM and ENTRY_PRESET.
 read_entry() {
@@ -232,7 +232,7 @@ read_entry() {
   fi
 }
 
-# One entry per preset in the working folder, plus mark cuts and merge, each running a program and,
+# One entry per preset in the working folder, plus merge, each running a program and,
 # for a preset's entry, a preset that is there. Whether an entry is switched on in System Settings
 # is kept where no command reads it.
 doctor_check_right_click() {
@@ -242,7 +242,7 @@ doctor_check_right_click() {
   for preset in "$PRESET_DIR"/*.conf(N.); do
     in_menu "${preset:t:r}" && expected+=("${preset:t:r}")
   done
-  expected+=("mark cuts" merge)
+  expected+=(merge)
   for entry in ${(f)"$(our_entries)"}; do
     read_entry "$entry" || continue
     present+=("$ENTRY_NAME")
@@ -263,7 +263,7 @@ doctor_check_right_click() {
   done
   for name in "${expected[@]}"; do
     ((${present[(Ie)$name]})) && continue
-    if [[ "$name" == "mark cuts" || "$name" == merge ]]; then
+    if [[ "$name" == merge ]]; then
       doctor_found warn "no right-click entry for $name" "Build it again with:" "  $DOCTOR_SELF setup"
     else
       doctor_found warn "no right-click entry for the preset $name" "Add it with:" \

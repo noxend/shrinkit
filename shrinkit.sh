@@ -1238,53 +1238,18 @@ preset_command() {
   esac
 }
 
-# A fixed Quick Action, not tied to any preset: it doesn't shrink anything, only opens the sidecar
-# (creating it first if needed) so a cut can be marked before a normal preset runs on the file.
-install_cuts_action() {
-  install_quick_action "mark cuts" \
-    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} mark-cuts \"\$@\""
-}
-
-# Seeds a .cuts sidecar with a header comment and the recording's own length, if one is not there
-# yet; leaves an existing sidecar's content untouched so a second range can be added to it.
-seed_cuts_sidecar() {
-  # sidecar on its own line: see warn_near_miss_cuts_file() above.
-  local file="$1" dur mins secs
-  local sidecar="${file}.cuts"
-  [[ -f "$sidecar" ]] && return 0
-  dur="$("$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$file" 2> /dev/null)"
-  {
-    print -r -- "# ${file:t}.cuts -- one range per line, e.g. 0:32-0:35 or plain seconds"
-    print -r -- "# 0-0:20 cuts the first 20s, 2:30-end cuts from 2:30 to the end"
-    if is_num "$dur"; then
-      mins=$((${dur%.*} / 60))
-      secs=$((${dur%.*} % 60))
-      print -r -- "# ${file:t} is ${mins}:$(printf '%02d' "$secs") long"
-    fi
-  } > "$sidecar"
-}
-
-# Finder entry point for authoring a .cuts sidecar: seeds it, then opens both the recording and the
-# sidecar so timestamps can be read straight off the player while typing them in.
-mark_cuts_command() {
-  [[ "${1-}" == --install ]] && {
-    install_cuts_action
-    return
-  }
-  (($# > 0)) || {
-    print -u2 -r -- "usage: mark-cuts <file>..."
-    return 2
-  }
-  local file
-  for file in "$@"; do
-    [[ -f "$file" ]] || continue
-    seed_cuts_sidecar "$file"
-    # Player first, sidecar second: the last one opened comes up in front, and the sidecar is the
-    # window being typed into. Opened the other way round it hides behind the video and reads as
-    # nothing having happened.
-    open -- "$file"
-    open -e "${file}.cuts"
-  done
+# mark-cuts went in 4.0, replaced by edit. An entry an older setup built runs it until setup runs
+# again, and parse_args would take the word for a file name and shrink the selected recordings.
+# A banner as well as stderr, since nothing a Quick Action prints is ever seen. Kept for 4.x.
+answer_mark_cuts() {
+  local answer="mark-cuts was replaced by edit in shrinkit 4: shrinkit edit <file>... Run 'shrinkit setup' to update the right-click menu."
+  mkdir -p "$LOG_DIR"
+  read_config
+  validate_config
+  print -u2 -r -- "$answer"
+  log "$answer"
+  notify "$answer"
+  return 2
 }
 
 # --------------------------------------------------------------------- run
@@ -1293,7 +1258,6 @@ usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
        ${ZSH_ARGZERO:t} config [show | edit | folder [<path>] | <setting> <value>]
        ${ZSH_ARGZERO:t} preset [install <name> | remove <name>]
-       ${ZSH_ARGZERO:t} mark-cuts <file>...
        ${ZSH_ARGZERO:t} merge <file>...
        ${ZSH_ARGZERO:t} setup | teardown
        ${ZSH_ARGZERO:t} doctor
@@ -1314,10 +1278,6 @@ timestamp only means something in one recording.
 A preset is a file of the same settings in $PRESET_DIR.
 Use one for a run with --preset <name>, or turn it into its own right-click
 entry with 'preset install <name>'.
-
-mark-cuts opens (creating first, if needed) the .cuts sidecar for each file
-alongside the recording itself, ready to mark a range to cut. Same as the
-right-click 'shrinkit: mark cuts' entry.
 
 merge joins several recordings into one, in the order they were recorded, or by
 a number at the start of the file name (1 intro.mov, 2 bug.mov) for any that
@@ -1447,8 +1407,7 @@ main() {
       return
       ;;
     mark-cuts)
-      shift
-      mark_cuts_command "$@"
+      answer_mark_cuts
       return
       ;;
     merge)

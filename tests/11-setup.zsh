@@ -169,11 +169,31 @@ test_setup_builds_one_entry_per_preset_and_sweeps_the_rest() {
 
   run_setup "$box" > /dev/null 2>&1
 
-  # three stock presets, plus mark cuts and merge
-  check "one entry per preset plus the two that are not presets" \
-    test "$(action_count "$services")" = 5
+  # three stock presets, plus merge
+  check "one entry per preset plus the one that is not a preset" \
+    test "$(action_count "$services")" = 4
   check "a preset that no longer exists leaves no entry" missing "$services/shrinkit: gone.workflow"
   check "and the preset entries are there" exists "$services/shrinkit: 2x.workflow/Contents/Info.plist"
+}
+
+# A clone upgraded with git pull and setup, no teardown: the mark cuts entry 3.x built goes with
+# the sweep and is not built again.
+test_setup_run_again_removes_the_mark_cuts_entry_an_older_version_built() {
+  local box services entry
+  box="$(scratch)"
+  setup_box "$box"
+  services="$box/home/Library/Services"
+  entry="$services/shrinkit: mark cuts.workflow"
+  mkdir -p "$services"
+  cp -R "$REPO_DIR/quick-action/shrinkit.workflow" "$entry"
+  plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string \
+    "SHRINKIT_DIR=${(qq):-$box/work} ${(qq):-$box/home/.local/bin/shrinkit} mark-cuts \"\$@\"" \
+    "$entry/Contents/document.wflow"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  check "leaves no mark cuts entry" missing "$entry"
+  check "and builds merge's" exists "$services/shrinkit: merge.workflow/Contents/Info.plist"
 }
 
 test_setup_run_again_keeps_the_settings_and_the_presets() {

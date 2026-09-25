@@ -4,8 +4,8 @@
 
 # --------------------------------------------------------------------- merging
 
-# Not tied to a preset, the way mark cuts is not: this entry joins the recordings it is handed
-# instead of shrinking any of them.
+# Not tied to a preset: this entry joins the recordings it is handed instead of shrinking any of
+# them.
 install_merge_action() {
   install_quick_action merge \
     "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} merge \"\$@\""
