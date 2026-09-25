@@ -199,7 +199,7 @@ test_merge_handles_a_quote_in_the_name() {
 test_merge_re_encodes_takes_that_do_not_match() {
   local box work out
   box="$(sandbox)"
-  settings "$box"
+  settings "$box" 'codec = hevc'
   work="$(scratch)"
   recorded_copy "$FIXTURES/take-red.mov" "$work/one.mov" 2026-01-01T10:00:00
   recorded_copy "$FIXTURES/take-loud.mov" "$work/two.mov" 2026-01-01T10:05:00
@@ -214,6 +214,7 @@ test_merge_re_encodes_takes_that_do_not_match() {
   check "at the larger of the two sizes" test "$(height_of "$out")" = 360
   check "with the sound the other take had" has_audio "$out"
   check "and keeps the order" takes_are "$out" red grey
+  check "in h264, whatever codec settings.conf names" test "$(video_codec "$out")" = h264
 }
 
 # Two results shrinkit made at different crf: the same codec, size and pixel format, and picture
@@ -235,6 +236,25 @@ test_merge_re_encodes_takes_whose_parameter_sets_differ() {
   check "rather than copying the streams" not_logged "$box" 'streams copied'
   check "into one picture parameter set" test "$(pps_values "$out" | wc -l | tr -d ' ')" = 1
   check "and keeps the order" takes_are "$out" red blue
+}
+
+test_merge_says_when_the_result_cannot_be_moved_in() {
+  local box work tmp code=0
+  box="$(sandbox)"
+  settings "$box"
+  work="$(scratch)"
+  tmp="$(scratch)"
+  recorded_copy "$FIXTURES/take-red.mov" "$work/one.mov" 2026-01-01T10:00:00
+  recorded_copy "$FIXTURES/take-blue.mov" "$work/two.mov" 2026-01-01T10:05:00
+  chmod a-w "$work"
+
+  TMPDIR="$tmp" run_merge "$box" "$work/one.mov" "$work/two.mov" 2> /dev/null || code=$?
+  chmod u+w "$work"
+
+  check "the move is what failed" logged "$box" 'could not move one-merged.mov'
+  check "says the merge failed, without blaming ffmpeg" logged "$box" \
+    'FAILED merge of 2 clips (the reason is above)$'
+  check "and exits 1" test "$code" = 1
 }
 
 test_merge_needs_at_least_two_videos() {

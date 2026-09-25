@@ -137,11 +137,12 @@ merge_duration_ok() {
 # Joins clips that do not agree: each one scaled into the largest frame in the set and padded to
 # keep its own shape, and given a silent track when something else in the set has sound, since
 # concat wants the same streams from every segment. crf 18 stays close to the sources on purpose:
-# this is the merge step, and shrinking is a separate one that should not be paid for twice.
+# this is the merge step, and shrinking is a separate one that should not be paid for twice. h264,
+# or in a merged edit run the codec its parts were encoded in.
 merge_encode() {
   local out="$1"
   shift
-  local -a clips=("$@") inputs chains audio_args
+  local -a clips=("$@") inputs chains audio_args video_args=(-c:v libx264)
   local src dur width height maxw=0 maxh=0 audio=false labels="" i
 
   for src in "${clips[@]}"; do
@@ -176,6 +177,8 @@ merge_encode() {
     labels="${labels}[a$i]"
   done
 
+  [[ "${PART_FORMAT[codec]-}" == hevc ]] && video_args=(-c:v libx265 -tag:v hvc1)
+
   local graph="${(j:;:)chains};${labels}concat=n=${#clips}:v=1"
   local -a maps
   if [[ "$audio" == true ]]; then
@@ -189,7 +192,7 @@ merge_encode() {
   fi
 
   run_ffmpeg -nostdin -y "${inputs[@]}" -filter_complex "$graph" "${maps[@]}" \
-    "${audio_args[@]}" -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p \
+    "${audio_args[@]}" "${video_args[@]}" -crf 18 -preset veryfast -pix_fmt yuv420p \
     -movflags +faststart "$out" >> "$LOG" 2>&1
 }
 
@@ -308,7 +311,7 @@ merge_command() {
   # Called directly, not in $(...): the part it writes is recorded in CURRENT_PART, and a subshell's
   # copy of that is out of reach of the INT and TERM trap.
   merge_files "${ordered[1]}" "${ordered[@]}" || {
-    log "FAILED merge of ${#ordered} clips (ffmpeg output is above)"
+    log "FAILED merge of ${#ordered} clips (the reason is above)"
     notify "${ordered[1]:t}" "Could not merge"
     return 1
   }
