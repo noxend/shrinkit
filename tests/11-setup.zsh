@@ -538,10 +538,13 @@ test_preset_add_makes_the_file_and_its_entry_and_opens_it() {
 
   check "exits 0" test "$code" = 0
   check "writes the preset" exists "$file"
-  check "with the usual settings commented out" \
-    test "$(grep -c '^# \(speed\|fps\|crf\|codec\|remove_audio\|max_height\) = ' "$file")" = 6
-  check "at the values in effect" grep -qx '# crf = 31' "$file"
-  check "and nothing in effect yet" test -z "$(grep -v '^#' "$file")"
+  check "with an example to write after" grep -qx '#     max_height = 720' "$file"
+  check "naming what it can set" \
+    grep -qx "# It can set speed, fps, crf, codec, remove_audio, max_height. Whatever it does not set comes" "$file"
+  check "and what settings.conf has now" grep -q 'which has now: .*crf 31' "$file"
+  check "and no other setting commented out to take the # off" \
+    test "$(grep -cE '^# *(speed|fps|crf|codec|remove_audio|max_height) = ' "$file")" = 2
+  check "and nothing in effect yet" test -z "$(grep -v '^#' "$file" | grep .)"
   check "adds its right-click entry" test -d "$box/home/Library/Services/shrinkit: for review.workflow"
   check "opens it in the editor" test "$(< "$tools/editor.log")" = "$file"
   check "and says where it is" contains "$out" "created $file"
@@ -602,7 +605,7 @@ test_preset_add_remove_add_edit() {
   check "add again exits 0" test "$code" = 0
   check "and makes it anew" contains "$out" "created $file"
   check "with its entry" test -d "$services/shrinkit: 320p.workflow"
-  check "and nothing of the old one in it" test -z "$(grep -v '^#' "$file")"
+  check "and nothing of the old one in it" test -z "$(grep -v '^#' "$file" | grep .)"
 
   code=0
   run_preset edit 320p > /dev/null || code=$?
