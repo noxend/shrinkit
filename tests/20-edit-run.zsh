@@ -388,6 +388,25 @@ test_run_skips_a_bad_line_and_says_which() {
   check "leaving merge off" contains "$out" "merge = false"
 }
 
+# read_preset writes to the log, which an edit run shows, and to stderr, which it shows too.
+test_run_says_once_that_a_preset_sets_nothing() {
+  local box tools work file out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  mkdir -p "$box/presets"
+  print -r -- '# crf = 18' > "$box/presets/empty.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'add clip.mov "preset = empty"'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
+
+  out="$(run_file "$box" "$tools" "$file" 2>&1)"
+
+  check "says it once" test "$(grep -c "preset 'empty' sets nothing" <<< "$out")" = 1
+}
+
 test_run_keeps_the_presets_value_when_a_line_is_refused() {
   local box tools work file
   box="$(sandbox)"

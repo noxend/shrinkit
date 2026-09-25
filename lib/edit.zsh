@@ -35,7 +35,7 @@ write_edit_file() {
   # A link that points nowhere passes for no file, and writing it would create the file it names.
   [[ -L "$file" ]] && return 1
   local -a presets
-  presets=("$PRESET_DIR"/*.conf(N:t:r))
+  presets=("$PRESET_DIR"/*.conf(N.:t:r))
   ((${#presets})) && list="one of: ${(j:, :)presets}"
   # The outer braces take the shell's own message about a folder it cannot write in: the caller
   # says it in its own words.
@@ -239,7 +239,9 @@ edit_block_settings() {
   edit_block_lines $i
   lines=("${reply[@]}")
   for j in "${lines[@]}"; do [[ "${EDIT_KEY[j]}" == preset ]] && PRESET="${EDIT_VALUE[j]}"; done
-  [[ -n "$PRESET" ]] && read_preset "$PRESET"
+  # What read_preset has to say reaches an edit run's screen through the log; its own copy on
+  # stderr would say it twice.
+  [[ -n "$PRESET" ]] && read_preset "$PRESET" 2> /dev/null
   for j in "${lines[@]}"; do
     key="${EDIT_KEY[j]}"
     value="${EDIT_VALUE[j]}"

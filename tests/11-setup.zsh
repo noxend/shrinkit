@@ -573,6 +573,26 @@ test_preset_and_config_edit_open_visual_before_editor() {
   check "and never in EDITOR" missing "$tools/editor.log"
 }
 
+# The note of a new preset names what settings.conf has, and a value a run refuses is not that.
+test_preset_add_names_the_values_a_run_would_use() {
+  local box tools file out
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  print -rl -- 'crf = 99' 'a line with no equals sign' >> "$box/work/settings.conf"
+  rm -rf "$box/work/.logs"
+  tools="$(scratch)"
+  file="$box/work/presets/fast.conf"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR=true \
+    zsh "$OPTIMIZER" preset add fast 2>&1)"
+
+  check "names the crf a run would use" grep -q 'which has now: .*crf 28' "$file"
+  check "not the one it refuses" lacks "$(< "$file")" "crf 99"
+  check "and logs what it ignored" grep -q "ignoring settings.conf line" "$box/work/.logs/optimizer.log"
+  check "without a word about the log" lacks "$out" "no such file"
+}
+
 # add on a preset there is: its file as it is, its entry back if it had none, and the file opened.
 test_preset_add_on_a_preset_there_is_opens_it_as_it_is() {
   local box tools before code=0
