@@ -88,6 +88,7 @@ test_cuts_reject_a_range_past_the_real_end() {
   out="$work/clip.mp4"
   check "cuts nothing, the range starts past the clip's end" duration_near "$out" 12
   check "says why in the log" logged "$box" "starts at or after the clip's real length"
+  check "and names the flag it came from" logged "$box" "ignoring cut '15-16' from --cut"
   check "does not claim a cut happened" logged "$box" "cut requested but none applied"
 }
 
@@ -170,17 +171,6 @@ test_cuts_long_bad_range_is_truncated_in_the_log() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut "$long_range" "$work/clip.mov"
   check "logs it cut short" logged "$box" "ignoring cut '${long_range:0:80}'"
   check "not the whole thing" not_logged "$box" "$long_range"
-}
-
-test_cuts_note_says_applied_when_a_cut_took() {
-  local box work
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  work="$(scratch)"
-  cp "$FIXTURES/colored.mov" "$work/clip.mov"
-
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 "$work/clip.mov"
-  check "says so on the done line" logged "$box" 'done   clip.mp4.*, cut applied'
 }
 
 test_cuts_note_is_silent_when_no_cut_is_asked() {

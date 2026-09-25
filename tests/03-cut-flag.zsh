@@ -11,7 +11,7 @@ test_cut_flag_cuts_the_range_it_was_given() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 "$work/clip.mov"
 
   check "cuts the range it was given" duration_near "$out" 11
-  check "and says a cut was applied" logged "$box" ', cut applied'
+  check "and says so on the done line" logged "$box" 'done   clip.mp4.*, cut applied'
 }
 
 test_cut_flag_sorts_and_merges_its_ranges() {
@@ -40,21 +40,6 @@ test_cut_flag_reaches_the_real_end() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 9-end "$work/clip.mov"
 
   check "'end' means the real length here too" duration_near "$out" 9
-}
-
-test_cut_flag_rejects_a_bad_range_and_names_where_it_came_from() {
-  local box work out
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  work="$(scratch)"
-  cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  out="$work/clip.mp4"
-
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 20-25 "$work/clip.mov"
-
-  check "cuts nothing, the range is past the end" duration_near "$out" 12
-  check "blames the flag it came from" logged "$box" "ignoring cut '20-25' from --cut"
-  check "does not claim a cut happened" logged "$box" 'cut requested but none applied'
 }
 
 # --cut with the filename forgotten used to fall through to folder-watch mode, cutting the same
