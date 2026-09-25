@@ -278,10 +278,7 @@ merge_command() {
   mkdir -p "$LOG_DIR"
   read_config
   validate_config
-  [[ -x "$FFMPEG" ]] || {
-    log "ffmpeg is not on PATH or in the Homebrew folders"
-    return 1
-  }
+  have_tools || return 1
 
   local -a clips ordered
   local src i out

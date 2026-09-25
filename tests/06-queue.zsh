@@ -81,6 +81,25 @@ test_a_lock_from_a_dead_run_is_taken_over() {
   check "and leaves none behind" missing "$box/.optimizer.lock"
 }
 
+# A run makes the lock's folder and then writes its pid into it. One that found the folder in
+# between took it for abandoned, took it over, and both runs encoded the same recording.
+test_a_lock_being_taken_is_left_alone_and_an_old_empty_one_taken_over() {
+  local box
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
+  mkdir "$box/.optimizer.lock"
+
+  optimize "$box"
+  check "stands down while it is new" logged "$box" 'another run has the lock'
+  check "leaving the file" exists "$box/input/clip.mov"
+
+  touch -t 202601010000 "$box/.optimizer.lock"
+  optimize "$box"
+  check "takes it over once it is old" exists "$box/output/clip.mp4"
+  check "and leaves none behind" missing "$box/.optimizer.lock"
+}
+
 # A process that looks to ps the way a run does: zsh running a script named shrinkit. Prints its
 # pid; the caller kills it.
 running_shrinkit() {

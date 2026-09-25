@@ -250,3 +250,30 @@ test_an_interrupted_merge_leaves_nothing_behind() {
   check "leaves no half-joined file in the temporary folder" test -z "$(ls -A "$tmp")"
   check "and puts no result in place afterwards" test "$(ls "$work" | grep -c merged)" = 0
 }
+
+# Every encode asks ffprobe about the recording first. With ffmpeg found and ffprobe not, each one
+# failed as "nothing was left to encode", which sends the user looking at their cuts.
+test_a_missing_ffprobe_is_named_by_every_run() {
+  local box tools work file out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  ln -s "$FFMPEG" "$tools/ffmpeg"
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/a.mov"
+  cp "$FIXTURES/silent.mov" "$work/b.mov"
+  file="$work/a.edit.txt"
+  print -rl -- '[a.mov]' > "$file"
+
+  PATH="$tools:/usr/bin:/bin" SHRINKIT_TOOL_DIRS="$tools" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" "$work/a.mov" > /dev/null 2>&1
+  PATH="$tools:/usr/bin:/bin" SHRINKIT_TOOL_DIRS="$tools" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" merge "$work/a.mov" "$work/b.mov" > /dev/null 2>&1
+  out="$(PATH="$tools:/usr/bin:/bin" SHRINKIT_TOOL_DIRS="$tools" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" run "$file" 2>&1)"
+
+  check "the log names ffprobe for each" test "$(grep -c 'ffprobe is not on PATH' "$box/.logs/optimizer.log")" = 3
+  check "and never blames the cuts" not_logged "$box" "nothing was left"
+  check "run says it on the terminal" contains "$out" "ffprobe is not on PATH"
+  check "and nothing is made" missing "$work/a.mp4"
+}
