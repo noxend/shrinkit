@@ -652,3 +652,30 @@ test_preset_install_of_no_preset_lists_them() {
   check "exits 2" test "$code" = 2
   check "names the ones there are" contains "$out" "the presets there are: 2x, sharp, tiny"
 }
+
+# Presets put into presets/ or deleted there by hand, then preset sync.
+test_preset_sync_makes_the_menu_match_the_presets_folder() {
+  local box services out
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  print -r -- 'max_height = 320' > "$box/work/presets/320p.conf"
+  print -r -- 'speed = 4' > "$box/work/presets/fast one.conf"
+  rm "$box/work/presets/tiny.conf"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset sync 2>&1)"
+
+  check "adds an entry for each new file" test -d "$services/shrinkit: 320p.workflow" \
+    -a -d "$services/shrinkit: fast one.workflow"
+  check "takes out the one whose file is gone" missing "$services/shrinkit: tiny.workflow"
+  check "keeps the others" test -d "$services/shrinkit: sharp.workflow"
+  check "and edit, run and merge" test -d "$services/shrinkit: edit.workflow" \
+    -a -d "$services/shrinkit: run.workflow" -a -d "$services/shrinkit: merge.workflow"
+  check "says what it added" contains "$out" "added to the menu: 320p, fast one"
+  check "and what it took out" contains "$out" "taken out of the menu: tiny"
+  check "and what the menu holds" contains "$out" "in the menu: 2x, 320p, fast one, sharp"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset sync 2>&1)"
+  check "run again, says there was nothing to do" contains "$out" "the menu already matched presets/"
+}
