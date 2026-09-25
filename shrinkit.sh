@@ -160,9 +160,8 @@ LOCK_DIR="$BASE_DIR/.optimizer.lock"
 CONFIG="$BASE_DIR/settings.conf"
 # named variations on the config, one file each
 PRESET_DIR="$BASE_DIR/presets"
-# Presets taken out of the right-click menu with 'preset remove', one name per line. setup builds
-# an entry for every other preset; without the list it built these again on every run, which brew
-# does on every upgrade.
+# Presets 3.x's 'preset remove' took out of the right-click menu while keeping their files, one name
+# per line. setup and doctor still leave them out; preset add and preset remove take a name off it.
 MENU_OFF="$PRESET_DIR/.not-in-menu"
 
 OUT_DIR="$BASE_DIR/output"
@@ -1165,11 +1164,8 @@ config_set() {
 }
 
 config_edit() {
-  local -a editor
-  # zsh does not split an expansion into words on its own, hence the =
-  editor=(${=EDITOR:-open -t})
   [[ -f "$CONFIG" ]] || : > "$CONFIG"
-  "${editor[@]}" "$CONFIG"
+  open_in_editor "$CONFIG"
 }
 
 # Moving the working folder means a new watch path for the agent, new menu entries and a new
@@ -1305,16 +1301,24 @@ install_preset_action() {
     "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} --preset ${(qq)name} \"\$@\""
 }
 
-# A name that is neither a preset nor an entry is said to be none, and nothing is written down for it.
+# A preset goes whole: its right-click entry, and its file into the Trash, where it can be taken
+# back from. A name that is neither a preset nor an entry is said to be none.
 remove_preset_action() {
-  [[ -d "$SERVICES_DIR/shrinkit: $1.workflow" || -f "$(preset_file "$1")" ]] || {
-    no_such_preset "$1"
+  local name="$1" file trash
+  file="$(preset_file "$name")"
+  [[ -d "$SERVICES_DIR/shrinkit: $name.workflow" || -f "$file" ]] || {
+    no_such_preset "$name"
     return 2
   }
-  rm -rf "$SERVICES_DIR/shrinkit: $1.workflow"
-  in_menu "$1" && print -r -- "$1" >> "$MENU_OFF"
+  rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
+  if [[ -f "$file" ]]; then
+    trash="$HOME/.Trash/${file:t}"
+    [[ -e "$trash" ]] && trash="$HOME/.Trash/$name $(date +%H.%M.%S).conf"
+    mkdir -p "$HOME/.Trash" && mv "$file" "$trash" || return 1
+  fi
+  back_in_menu "$name"
   "$PBS" -update 2> /dev/null || true
-  print -r -- "removed the Quick Action for '$1'"
+  print -r -- "removed the preset '$name'${trash:+; its file is in the Trash}"
 }
 
 in_menu() {
@@ -1336,61 +1340,77 @@ back_in_menu() {
 # The settings a preset is usually made of, offered commented out in a new one.
 PRESET_KEYS=(speed fps crf codec remove_audio max_height)
 
-# A new preset: its file, holding the usual settings commented out at the values in effect now, and
-# its right-click entry, then the file opened to edit, the way config edit opens settings.conf. An
-# existing preset is left alone.
+# A preset, made if there is none: its file, holding the usual settings commented out at the
+# values in effect now, and its right-click entry, then the file opened to edit, the way config edit
+# opens settings.conf.
 preset_add() {
   local name="$1" file key
-  local -a editor
   [[ -n "$name" && "$name" != */* && "$name" != .* ]] || {
     print -u2 -r -- "a preset name cannot be empty, hold a /, or start with a dot"
     return 2
   }
   file="$(preset_file "$name")"
-  [[ ! -e "$file" ]] || {
-    print -u2 -r -- "there is a preset called '$name' already: $file"
-    return 2
-  }
-  read_config
-  {
-    print -r -- "# shrinkit preset '$name': the settings it changes, one per line. Anything it does not"
-    print -r -- "# set comes from settings.conf. Take the # off a line to use it."
-    print -r -- "#"
-    for key in "${PRESET_KEYS[@]}"; do print -r -- "# $key = ${CFG[$key]}"; done
-  } > "$file" || return 1
-  print -r -- "created $file"
+  if [[ -e "$file" ]]; then
+    print -r -- "the preset '$name' is there already: $file"
+  else
+    read_config
+    {
+      print -r -- "# shrinkit preset '$name': the settings it changes, one per line. Anything it does not"
+      print -r -- "# set comes from settings.conf. Take the # off a line to use it."
+      print -r -- "#"
+      for key in "${PRESET_KEYS[@]}"; do print -r -- "# $key = ${CFG[$key]}"; done
+    } > "$file" || return 1
+    print -r -- "created $file"
+  fi
   install_preset_action "$name" && back_in_menu "$name" || return 1
-  # zsh does not split an expansion into words on its own, hence the =
-  editor=(${=EDITOR:-open -t})
-  "${editor[@]}" "$file"
+  open_in_editor "$file"
 }
 
+preset_edit() {
+  [[ -f "$(preset_file "$1")" ]] || {
+    no_such_preset "$1"
+    return 2
+  }
+  open_in_editor "$(preset_file "$1")"
+}
+
+open_in_editor() {
+  local -a editor
+  # zsh does not split an expansion into words on its own, hence the =
+  editor=(${=EDITOR:-open -t})
+  "${editor[@]}" "$1"
+}
+
+# shrinkit preset: the presets there are. add, edit and remove take a name; install, from 3.x,
+# gives a preset back its entry and is left out of the usage text.
 preset_command() {
   mkdir -p "$PRESET_DIR"
   case "${1-}" in
-    add)
+    '')
+      local -a names
+      names=(${(f)"$(preset_names)"})
+      if ((${#names})); then print -rl -- "${names[@]}"; else print -r -- "no presets in $PRESET_DIR"; fi
+      ;;
+    add | edit | remove)
+      [[ -n "${2-}" ]] || {
+        print -u2 -r -- "usage: preset $1 <name>"
+        return 2
+      }
+      case "$1" in
+        add) preset_add "$2" ;;
+        edit) preset_edit "$2" ;;
+        remove) remove_preset_action "$2" ;;
+      esac
+      ;;
+    install)
       [[ -n "${2-}" ]] || {
         print -u2 -r -- "usage: preset add <name>"
         return 2
       }
-      preset_add "$2"
-      ;;
-    install)
-      [[ -n "${2-}" ]] || {
-        print -u2 -r -- "usage: preset install <name>"
-        return 2
-      }
       install_preset_action "$2" && back_in_menu "$2" || return 2
       ;;
-    remove)
-      [[ -n "${2-}" ]] || {
-        print -u2 -r -- "usage: preset remove <name>"
-        return 2
-      }
-      remove_preset_action "$2"
-      ;;
     *)
-      print -u2 -r -- "usage: preset [add <name>|install <name>|remove <name>]"
+      print -u2 -r -- "usage: preset [add <name> | edit <name> | remove <name>]"
       return 2
       ;;
   esac
@@ -1415,7 +1435,7 @@ answer_mark_cuts() {
 usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
        ${ZSH_ARGZERO:t} config [show | edit | folder [<path>] | <setting> <value>]
-       ${ZSH_ARGZERO:t} preset [add <name> | install <name> | remove <name>]
+       ${ZSH_ARGZERO:t} preset [add <name> | edit <name> | remove <name>]
        ${ZSH_ARGZERO:t} edit <file>...
        ${ZSH_ARGZERO:t} run <file>
        ${ZSH_ARGZERO:t} merge <file>...
@@ -1435,10 +1455,11 @@ and cuts everything else, so --keep 1:00-2:00 leaves exactly that minute.
 Use one or the other, not both. Either needs the file named, since a
 timestamp only means something in one recording.
 
-A preset is a file of the same settings in $PRESET_DIR.
-Use one for a run with --preset <name>, or turn it into its own right-click
-entry with 'preset install <name>'. 'preset add <name>' makes a new one: the
-file, its right-click entry, and the file opened to edit.
+A preset is a file of the same settings in $PRESET_DIR, with
+its own right-click entry. Use one for a run with --preset <name>. 'preset'
+lists them, 'preset add <name>' makes one (or gives it back its entry) and opens
+it, 'preset edit <name>' opens it, 'preset remove <name>' deletes it and its
+entry, the file going to the Trash.
 
 edit writes one file for up to 10 recordings, with a block for each, and opens
 it in \$VISUAL or \$EDITOR, or vi when neither is set. Under a recording's name
