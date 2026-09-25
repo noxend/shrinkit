@@ -189,7 +189,7 @@ test_run_merge_uses_the_first_blocks_codec_fps_and_height() {
     "[2/2] 2 large.mov: codec hevc is not used; merge = true encodes every recording in the first one's h264" \
     "[2/2] 2 large.mov: fps 60 is not used; merge = true encodes every recording at the first one's 24 fps" \
     "[2/2] 2 large.mov: max_height 360 is not used; merge = true fits every recording into 320x180"; do
-    check "says $want" contains "${text%%$'\n'🎬 \[1/2\]*}" "  ⚠️ $want"$'\n'
+    check "says $want" contains "${text%%$'\n'🎬 \[1/2\]*}" "  🟡 $want"$'\n'
     check "and logs it" grep -qF -- "$want" "$box/.logs/optimizer.log"
   done
   check "encodes the set in the first block's codec" test "$(video_codec "$out")" = h264
@@ -245,7 +245,7 @@ test_run_merge_encodes_nothing_when_a_block_is_left_out() {
 
   out="$(run_file "$box" "$tools" "$work/1 a.edit.txt" 2> /dev/null)" || code=$?
 
-  check "names the block and why" contains "$out" $'\n⚠️ [2/3] 2 gone.mov: not found beside 1 a.edit.txt\n'
+  check "names the block and why" contains "$out" $'\n🟡 [2/3] 2 gone.mov: not found beside 1 a.edit.txt\n'
   check "says nothing is joined" contains "$out" $'\n❌ [join] nothing joined: merge = true joins every recording or none\n'
   check "encodes nothing" not_logged "$box" ' encode '
   check "and exits 1" test "$code" = 1
@@ -268,7 +268,7 @@ test_run_merge_with_one_recording_left_shrinks_it_alone() {
   check "shrinks it beside itself" duration_near "$work/clip.mp4" 1
   merged=("$work"/*merged*(N))
   check "joins nothing" test "${#merged}" = 0
-  check "says why" contains "$out" $'\n⚠️ merge = true needs two recordings; clip.mov was shrunk on its own\n'
+  check "says why" contains "$out" $'\n🟡 merge = true needs two recordings; clip.mov was shrunk on its own\n'
   check "and logs it" logged "$box" 'merge = true needs two recordings; clip.mov was shrunk on its own'
   check "exits 0" test "$code" = 0
 }
