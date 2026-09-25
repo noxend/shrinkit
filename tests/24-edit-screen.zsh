@@ -26,7 +26,8 @@ test_run_on_a_terminal_says_each_word_in_its_colour() {
   check "a block's number in bold" contains "$screen" $'\n'"${ESC}[1m[1/2]${ESC}[0m 1 a.mov"$'\n'
   check "its settings dim" contains "$screen" $'\n'"      ${ESC}[2msettings.conf as it is${ESC}[0m"$'\n'
   check "an encode in cyan" contains "$screen" "      ${ESC}[36mencoding ${ESC}[0m"
-  check "a result in green" contains "$screen" "      ${ESC}[32mdone     ${ESC}[0m 1 a.mp4 ("
+  check "a result in green, by its sizes" contains "$screen" \
+    "      ${ESC}[32mdone     ${ESC}[0m $(size_of "$work/1 a.mov") -> $(size_of "$work/1 a.mp4")"$'\n'
   check "a failure in red" contains "$screen" "      ${ESC}[31mfailed   ${ESC}[0m $work/2 broken.mov"
   check "and a run that did not go through in bold red" contains "$screen" \
     $'\n'"${ESC}[31m${ESC}[1mNot every recording was shrunk.${ESC}[0m"$'\n'
@@ -78,7 +79,8 @@ test_run_on_a_terminal_with_no_color_set_says_the_words_alone() {
   check "runs the file" exists "$work/clip.mp4"
   check "with no escape code on the screen" lacks "$(< "$tools/screen")" "$ESC"
   check "an encode on a line of its own" contains "$screen" $'\n      encoding  clip.mov ('
-  check "and what came of it" contains "$screen" $'\n      done      clip.mp4 ('
+  check "and what came of it" contains "$screen" \
+    $'\n      done      '"$(size_of "$work/clip.mov") -> $(size_of "$work/clip.mp4")"$'\n'
 }
 
 # The frames an in_terminal screen drew for one step, the step's word first in its colour: each
@@ -135,7 +137,7 @@ test_run_on_a_terminal_draws_an_encode_as_a_bar_redrawn_in_place() {
   check "against the length of what is kept, at its speed" test "${#${(@M)percents:#([5-9][0-9]|100)}}" -ge 1
   check "with the time left once there is enough to go on" test "$left" -ge 1
   check "then cleared, and the result written in its place" contains "$screen" \
-    $'\r'"${ESC}[K${ESC}[?25h      ${ESC}[32mdone     ${ESC}[0m clip.mp4 ("
+    $'\r'"${ESC}[K${ESC}[?25h      ${ESC}[32mdone     ${ESC}[0m $(size_of "$work/clip.mov") -> $(size_of "$work/clip.mp4"), cut applied"
   check "the cursor hidden while it is drawn" contains "${screen%%${ESC}\[36mencoding*}" "${ESC}[?25l"
   after="${screen##*${ESC}\[\?25l}"
   check "and shown again after" contains "$after" "${ESC}[?25h"
@@ -206,7 +208,7 @@ test_run_on_a_terminal_spins_for_a_recording_that_does_not_say_how_long_it_is() 
   check "turning" test "${#${(@u)frames}}" -ge 2
   check "with no percent to show" lacks "${(F)frames}" "%"
   check "then the result in its place" contains "$screen" \
-    $'\r'"${ESC}[K${ESC}[?25h      ${ESC}[32mdone     ${ESC}[0m clip.mp4 ("
+    $'\r'"${ESC}[K${ESC}[?25h      ${ESC}[32mdone     ${ESC}[0m $(size_of "$work/clip.mov") -> $(size_of "$work/clip.mp4")"
   check "and the cursor shown again" contains "${screen##*${ESC}\[\?25l}" "${ESC}[?25h"
 }
 

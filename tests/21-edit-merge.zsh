@@ -312,8 +312,9 @@ test_an_interrupted_edit_merge_leaves_nothing_behind() {
   check "and nothing beside the recordings but the edit file" test "$(ls "$work" | wc -l | tr -d ' ')" = 3
 }
 
-test_run_merge_heads_the_join_on_the_terminal() {
+test_run_merge_says_each_part_and_heads_the_join_on_the_terminal() {
   local box tools work file out
+  local -a done_lines
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -325,7 +326,11 @@ test_run_merge_heads_the_join_on_the_terminal() {
   file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
 
   out="$(run_file "$box" "$tools" "$file")"
+  done_lines=(${(M)${(f)out}:#      done *})
 
+  check "says each part done" test "${#done_lines}" = 2
+  check "by its sizes" contains "${done_lines[2]-}" "      done      $(size_of "$work/2 b.mov") -> "
+  check "not by its name in the temporary folder" lacks "${(F)done_lines}" ".mp4"
   check "heads the join" contains "$out" $'\n\n[join] 2 parts\n'
   check "and says it under joined" \
     contains "$out" $'\n      joined    2 clips into 1 a-merged.mp4 (streams copied)\n'
