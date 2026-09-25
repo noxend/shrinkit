@@ -49,6 +49,28 @@ test_doctor_warns_about_an_entry_an_older_shrinkit_left() {
   check "and exits 0" test "$code" = 0
 }
 
+# shrinkit: edit opens its window on the launcher setup writes, so without it the entry opens
+# nothing.
+test_doctor_fails_the_edit_entry_without_its_launcher() {
+  local box out launcher code=0
+  box="$(installed_box)"
+  launcher="$box/home/Library/Application Support/shrinkit/shrinkit edit.command"
+  chmod a-x "$launcher"
+
+  out="$(run_doctor "$box" 2>&1)" || code=$?
+
+  check "fails when Terminal cannot run it" test "$(doctor_line "$out" right-click)" = \
+    "FAIL  right-click    right-click edit cannot open its window: $launcher is not executable"
+  check "says how to write it again" contains "$(doctor_block "$out" right-click)" "  shrinkit setup"
+  check "and exits 1" test "$code" = 1
+
+  rm -f "$launcher"
+  out="$(run_doctor "$box" 2>&1)"
+
+  check "and when it is gone" test "$(doctor_line "$out" right-click)" = \
+    "FAIL  right-click    right-click edit cannot open its window: there is no $launcher"
+}
+
 test_doctor_reads_an_entry_an_older_setup_wrote() {
   local box out entry
   box="$(installed_box)"

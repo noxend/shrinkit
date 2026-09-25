@@ -196,6 +196,35 @@ test_setup_run_again_removes_the_mark_cuts_entry_an_older_version_built() {
   check "and builds merge's" exists "$services/shrinkit: merge.workflow/Contents/Info.plist"
 }
 
+# The Terminal window of shrinkit: edit runs a launcher setup writes once, beside the folder file.
+test_setup_writes_the_launcher_and_teardown_removes_it() {
+  local box support launcher entry out
+  box="$(scratch)"
+  setup_box "$box"
+  support="$box/home/Library/Application Support/shrinkit"
+  launcher="$support/shrinkit edit.command"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  check "setup writes the launcher beside the folder file" exists "$launcher"
+  check "one Terminal can run" test -x "$launcher"
+  entry="$(action_command "$box/home/Library/Services/shrinkit: merge.workflow")"
+  check "running the next edit with the folder and the program the entries run" \
+    test "$(< "$launcher")" = "#!/bin/zsh"$'\n'"${entry% merge *} run --next"
+
+  # A right-click whose window never came leaves its request behind.
+  mkdir -p "$support/edit-queue"
+  print -r -- "$box/clips/clip.edit.txt" > "$support/edit-queue/left"
+  out="$(run_teardown "$box" "$box/work" 2>&1)"
+
+  check "teardown removes it" missing "$launcher"
+  check "and the queue beside it" missing "$support/edit-queue"
+  check "says so" contains "$out" "the edit window's launcher"
+  check "and leaves the folder file" exists "$support/folder"
+  out="$(run_teardown "$box" "$box/work" 2>&1)"
+  check "claiming it only while it was there" lacks "$out" "launcher"
+}
+
 test_setup_run_again_keeps_the_settings_and_the_presets() {
   local box
   box="$(scratch)"

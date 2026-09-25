@@ -95,6 +95,33 @@ run_file() {
   PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" run "$@"
 }
 
+# run_window <box> <tools> <args...>: shrinkit run with the Terminal window's arguments, with open
+# and osascript from <tools> and HOME in <box>, so the queue it reads is the box's. stdin is the
+# caller's: the test presses Enter by feeding it.
+run_window() {
+  local box="$1" tools="$2"
+  shift 2
+  sandboxed "$box"
+  sandboxed "$tools"
+  HOME="$box/home" PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" run "$@"
+}
+
+# stub_textedit <dir> <line...>: an open in <dir> that writes down its calls as stub_tools' does,
+# and for 'open -e <file>' also adds the lines at the end of the file, as typing them into TextEdit
+# and saving does. With no lines it adds an empty one: a save of what was there.
+stub_textedit() {
+  local dir="$1"
+  shift
+  sandboxed "$dir"
+  {
+    print -r -- '#!/bin/zsh'
+    print -r -- "print -r -- \"\${(j: | :)@}\" >> ${(qq)dir}/open.log"
+    print -r -- "[[ \"\$1\" == -e ]] && print -rl -- ${(j: :)${(@qq)@}} >> \"\$2\""
+    print -r -- 'exit 0'
+  } > "$dir/open"
+  chmod +x "$dir/open"
+}
+
 # The block headers of an edit file, one per line, in the order they are written.
 headers_of() {
   grep '^\[' "$1"

@@ -270,6 +270,14 @@ doctor_check_right_click() {
         "  chmod +x ${(qq)program}"
     fi
   done
+  # The edit entry opens its Terminal window on the launcher setup writes beside the folder file.
+  if [[ ! -f "$EDIT_LAUNCHER" ]]; then
+    doctor_found FAIL "right-click edit cannot open its window: there is no $EDIT_LAUNCHER" \
+      "Write it again with:" "  $DOCTOR_SELF setup"
+  elif [[ ! -x "$EDIT_LAUNCHER" ]]; then
+    doctor_found FAIL "right-click edit cannot open its window: $EDIT_LAUNCHER is not executable" \
+      "Write it again with:" "  $DOCTOR_SELF setup"
+  fi
   for name in "${expected[@]}"; do
     ((${present[(Ie)$name]})) && continue
     if [[ "$name" == merge ]]; then
