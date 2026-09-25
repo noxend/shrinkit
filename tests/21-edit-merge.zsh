@@ -9,6 +9,10 @@ rate_of() {
   "$FFPROBE" -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=nw=1:nk=1 "$1" 2> /dev/null
 }
 
+codec_tag_of() {
+  "$FFPROBE" -v error -select_streams v:0 -show_entries stream=codec_tag_string -of default=nw=1:nk=1 "$1" 2> /dev/null
+}
+
 frames_of() {
   "$FFPROBE" -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets \
     -of default=nw=1:nk=1 "$1" 2> /dev/null
@@ -111,6 +115,32 @@ test_run_merge_copies_a_join_of_hevc_parts() {
 
   check "encodes both in the first block's hevc" test "$(video_codec "$out")" = hevc
   check "and joins them by copying" logged "$box" 'streams copied'
+  check "as long as the two together" duration_near "$out" 4
+}
+
+# The parts agree by construction, so the join re-encodes only when copying them fails: here, an
+# ffmpeg that cannot join by copying and does everything else as the real one.
+test_run_merge_that_has_to_re_encode_the_join_keeps_the_sets_codec() {
+  local box tools work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true' 'add "1 a.mov" "codec = hevc"'
+  print -rl -- '#!/bin/zsh' '[[ " $* " == *" -f concat "* ]] && exit 1' "exec ${(qq)FFMPEG} \"\$@\"" \
+    > "$tools/ffmpeg"
+  chmod +x "$tools/ffmpeg"
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
+  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  out="$work/1 a-merged.mp4"
+
+  run_file "$box" "$tools" "$work/1 a.edit.txt" > /dev/null
+
+  check "re-encodes the join" logged "$box" 'merged 2 clips into 1 a-merged.mp4 (re-encoded)'
+  check "in the set's hevc" test "$(video_codec "$out")" = hevc
+  check "tagged hvc1, as the parts are, so QuickTime plays it" test "$(codec_tag_of "$out")" = hvc1
   check "as long as the two together" duration_near "$out" 4
 }
 
