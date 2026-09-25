@@ -138,7 +138,7 @@ LIB_DIR="$(lib_dir)"
 
 # A missing part is a broken install, not a missing feature, so it stops here. Reported to stderr
 # and by exit code rather than to the log, which lives under a folder these parts help set up.
-for _part in merge setup doctor edit; do
+for _part in merge setup doctor edit screen; do
   [[ -r "$LIB_DIR/$_part.zsh" ]] || {
     print -u2 -r -- "shrinkit is incomplete: cannot read $LIB_DIR/$_part.zsh"
     exit 1
@@ -198,7 +198,7 @@ SCREEN_FD=""
 # streams: codec, width, height, rate and sound (true or false). Empty outside such a run.
 typeset -A PART_FORMAT
 
-# During an edit run every line also goes on its screen (screen_log, lib/edit.zsh).
+# During an edit run every line also goes on its screen (screen_log, lib/screen.zsh).
 log() {
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
   [[ -n "$SCREEN_FD" ]] && screen_log "$*"
