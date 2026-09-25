@@ -520,3 +520,59 @@ test_a_cask_install_leaves_a_different_shrinkit_alone() {
   # This runs on every brew install and upgrade, so a file that only shares the name survives it.
   check "keeps a file that is not this script" grep -q "somebody else" "$box/home/.local/bin/shrinkit"
 }
+
+# preset add: the file with the usual settings commented out at the values in effect, its
+# right-click entry, and the file opened in the editor, the way config edit opens settings.conf.
+test_preset_add_makes_the_file_and_its_entry_and_opens_it() {
+  local box tools file out code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  print -r -- 'crf = 31' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  print -rl -- '#!/bin/zsh' "print -r -- \"\$@\" >> ${(qq)tools}/editor.log" > "$tools/editor"
+  chmod +x "$tools/editor"
+  file="$box/work/presets/for review.conf"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR="$tools/editor" \
+    zsh "$OPTIMIZER" preset add 'for review' 2>&1)" || code=$?
+
+  check "exits 0" test "$code" = 0
+  check "writes the preset" exists "$file"
+  check "with the usual settings commented out" \
+    test "$(grep -c '^# \(speed\|fps\|crf\|codec\|remove_audio\|max_height\) = ' "$file")" = 6
+  check "at the values in effect" grep -qx '# crf = 31' "$file"
+  check "and nothing in effect yet" test -z "$(grep -v '^#' "$file")"
+  check "adds its right-click entry" test -d "$box/home/Library/Services/shrinkit: for review.workflow"
+  check "opens it in the editor" test "$(< "$tools/editor.log")" = "$file"
+  check "and says where it is" contains "$out" "created $file"
+}
+
+test_preset_add_leaves_an_existing_preset_alone() {
+  local box before code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  before="$(< "$box/work/presets/sharp.conf")"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR=false \
+    zsh "$OPTIMIZER" preset add sharp > /dev/null 2>&1 || code=$?
+
+  check "exits 2" test "$code" = 2
+  check "and keeps the preset as it was" test "$(< "$box/work/presets/sharp.conf")" = "$before"
+}
+
+# The name is a file name in presets/ and a menu title.
+test_preset_add_refuses_a_name_that_is_no_file_name() {
+  local box name code
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  for name in '' 'a/b' '.hidden'; do
+    code=0
+    HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR=false \
+      zsh "$OPTIMIZER" preset add "$name" > /dev/null 2>&1 || code=$?
+    check "'$name' is refused" test "$code" = 2
+  done
+  check "and nothing is written" test "$(ls -A "$box/work/presets" | sort | tr '\n' ' ')" = "2x.conf sharp.conf tiny.conf "
+}

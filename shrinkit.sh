@@ -1313,9 +1313,48 @@ back_in_menu() {
   fi
 }
 
+# The settings a preset is usually made of, offered commented out in a new one.
+PRESET_KEYS=(speed fps crf codec remove_audio max_height)
+
+# A new preset: its file, holding the usual settings commented out at the values in effect now, and
+# its right-click entry, then the file opened to edit, the way config edit opens settings.conf. An
+# existing preset is left alone.
+preset_add() {
+  local name="$1" file key
+  local -a editor
+  [[ -n "$name" && "$name" != */* && "$name" != .* ]] || {
+    print -u2 -r -- "a preset name cannot be empty, hold a /, or start with a dot"
+    return 2
+  }
+  file="$(preset_file "$name")"
+  [[ ! -e "$file" ]] || {
+    print -u2 -r -- "there is a preset called '$name' already: $file"
+    return 2
+  }
+  read_config
+  {
+    print -r -- "# shrinkit preset '$name': the settings it changes, one per line. Anything it does not"
+    print -r -- "# set comes from settings.conf. Take the # off a line to use it."
+    print -r -- "#"
+    for key in "${PRESET_KEYS[@]}"; do print -r -- "# $key = ${CFG[$key]}"; done
+  } > "$file" || return 1
+  print -r -- "created $file"
+  install_preset_action "$name" && back_in_menu "$name" || return 1
+  # zsh does not split an expansion into words on its own, hence the =
+  editor=(${=EDITOR:-open -t})
+  "${editor[@]}" "$file"
+}
+
 preset_command() {
   mkdir -p "$PRESET_DIR"
   case "${1-}" in
+    add)
+      [[ -n "${2-}" ]] || {
+        print -u2 -r -- "usage: preset add <name>"
+        return 2
+      }
+      preset_add "$2"
+      ;;
     install)
       [[ -n "${2-}" ]] || {
         print -u2 -r -- "usage: preset install <name>"
@@ -1331,7 +1370,7 @@ preset_command() {
       remove_preset_action "$2"
       ;;
     *)
-      print -u2 -r -- "usage: preset [install <name>|remove <name>]"
+      print -u2 -r -- "usage: preset [add <name>|install <name>|remove <name>]"
       return 2
       ;;
   esac
@@ -1356,7 +1395,7 @@ answer_mark_cuts() {
 usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
        ${ZSH_ARGZERO:t} config [show | edit | folder [<path>] | <setting> <value>]
-       ${ZSH_ARGZERO:t} preset [install <name> | remove <name>]
+       ${ZSH_ARGZERO:t} preset [add <name> | install <name> | remove <name>]
        ${ZSH_ARGZERO:t} edit <file>...
        ${ZSH_ARGZERO:t} run <file>
        ${ZSH_ARGZERO:t} merge <file>...
@@ -1378,7 +1417,8 @@ timestamp only means something in one recording.
 
 A preset is a file of the same settings in $PRESET_DIR.
 Use one for a run with --preset <name>, or turn it into its own right-click
-entry with 'preset install <name>'.
+entry with 'preset install <name>'. 'preset add <name>' makes a new one: the
+file, its right-click entry, and the file opened to edit.
 
 edit writes one file for up to 10 recordings, with a block for each, and opens
 it in \$VISUAL or \$EDITOR, or vi when neither is set. Under a recording's name
