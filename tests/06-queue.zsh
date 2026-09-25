@@ -202,7 +202,10 @@ test_a_recording_still_growing_is_left_for_later() {
   settings "$box" 'speed = 2'
   cp "$FIXTURES/silent.mov" "$box/input/clip.mov"
   # Grows for longer than the 2 seconds the check waits.
-  (for _ in {1..20}; do print -rn -- 0123456789 >> "$box/input/clip.mov"; sleep 0.3; done) &
+  (for _ in {1..20}; do
+    print -rn -- 0123456789 >> "$box/input/clip.mov"
+    sleep 0.3
+  done) &
   writer=$!
 
   optimize "$box"
