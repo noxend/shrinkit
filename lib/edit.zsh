@@ -596,7 +596,8 @@ edit_window() {
 # Terminal keeps a window open once its shell has ended, so the window asks Terminal to close it:
 # from a step that outlives this process, 3 seconds on, when the shell around it has ended, the
 # window whose selected tab is on the terminal this reads from. Asked that way, Terminal closes it
-# without a prompt (measured 2026-09-25).
+# without a prompt (measured 2026-09-25). Only a window holding that one tab: closing a window
+# closes every tab in it, and Terminal may have opened this one as a tab beside the user's own.
 close_window_later() {
   local tty
   tty="$(tty)" || return 0
@@ -607,7 +608,7 @@ close_window_later() {
 on run argv
   tell application "Terminal"
     repeat with w in windows
-      if tty of selected tab of w is (item 1 of argv) then close w
+      if (count of tabs of w) is 1 and tty of selected tab of w is (item 1 of argv) then close w
     end repeat
   end tell
 end run
