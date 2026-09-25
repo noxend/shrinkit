@@ -1367,8 +1367,9 @@ preset_add() {
 }
 
 # The right-click menu made to match presets/, for files put there or deleted by hand: an entry for
-# each preset in it, none for a preset that is gone, and edit, run and merge left as they are. What
-# changed is said, and then what the menu holds.
+# each preset in it, none for a preset that is gone, and edit, run and merge left as they are. The
+# names 3.x's remove wrote down go too: every preset in the folder is in the menu. What changed is
+# said, and then what the menu holds.
 preset_sync() {
   local entry name file
   local -a had gone added now
@@ -1378,13 +1379,13 @@ preset_sync() {
     [[ "$name" == (edit|run|merge) ]] || had+=("$name")
   done
   for name in "${had[@]}"; do
-    [[ -f "$(preset_file "$name")" ]] && in_menu "$name" && continue
+    [[ -f "$(preset_file "$name")" ]] && continue
     rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
     gone+=("$name")
   done
+  rm -f "$MENU_OFF"
   for file in "$PRESET_DIR"/*.conf(N.); do
     name="${file:t:r}"
-    in_menu "$name" || continue
     install_preset_action "$name" > /dev/null || continue
     now+=("$name")
     ((${had[(Ie)$name]})) || added+=("$name")

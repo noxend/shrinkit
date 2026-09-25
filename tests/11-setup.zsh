@@ -663,6 +663,9 @@ test_preset_sync_makes_the_menu_match_the_presets_folder() {
   print -r -- 'max_height = 320' > "$box/work/presets/320p.conf"
   print -r -- 'speed = 4' > "$box/work/presets/fast one.conf"
   rm "$box/work/presets/tiny.conf"
+  # One 3.x's preset remove took out of the menu, keeping its file.
+  rm -rf "$services/shrinkit: 2x.workflow"
+  print -r -- 2x > "$box/work/presets/.not-in-menu"
 
   out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset sync 2>&1)"
 
@@ -672,7 +675,9 @@ test_preset_sync_makes_the_menu_match_the_presets_folder() {
   check "keeps the others" test -d "$services/shrinkit: sharp.workflow"
   check "and edit, run and merge" test -d "$services/shrinkit: edit.workflow" \
     -a -d "$services/shrinkit: run.workflow" -a -d "$services/shrinkit: merge.workflow"
-  check "says what it added" contains "$out" "added to the menu: 320p, fast one"
+  check "and every preset whose file is there" test -d "$services/shrinkit: 2x.workflow"
+  check "leaving no list of ones kept out" missing "$box/work/presets/.not-in-menu"
+  check "says what it added" contains "$out" "added to the menu: 2x, 320p, fast one"
   check "and what it took out" contains "$out" "taken out of the menu: tiny"
   check "and what the menu holds" contains "$out" "in the menu: 2x, 320p, fast one, sharp"
 
