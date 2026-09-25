@@ -135,3 +135,199 @@ test_run_merge_fps_zero_keeps_the_first_recordings_rate() {
   check "with 60 frames in every second of both parts" roughly_equal "$(frames_of "$out")" 210 3
   check "joined by copying" logged "$box" 'streams copied'
 }
+
+# A later block's codec, fps and max_height, from its preset and from its own lines.
+test_run_merge_uses_the_first_blocks_codec_fps_and_height() {
+  local box tools work out text want
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  mkdir -p "$box/presets"
+  print -rl -- 'fps = 60' 'codec = hevc' > "$box/presets/smooth.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true' 'add "1 small.mov" "fps = 24" "max_height = 180"' \
+    'add "2 large.mov" "preset = smooth" "max_height = 360"'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 small.mov"
+  cp "$FIXTURES/take-loud.mov" "$work/2 large.mov"
+  make_edit "$box" "$tools" "$work/1 small.mov" "$work/2 large.mov"
+  out="$work/1 small-merged.mp4"
+
+  text="$(run_file "$box" "$tools" "$work/1 small.edit.txt")"
+
+  for want in \
+    "[2/2] 2 large.mov: codec hevc is not used; merge = true encodes every recording in the first one's h264" \
+    "[2/2] 2 large.mov: fps 60 is not used; merge = true encodes every recording at the first one's 24 fps" \
+    "[2/2] 2 large.mov: max_height 360 is not used; merge = true fits every recording into 320x180"; do
+    check "says $want" contains "${text%%$'\n'\[1/2\]*}" "  $want"$'\n'
+    check "and logs it" grep -qF -- "$want" "$box/.logs/optimizer.log"
+  done
+  check "encodes the set in the first block's codec" test "$(video_codec "$out")" = h264
+  check "at its fps" test "$(rate_of "$out")" = 24/1
+  check "in the frame its max_height gives the largest recording" test "$(frame_of "$out")" = 320x180
+  check "and joins the parts by copying" logged "$box" 'streams copied'
+}
+
+test_run_merge_joins_nothing_when_a_block_fails() {
+  local box tools work tmp out code=0
+  local -a left
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true'
+  work="$(scratch)"
+  tmp="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
+  print -r -- 'not a movie' > "$work/2 broken.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/3 c.mov"
+  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 broken.mov" "$work/3 c.mov"
+
+  out="$(TMPDIR="$tmp" run_file "$box" "$tools" "$work/1 a.edit.txt" 2> /dev/null)" || code=$?
+
+  check "names the block it could not shrink" contains "$out" "  FAILED $work/2 broken.mov"
+  check "says nothing is joined, and why" \
+    contains "$out" $'\n[join] nothing joined: merge = true joins every recording or none\n'
+  check "and logs it" logged "$box" 'nothing joined: merge = true joins every recording or none'
+  check "goes no further" not_logged "$box" 'encode 3 c.mov'
+  check "leaves no part in the temporary folder" empty_dir "$tmp"
+  left=("$work"/*(N))
+  check "and nothing beside the recordings but the edit file" test "${#left}" = 4
+  check "sums it up" contains "$out" $'\nNothing was joined.\nNot shrunk: 2 broken.mov'
+  check "and exits 1" test "$code" = 1
+}
+
+# A block that cannot run is known before the first encode, so nothing is encoded for a set that
+# will not be joined.
+test_run_merge_encodes_nothing_when_a_block_is_left_out() {
+  local box tools work out code=0
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 gone.mov"
+  cp "$FIXTURES/take-green.mov" "$work/3 c.mov"
+  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 gone.mov" "$work/3 c.mov"
+  rm "$work/2 gone.mov"
+
+  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt" 2> /dev/null)" || code=$?
+
+  check "names the block and why" contains "$out" $'\n[2/3] 2 gone.mov: not found beside 1 a.edit.txt\n'
+  check "says nothing is joined" contains "$out" $'\n[join] nothing joined: merge = true joins every recording or none\n'
+  check "encodes nothing" not_logged "$box" ' encode '
+  check "and exits 1" test "$code" = 1
+}
+
+test_run_merge_with_one_recording_left_shrinks_it_alone() {
+  local box tools work out code=0
+  local -a merged
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+  make_edit "$box" "$tools" "$work/clip.mov"
+
+  out="$(run_file "$box" "$tools" "$work/clip.edit.txt")" || code=$?
+
+  check "shrinks it beside itself" duration_near "$work/clip.mp4" 1
+  merged=("$work"/*merged*(N))
+  check "joins nothing" test "${#merged}" = 0
+  check "says why" contains "$out" $'\nmerge = true needs two recordings; clip.mov was shrunk on its own\n'
+  check "and logs it" logged "$box" 'merge = true needs two recordings; clip.mov was shrunk on its own'
+  check "exits 0" test "$code" = 0
+}
+
+# As an interrupted merge (tests/07): TERM while the second part is being written.
+test_an_interrupted_edit_merge_leaves_nothing_behind() {
+  local box tools work tmp pid code=0 asked took _
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true'
+  work="$(scratch)"
+  tmp="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 short.mov"
+  cp "$FIXTURES/big.mov" "$work/2 long.mov"
+  make_edit "$box" "$tools" "$work/1 short.mov" "$work/2 long.mov"
+
+  TMPDIR="$tmp" PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" run "$work/1 short.edit.txt" > /dev/null 2>&1 &
+  pid=$!
+  for _ in {1..400}; do
+    grep -q 'done   1 short' "$box/.logs/optimizer.log" 2> /dev/null && break
+    sleep 0.05
+  done
+  wait_for_part "$tmp"
+  asked=$SECONDS
+  kill -TERM "$pid"
+  wait "$pid" || code=$?
+  took=$((SECONDS - asked))
+  sleep 3 # anything still running would have moved a result in by now
+
+  check "the first part was made before the signal" logged "$box" 'done   1 short'
+  check "stops with the signal's status" test "$code" = 143
+  check "within a couple of seconds" test "$took" -le 2
+  check "leaves no part in the temporary folder" empty_dir "$tmp"
+  check "and nothing beside the recordings but the edit file" test "$(ls "$work" | wc -l | tr -d ' ')" = 3
+}
+
+test_run_merge_puts_the_merged_file_on_the_clipboard_and_in_the_banner() {
+  local box tools work out
+  local -a copies banners
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'notify = true' 'copy_to_clipboard = true'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
+  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+
+  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
+  copies=(${(f)"$(grep '^clipboard ' "$tools/osascript.log")"})
+  banners=(${(f)"$(grep '^banner ' "$tools/osascript.log")"})
+
+  check "one copy" test "${#copies}" = 1
+  check "holding the merged file alone" test "${copies[1]-}" = "clipboard $work/1 a-merged.mp4"
+  check "one banner" test "${#banners}" = 1
+  check "naming the merged file" contains "${banners[1]-}" "2 recordings shrunk: 1 a-merged.mp4, copied to clipboard"
+  check "and the terminal names it" contains "$out" $'\nDone.\n  '"$work/1 a-merged.mp4  ("
+  check "alone" test "$(grep -c "^  $work/" <<< "$out")" = 1
+}
+
+test_run_merge_says_when_the_join_fails() {
+  local box tools work tmp out code=0
+  local -a merged banners
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'notify = true'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true'
+  work="$(scratch)"
+  tmp="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
+  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  # The joined file cannot be moved in beside the recordings.
+  chmod a-w "$work"
+
+  out="$(TMPDIR="$tmp" run_file "$box" "$tools" "$work/1 a.edit.txt" 2> /dev/null)" || code=$?
+  chmod u+w "$work"
+  banners=(${(f)"$(grep '^banner ' "$tools/osascript.log")"})
+
+  check "says the join failed" contains "$out" "  FAILED join of 2 parts"
+  check "sums it up" contains "$out" $'\n\nNothing was joined.'
+  merged=("$work"/*merged*(N))
+  check "leaves no merged file" test "${#merged}" = 0
+  check "and no part in the temporary folder" empty_dir "$tmp"
+  check "posts one banner saying so" test "${banners[*]-}" = "banner Could not merge | 2 recordings shrunk, but nothing was joined | Glass"
+  check "and exits 1" test "$code" = 1
+}

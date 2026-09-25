@@ -1550,15 +1550,16 @@ main() {
 }
 
 # Set at the top level: in zsh, a trap set inside a function fires when that function returns.
-# INT and TERM end the run there and then, with the half-written file removed, rather than
-# releasing the lock and going on to the next recording.
+# INT and TERM end the run there and then, with the half-written file and a merged edit run's parts
+# removed, rather than releasing the lock and going on to the next recording.
 stop_run() {
   [[ -n "$CURRENT_CHILD" ]] && kill "$CURRENT_CHILD" 2> /dev/null && wait "$CURRENT_CHILD" 2> /dev/null
   [[ -n "$CURRENT_PART" ]] && rm -f "$CURRENT_PART"
+  remove_parts
   release_lock
   exit "$1"
 }
-trap release_lock EXIT
+trap 'remove_parts; release_lock' EXIT
 trap 'stop_run 130' INT
 trap 'stop_run 143' TERM
 main "$@"
