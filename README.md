@@ -12,8 +12,8 @@ deals with both at once.
 
 The encoding is ffmpeg. A launchd agent watches the folder for you, so the whole thing runs without
 an app to open. Every part of it is configurable. It can cut a stretch out of the middle, to
-shorten a recording or redact something in it, and it can join several takes into one before any
-of that.
+shorten a recording or redact something in it, and it can join several takes into one, each with
+its own cuts and settings.
 
 ## Demo
 
@@ -44,6 +44,9 @@ in `output/`, and the original is kept in the hidden `.processed/` folder.
 or `shrinkit: tiny`. The result lands beside it as `clip-2x.mp4`, `clip-sharp.mp4` or
 `clip-tiny.mp4`, and the recording stays where it was. Select several to do them together.
 
+**Right-click several recordings** and pick `shrinkit: edit` to give each its own preset and cuts in
+one text file, and join them if you want. See [Editing several recordings](#editing-several-recordings).
+
 **From the terminal**, name the file. Any setting works as a one-off flag:
 
 ```bash
@@ -73,27 +76,62 @@ shrinkit preset remove mine      # takes it out, keeps the file
 
 Flags beat a preset, and a preset beats `settings.conf`.
 
+## Editing several recordings
+
+Select the recordings in Finder, right-click, and pick `shrinkit: edit`. Each recording opens in its
+player, so you can read times off it. A Terminal window opens too, and TextEdit shows one file with
+a block per recording:
+
+```
+merge = false
+
+[1 intro.mov]
+# 1 intro.mov is 2:14 long
+preset = 2x
+cut = 0:32-0:35
+
+[2 bug.mov]
+# 2 bug.mov is 0:48 long
+preset = sharp
+keep = 0:10-0:40
+```
+
+Under a recording's name goes one setting per line: `preset`, `cut`, `keep`, or `speed`, `fps`,
+`crf`, `codec`, `remove_audio` and `max_height` as in `settings.conf`. Delete a block to leave that
+recording out. Save the file, then press Enter in the Terminal window: the blocks run in order, and
+the log scrolls in that window. Before it encodes anything, shrinkit names each line it cannot use,
+and skips it.
+
+With `merge = false`, each result lands beside its recording, named after its preset the way a
+right-click names it (`clip-sharp.mp4`), or `clip.mp4` without one. With `merge = true`, the results
+are joined into `<first>-merged.mp4` beside the first recording, in the order of the blocks, and the
+first block's `codec`, `fps` and `max_height` apply to all of them.
+
+The file stays beside the first recording as `<first>.edit.txt`, so the same edit runs again with
+`shrinkit run '1 intro.edit.txt'`. From a terminal, `shrinkit edit '1 intro.mov' '2 bug.mov'`
+writes the same file, opens it in `$EDITOR`, and runs it when the editor closes. Delete every block
+to cancel.
+
 ## Cutting a stretch out
 
 Handy for shortening a recording, or for removing a password or a private chat that got captured.
 
-Right-click the recording and pick `shrinkit: mark cuts`. It opens the video and a
-`<recording>.cuts` file next to it. Write one range to remove per line, save, then shrink it as
-usual:
+In an edit file, put a `cut` line under the recording for each stretch to remove, or `keep` lines
+for what stays instead:
 
 ```
-0-0:20        the first 20 seconds
-0:32-0:35
-2:30-end      from 2:30 to the end
+cut = 0-0:20       # the first 20 seconds
+cut = 0:32-0:35
+cut = 2:30-end     # from 2:30 to the end
 ```
 
-Or in one go from the terminal: `shrinkit --cut 0:32-0:35 recording.mov`, or `--keep 1:00-2:00`
-to name what stays instead.
+From the terminal: `shrinkit --cut 0:32-0:35 recording.mov`, or `--keep 1:00-2:00`.
 
 - Times are `M:SS`, `M:SS.f` or plain seconds. `0` is the start and `end` is the real end.
-- `#` starts a comment. A line that does not make sense is skipped and written to the log.
-- Edited in TextEdit, save as plain text with Smart Dashes off (Edit > Substitutions), or a range
-  like `0–0:04` is skipped. The log says so.
+- A recording takes `cut` or `keep`, not both. A range that makes no sense is skipped, and the log
+  says so.
+- shrinkit 4 no longer reads the `.cuts` files `mark cuts` wrote. Move their ranges into an edit
+  file, or pass them with `--cut`.
 
 ## Joining recordings
 
@@ -103,6 +141,8 @@ start the names with a number and a space: `1 intro.mov`, `2 bug.mov`.
 
 Merging does not shrink, so run a preset on the result afterwards. Recordings of the same size and
 format are joined as they are, which is quick; mixed ones are re-encoded to match into an `.mp4`.
+To shrink each one with its own settings and join them in one go, use `shrinkit: edit` with
+`merge = true`.
 
 ## Settings
 
@@ -148,6 +188,7 @@ is named after the working folder:
 launchctl bootout "gui/$(id -u)/com.shrinkit"
 rm -f ~/Library/LaunchAgents/com.shrinkit.plist
 rm -rf ~/Library/Services/shrinkit:*.workflow
+rm -rf ~/"Library/Application Support/shrinkit/shrinkit edit.command" ~/"Library/Application Support/shrinkit/edit-queue"
 /System/Library/CoreServices/pbs -update
 ```
 

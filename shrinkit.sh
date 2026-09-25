@@ -1320,6 +1320,8 @@ usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
        ${ZSH_ARGZERO:t} config [show | edit | folder [<path>] | <setting> <value>]
        ${ZSH_ARGZERO:t} preset [install <name> | remove <name>]
+       ${ZSH_ARGZERO:t} edit <file>...
+       ${ZSH_ARGZERO:t} run <file>
        ${ZSH_ARGZERO:t} merge <file>...
        ${ZSH_ARGZERO:t} setup | teardown
        ${ZSH_ARGZERO:t} doctor
@@ -1340,6 +1342,16 @@ timestamp only means something in one recording.
 A preset is a file of the same settings in $PRESET_DIR.
 Use one for a run with --preset <name>, or turn it into its own right-click
 entry with 'preset install <name>'.
+
+edit writes one file for several recordings, with a block for each, and opens it
+in \$VISUAL or \$EDITOR, or vi when neither is set. Under a recording's name go
+its own preset, cut, keep and settings, and merge = true at the top joins the
+results in the order of the blocks. The file runs when the editor closes; delete
+every block to cancel. The right-click 'shrinkit: edit' entry writes the same
+file, opens it in TextEdit and runs it from a Terminal window.
+
+run runs an edit file again. The file stays beside the first recording as
+<first>.edit.txt.
 
 merge joins several recordings into one, in the order they were recorded, or by
 a number at the start of the file name (1 intro.mov, 2 bug.mov) for any that
