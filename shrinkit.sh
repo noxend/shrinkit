@@ -1311,21 +1311,26 @@ install_preset_action() {
     "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} --preset ${(qq)name} \"\$@\""
 }
 
-# A preset goes whole: its right-click entry, and its file into the Trash, where it can be taken
-# back from. A name that is neither a preset nor an entry is said to be none.
+# A preset goes whole: its file into the Trash, where it can be taken back from, then its
+# right-click entry, so a file that cannot be moved keeps its entry. A name that is neither a preset
+# nor an entry is said to be none.
 remove_preset_action() {
-  local name="$1" file trash
+  local name="$1" file trash n=1
+  preset_name_ok "$name" || return 2
   file="$(preset_file "$name")"
   [[ -d "$SERVICES_DIR/shrinkit: $name.workflow" || -f "$file" ]] || {
     no_such_preset "$name"
     return 2
   }
-  rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
   if [[ -f "$file" ]]; then
     trash="$HOME/.Trash/${file:t}"
-    [[ -e "$trash" ]] && trash="$HOME/.Trash/$name $(date +%H.%M.%S).conf"
-    mkdir -p "$HOME/.Trash" && mv "$file" "$trash" || return 1
+    while [[ -e "$trash" ]]; do trash="$HOME/.Trash/$name $((++n)).conf"; done
+    mkdir -p "$HOME/.Trash" && mv -n "$file" "$trash" && [[ ! -e "$file" ]] || {
+      print -u2 -r -- "could not move $file to the Trash; the preset stays"
+      return 1
+    }
   fi
+  rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
   back_in_menu "$name"
   "$PBS" -update 2> /dev/null || true
   print -r -- "removed the preset '$name'${trash:+; its file is in the Trash}"
@@ -1347,18 +1352,28 @@ back_in_menu() {
   fi
 }
 
-# The settings a preset is usually made of, offered commented out in a new one.
+# The settings a preset is usually made of, named in the note of a new one.
 PRESET_KEYS=(speed fps crf codec remove_audio max_height)
 
-# A preset, made if there is none: its file, holding the usual settings commented out at the
-# values in effect now, and its right-click entry, then the file opened to edit, the way config edit
-# opens settings.conf.
+# Whether a name can be a preset: a file in presets/, and not one of the entries shrinkit builds on
+# its own. Says why not.
+preset_name_ok() {
+  if [[ -z "$1" || "$1" == */* || "$1" == .* ]]; then
+    print -u2 -r -- "a preset name cannot be empty, hold a /, or start with a dot"
+    return 1
+  fi
+  if [[ "$1" == (edit|run|merge) ]]; then
+    print -u2 -r -- "'$1' is shrinkit's own right-click entry, so no preset can have that name"
+    return 1
+  fi
+  return 0
+}
+
+# A preset, made if there is none: its file, a note naming what it can set and space to write it,
+# and its right-click entry, then the file opened to edit, the way config edit opens settings.conf.
 preset_add() {
   local name="$1" file key
-  [[ -n "$name" && "$name" != */* && "$name" != .* ]] || {
-    print -u2 -r -- "a preset name cannot be empty, hold a /, or start with a dot"
-    return 2
-  }
+  preset_name_ok "$name" || return 2
   file="$(preset_file "$name")"
   if [[ -e "$file" ]]; then
     print -r -- "the preset '$name' is there already: $file"
@@ -1399,6 +1414,10 @@ preset_sync() {
   rm -f "$MENU_OFF"
   for file in "$PRESET_DIR"/*.conf(N.); do
     name="${file:t:r}"
+    [[ "$name" == (edit|run|merge) ]] && {
+      print -u2 -r -- "left out $file: '$name' is shrinkit's own right-click entry; rename the file"
+      continue
+    }
     install_preset_action "$name" > /dev/null || continue
     now+=("$name")
     ((${had[(Ie)$name]})) || added+=("$name")
@@ -1411,6 +1430,7 @@ preset_sync() {
 }
 
 preset_edit() {
+  preset_name_ok "$1" || return 2
   [[ -f "$(preset_file "$1")" ]] || {
     no_such_preset "$1"
     return 2
