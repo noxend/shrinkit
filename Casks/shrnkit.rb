@@ -1,6 +1,6 @@
 cask "shrnkit" do
-  version "3.0.0"
-  sha256 "260d1fc4c2b45adcd962d5da278ad8bd15195524eebe92e84175e9ec3420925b"
+  version "3.1.0"
+  sha256 "e4a73819a40a22f484a119ebc3e02e4992c3610a86f9442de561f841cce94d27"
 
   url "https://github.com/noxend/shrinkit/archive/refs/tags/v#{version}.tar.gz"
   name "shrinkit"
