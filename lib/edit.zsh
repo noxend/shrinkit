@@ -14,6 +14,15 @@ minutes() {
   printf '%d:%02d' $((secs / 60)) $((secs % 60))
 }
 
+# The edit file of a set of recordings, given in merge order: shrinkit-<code>.edit.txt beside the
+# first, <code> the first 6 hex digits of the SHA-256 of their paths, one per line in byte order
+# whatever the locale, so a set has one name however its recordings were selected.
+edit_file_for() {
+  local sum
+  sum="$(print -rl -- "$@" | LC_ALL=C sort | shasum -a 256)"
+  print -r -- "${1:h}/shrinkit-${sum[1,6]}.edit.txt"
+}
+
 # write_edit_file <file> <how to run it> <recording>...: one block per recording, in the order
 # given, under a header that says what goes in a block. A recording beside the file is named by its
 # name, any other by its path.
@@ -640,9 +649,9 @@ edit_videos() {
   for i in ${(f)"$(merge_order "${videos[@]}")"}; do print -r -- "${videos[i]}"; done
 }
 
-# shrinkit edit <file>...: the edit file beside the first recording, opened in the editor the way
-# git opens one, and run once the editor closes without an error. edit --finder is the right-click
-# entry's, not in the usage text.
+# shrinkit edit <file>...: the recordings' edit file, written unless an edit of the same set left
+# it there, opened in the editor the way git opens one, and run once the editor closes without an
+# error. edit --finder is the right-click entry's, not in the usage text.
 edit_command() {
   local file rc
   local -a videos editor
@@ -657,13 +666,15 @@ edit_command() {
     print -u2 -r -- "edit needs at least one video (.mov, .mp4 or .m4v)"
     return 2
   }
-  file="$(free_name "${videos[1]:r}.edit.txt" edit.txt)"
-  write_edit_file "$file" \
-    "Edit this file, save it and close the editor to run it. Delete every block to cancel." \
-    "${videos[@]}" || {
-    print -u2 -r -- "cannot write $file"
-    return 1
-  }
+  file="$(edit_file_for "${videos[@]}")"
+  if [[ ! -e "$file" ]]; then
+    write_edit_file "$file" \
+      "Edit this file, save it and close the editor to run it. Delete every block to cancel." \
+      "${videos[@]}" || {
+      print -u2 -r -- "cannot write $file"
+      return 1
+    }
+  fi
 
   editor=(${=${VISUAL:-${EDITOR:-vi}}})
   "${editor[@]}" "$file"
@@ -683,9 +694,9 @@ install_edit_action() {
     "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} edit --finder \"\$@\""
 }
 
-# What the entry runs: the edit file beside the first recording, opened in TextEdit, and nothing
-# else; shrinkit: run runs it once it is saved. A problem is said in a banner as well, since nothing
-# a Quick Action prints is ever seen.
+# What the entry runs: the recordings' edit file, written unless an edit of the same set left it
+# there, opened in TextEdit, and nothing else; shrinkit: run runs it once it is saved. A problem is
+# said in a banner as well, since nothing a Quick Action prints is ever seen.
 edit_finder() {
   local file
   local -a videos
@@ -697,13 +708,15 @@ edit_finder() {
     finder_says "shrinkit: edit needs a video"
     return 2
   }
-  file="$(free_name "${videos[1]:r}.edit.txt" edit.txt)"
-  write_edit_file "$file" \
-    "Edit this file, save it, then right-click it in Finder and pick shrinkit: run." \
-    "${videos[@]}" || {
-    finder_says "shrinkit: edit cannot write in ${file:h}"
-    return 1
-  }
+  file="$(edit_file_for "${videos[@]}")"
+  if [[ ! -e "$file" ]]; then
+    write_edit_file "$file" \
+      "Edit this file, save it, then right-click it in Finder and pick shrinkit: run." \
+      "${videos[@]}" || {
+      finder_says "shrinkit: edit cannot write in ${file:h}"
+      return 1
+    }
+  fi
   open -e "$file"
 }
 
@@ -737,7 +750,7 @@ run_finder() {
     fi
   done
   ((${#files})) || {
-    finder_says "shrinkit: run takes an edit file (<first recording>.edit.txt)"
+    finder_says "shrinkit: run takes an edit file (shrinkit-<code>.edit.txt)"
     return 2
   }
   for src in "${files[@]}"; do

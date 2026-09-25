@@ -20,7 +20,7 @@ test_open_and_osascript_without_a_stub_are_refused() {
 }
 
 test_run_shrinks_each_recording_with_its_own_settings() {
-  local box tools work code=0
+  local box tools work file code=0
   local -a files
   box="$(sandbox)"
   settings "$box" 'speed = 2'
@@ -33,9 +33,9 @@ test_run_shrinks_each_recording_with_its_own_settings() {
   work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/1 a.mov"
   cp "$FIXTURES/withaudio.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
 
-  run_file "$box" "$tools" "$work/1 a.edit.txt" > /dev/null || code=$?
+  run_file "$box" "$tools" "$file" > /dev/null || code=$?
 
   check "the first is named after its preset" exists "$work/1 a-fast.mp4"
   check "and made at the preset's speed, not settings.conf's" duration_near "$work/1 a-fast.mp4" 3
@@ -49,7 +49,7 @@ test_run_shrinks_each_recording_with_its_own_settings() {
 }
 
 test_run_cuts_and_keeps_per_recording() {
-  local box tools work
+  local box tools work file
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   tools="$(scratch)"
@@ -58,9 +58,9 @@ test_run_cuts_and_keeps_per_recording() {
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/1 cut.mov"
   cp "$FIXTURES/colored.mov" "$work/2 keep.mov"
-  make_edit "$box" "$tools" "$work/1 cut.mov" "$work/2 keep.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 cut.mov" "$work/2 keep.mov")"
 
-  run_file "$box" "$tools" "$work/1 cut.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
 
   check "the first loses both of its ranges" duration_near "$work/1 cut.mp4" 10
   check "and no red or green frame survives in it" no_marker_color_anywhere "$work/1 cut.mp4" 10
@@ -71,7 +71,7 @@ test_run_cuts_and_keeps_per_recording() {
 # TextEdit capitalises the first letter of a line, and settings.conf spells keys with '_' where a
 # flag has '-'.
 test_run_reads_keys_whatever_their_case() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 1' 'remove_audio = true'
   mkdir -p "$box/presets"
@@ -82,9 +82,9 @@ test_run_reads_keys_whatever_their_case() {
     'add clip.mov "Preset = sharp" "CUT = 3-4" "Max-Height = 180" "Remove-Audio = FALSE" "Codec = HEVC"'
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
 
-  run_file "$box" "$tools" "$work/clip.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
   out="$work/clip-sharp.mp4"
 
   check "Preset" exists "$out"
@@ -95,7 +95,7 @@ test_run_reads_keys_whatever_their_case() {
 }
 
 test_run_settings_of_one_block_do_not_reach_the_next() {
-  local box tools work
+  local box tools work file
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   mkdir -p "$box/presets"
@@ -106,9 +106,9 @@ test_run_settings_of_one_block_do_not_reach_the_next() {
   work="$(scratch)"
   cp "$FIXTURES/tall.mov" "$work/1 big.mov"
   cp "$FIXTURES/tall.mov" "$work/2 big.mov"
-  make_edit "$box" "$tools" "$work/1 big.mov" "$work/2 big.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 big.mov" "$work/2 big.mov")"
 
-  run_file "$box" "$tools" "$work/1 big.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
 
   check "the first block gets its preset's height" test "$(height_of "$work/1 big-tiny.mp4")" = 1080
   check "the second is named without it" exists "$work/2 big.mp4"
@@ -118,7 +118,7 @@ test_run_settings_of_one_block_do_not_reach_the_next() {
 }
 
 test_run_shows_the_log_on_the_terminal_but_not_the_graph() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   tools="$(scratch)"
@@ -126,11 +126,11 @@ test_run_shows_the_log_on_the_terminal_but_not_the_graph() {
   stub_editor "$tools" editor 'add clip.mov "cut = 3-4" "speed = 2"'
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/clip.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
 
-  check "says what it runs" contains "$out" "Running clip.edit.txt: 1 recording, merge = false"
+  check "says what it runs" contains "$out" "Running ${file:t}: 1 recording, merge = false"
   check "heads the block with its settings" contains "$out" $'\n🎬 [1/1] clip.mov   cut 3-4, speed 2\n'
   check "shows the encode line under it" contains "$out" $'\n  ⏳ encode clip.mov (360p, 2x, '
   check "and the done line" contains "$out" $'\n  ✅ done   clip.mp4 ('
@@ -141,7 +141,7 @@ test_run_shows_the_log_on_the_terminal_but_not_the_graph() {
 }
 
 test_run_names_the_block_a_bad_range_came_from() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   tools="$(scratch)"
@@ -149,9 +149,9 @@ test_run_names_the_block_a_bad_range_came_from() {
   stub_editor "$tools" editor 'add clip.mov "cut = 3x-4"'
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/clip.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
 
   check "in the log" logged "$box" "ignoring cut '3x-4' in the block for clip.mov (want start-end, end after start)"
   check "and on the terminal" contains "$out" "  🟡 ignoring cut '3x-4' in the block for clip.mov"
@@ -160,7 +160,7 @@ test_run_names_the_block_a_bad_range_came_from() {
 # On the terminal a line starts with a mark for what it says; the log keeps the words alone, for
 # reading back and for doctor.
 test_run_marks_the_terminal_and_keeps_the_log_plain() {
-  local box tools work out mark
+  local box tools work file out mark
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -170,10 +170,10 @@ test_run_marks_the_terminal_and_keeps_the_log_plain() {
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   print -r -- 'not a movie' > "$work/2 broken.mov"
   cp "$FIXTURES/take-blue.mov" "$work/3 gone.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 broken.mov" "$work/3 gone.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 broken.mov" "$work/3 gone.mov")"
   rm "$work/3 gone.mov"
 
-  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt" 2> /dev/null)"
+  out="$(run_file "$box" "$tools" "$file" 2> /dev/null)"
 
   check "a line that cannot be used" contains "$out" $'\n  🟡 line '
   check "a block that cannot" contains "$out" $'\n🟡 [3/3] 3 gone.mov: not found beside'
@@ -190,7 +190,7 @@ test_run_marks_the_terminal_and_keeps_the_log_plain() {
 }
 
 test_run_goes_on_past_a_recording_it_cannot_shrink() {
-  local box tools work out code=0
+  local box tools work file out code=0
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -199,9 +199,9 @@ test_run_goes_on_past_a_recording_it_cannot_shrink() {
   work="$(scratch)"
   print -r -- 'not a movie' > "$work/1 broken.mov"
   cp "$FIXTURES/take-red.mov" "$work/2 fine.mov"
-  make_edit "$box" "$tools" "$work/1 broken.mov" "$work/2 fine.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 broken.mov" "$work/2 fine.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/1 broken.edit.txt" 2> /dev/null)" || code=$?
+  out="$(run_file "$box" "$tools" "$file" 2> /dev/null)" || code=$?
 
   check "shrinks the one after it" exists "$work/2 fine.mp4"
   check "names the one it could not shrink" contains "$out" $'\nNot shrunk: 1 broken.mov'
@@ -215,7 +215,7 @@ test_run_goes_on_past_a_recording_it_cannot_shrink() {
 # settings.conf is read once for a run, so a value in it that does not fit is said once, with the
 # lines of the edit file, not again for every block.
 test_run_says_a_bad_value_in_settings_conf_once() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'crf = 90'
   tools="$(scratch)"
@@ -224,9 +224,9 @@ test_run_says_a_bad_value_in_settings_conf_once() {
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
 
   check "says it before the first recording" contains "${out%%\[1/2\]*}" \
     "  🟡 ignoring crf='90' (want 0-51), using '28'"$'\n'
@@ -238,7 +238,7 @@ test_run_says_a_bad_value_in_settings_conf_once() {
 # A line of settings.conf the run cannot read is said with the lines of the edit file too, not only
 # written to the log.
 test_run_says_a_line_of_settings_conf_it_cannot_read() {
-  local box tools work out before
+  local box tools work file out before
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'crf 30' 'sped = 3'
   tools="$(scratch)"
@@ -246,9 +246,9 @@ test_run_says_a_line_of_settings_conf_it_cannot_read() {
   stub_editor "$tools" editor
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/clip.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
   before="${out%%\[1/1\]*}"
 
   check "says a line with no '=' before the first recording" contains "$before" \
@@ -261,7 +261,7 @@ test_run_says_a_line_of_settings_conf_it_cannot_read() {
 }
 
 test_edit_runs_the_file_once_the_editor_closes() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -271,9 +271,10 @@ test_edit_runs_the_file_once_the_editor_closes() {
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
 
   out="$(run_edit "$box" "$tools" "$work/clip.mov")"
+  file="$(edited "$tools")"
 
   check "runs what was saved" duration_near "$work/clip.mp4" 3
-  check "and says so" contains "$out" "Running clip.edit.txt: 1 recording"
+  check "and says so" contains "$out" "Running ${file:t}: 1 recording"
 }
 
 test_run_without_a_file_is_refused() {
@@ -310,8 +311,7 @@ test_run_skips_a_bad_line_and_says_which() {
     'add clip.mov "preset sharp" "sped = 3" "crf =" "crf = 90" "notify = true" "preset = shrp" "merge = true" "speed = 4"'
   work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
-  file="$work/clip.edit.txt"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
 
   out="$(run_file "$box" "$tools" "$file")"
   before="${out%%\[1/1\]*}"
@@ -337,7 +337,7 @@ test_run_skips_a_bad_line_and_says_which() {
 }
 
 test_run_keeps_the_presets_value_when_a_line_is_refused() {
-  local box tools work
+  local box tools work file
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'crf = 28'
   mkdir -p "$box/presets"
@@ -347,16 +347,16 @@ test_run_keeps_the_presets_value_when_a_line_is_refused() {
   stub_editor "$tools" editor 'add clip.mov "preset = sharp" "crf = 90"'
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
 
-  run_file "$box" "$tools" "$work/clip.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
 
   check "encodes at the preset's crf, not settings.conf's" logged "$box" 'encode clip.mov (.* crf18)'
   check "under the preset's name" exists "$work/clip-sharp.mp4"
 }
 
 test_run_leaves_out_a_recording_with_both_cut_and_keep() {
-  local box tools work out code=0
+  local box tools work file out code=0
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   tools="$(scratch)"
@@ -365,9 +365,9 @@ test_run_leaves_out_a_recording_with_both_cut_and_keep() {
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-red.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")" || code=$?
+  out="$(run_file "$box" "$tools" "$file")" || code=$?
 
   check "says why" contains "$out" \
     $'\n'"🟡 [1/2] 1 a.mov: cut and keep are the same edit from opposite sides; this recording is left out"
@@ -379,7 +379,7 @@ test_run_leaves_out_a_recording_with_both_cut_and_keep() {
 }
 
 test_run_leaves_out_a_block_that_names_no_recording() {
-  local box tools work out code=0
+  local box tools work file out code=0
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -389,14 +389,14 @@ test_run_leaves_out_a_block_that_names_no_recording() {
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 gone.mov"
   print -r -- 'not a recording' > "$work/notes.txt"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 gone.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 gone.mov")"
   rm "$work/2 gone.mov"
 
-  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt" 2>&1)" || code=$?
+  out="$(run_file "$box" "$tools" "$file" 2>&1)" || code=$?
 
-  check "names the one that is gone" contains "$out" $'\n'"🟡 [2/3] 2 gone.mov: not found beside 1 a.edit.txt"
+  check "names the one that is gone" contains "$out" $'\n'"🟡 [2/3] 2 gone.mov: not found beside ${file:t}"
   check "and the one that is no video" contains "$out" $'\n'"🟡 [3/3] notes.txt is not a video (.mov, .mp4 or .m4v)"
-  check "logs both" logged "$box" "2 gone.mov: not found beside 1 a.edit.txt"
+  check "logs both" logged "$box" "2 gone.mov: not found beside ${file:t}"
   check "runs the one that is there" exists "$work/1 a.mp4"
   check "and nothing else" test "$(print -l "$work"/*.mp4(N) | wc -l | tr -d ' ')" = 1
   check "counts both as not shrunk" contains "$out" $'\nNot shrunk: 2 gone.mov, notes.txt'
@@ -404,7 +404,7 @@ test_run_leaves_out_a_block_that_names_no_recording() {
 }
 
 test_run_refuses_a_file_saved_as_rich_text() {
-  local box tools work out code=0
+  local box tools work file out code=0
   local -a made
   box="$(sandbox)"
   settings "$box" 'speed = 2'
@@ -418,10 +418,11 @@ test_run_refuses_a_file_saved_as_rich_text() {
   cp "$FIXTURES/take-red.mov" "$work/clip.mov"
 
   out="$(run_edit "$box" "$tools" "$work/clip.mov")" || code=$?
+  file="$(edited "$tools")"
 
   check "says what happened and how to fix it" contains "$out" \
-    "❌ clip.edit.txt was saved as rich text: in TextEdit, Format > Make Plain Text, save, and run it again"
-  check "and logs it" logged "$box" "clip.edit.txt was saved as rich text"
+    "❌ ${file:t} was saved as rich text: in TextEdit, Format > Make Plain Text, save, and run it again"
+  check "and logs it" logged "$box" "${file:t} was saved as rich text"
   made=("$work"/*.mp4(N))
   check "runs nothing" test "${#made}" = 0
   check "and exits 1" test "$code" = 1
@@ -431,7 +432,7 @@ test_run_refuses_a_file_saved_as_rich_text() {
 # capital, a hyphen stays a hyphen, the range may be typed with spaces, and the last line typed has
 # no line break after it.
 test_run_reads_what_textedit_saves() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   mkdir -p "$box/presets"
@@ -442,12 +443,12 @@ test_run_reads_what_textedit_saves() {
     "printf '\\nPreset = sharp\\nCut = 0:03-0:04\\nSpeed = 2\\nCut = 0:08 - 0:09' >> \"\$file\""
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/1 intro.mov"
-  make_edit "$box" "$tools" "$work/1 intro.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 intro.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/1 intro.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
 
   check "the file ends without a line break, as TextEdit left it" \
-    test "$(tail -c 4 "$work/1 intro.edit.txt")" = '0:09'
+    test "$(tail -c 4 "$file")" = '0:09'
   check "says nothing is wrong with a line" lacks "$out" "line "
   check "reads the capitalised preset" exists "$work/1 intro-sharp.mp4"
   check "and both cuts, the last line too, at the capitalised speed" \
@@ -458,7 +459,7 @@ test_run_reads_what_textedit_saves() {
 # TextEdit writes neither (tasks: textedit-sample), other editors do; the reading rules are
 # read_settings' own.
 test_run_reads_a_byte_order_mark_and_crlf_line_ends() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -467,12 +468,12 @@ test_run_reads_a_byte_order_mark_and_crlf_line_ends() {
     "{ printf '\\xef\\xbb\\xbf'; awk '{ printf \"%s\\r\\n\", \$0 }' \"\$file\"; } > \"\$file.new\" && mv \"\$file.new\" \"\$file\""
   work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/clip.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
 
-  check "the file starts with the mark" test "$(head -c 3 "$work/clip.edit.txt" | xxd -p)" = efbbbf
-  check "and ends its lines with CR LF" test "$(tail -c 2 "$work/clip.edit.txt" | xxd -p)" = 0d0a
+  check "the file starts with the mark" test "$(head -c 3 "$file" | xxd -p)" = efbbbf
+  check "and ends its lines with CR LF" test "$(tail -c 2 "$file" | xxd -p)" = 0d0a
   check "says nothing is wrong with a line" lacks "$out" "line "
   check "finds the recording" exists "$work/clip.mp4"
   check "and reads its setting" duration_near "$work/clip.mp4" 3
@@ -480,7 +481,7 @@ test_run_reads_a_byte_order_mark_and_crlf_line_ends() {
 
 # TextEdit's Smart Dashes can turn a typed '-' into an en dash or an em dash.
 test_run_takes_a_smart_dash_between_two_times() {
-  local box tools work en=$'\xe2\x80\x93' em=$'\xe2\x80\x94'
+  local box tools work file en=$'\xe2\x80\x93' em=$'\xe2\x80\x94'
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   tools="$(scratch)"
@@ -488,9 +489,9 @@ test_run_takes_a_smart_dash_between_two_times() {
   stub_editor "$tools" editor "add clip.mov 'cut = 3${en}4' 'cut = 8 ${em} 9'"
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
 
-  run_file "$box" "$tools" "$work/clip.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
 
   check "an en dash and an em dash in the edit file" duration_near "$work/clip.mp4" 10
   check "cut what they name" no_marker_color_anywhere "$work/clip.mp4" 10
@@ -501,7 +502,7 @@ test_run_takes_a_smart_dash_between_two_times() {
 }
 
 test_run_with_no_block_runs_nothing() {
-  local box tools work out code=0
+  local box tools work file out code=0
   local -a made
   box="$(sandbox)"
   settings "$box" 'speed = 2'
@@ -513,15 +514,16 @@ test_run_with_no_block_runs_nothing() {
   cp "$FIXTURES/take-red.mov" "$work/clip.mov"
 
   out="$(run_edit "$box" "$tools" "$work/clip.mov")" || code=$?
+  file="$(edited "$tools")"
 
-  check "says so" test "$out" = "❌ No recording in clip.edit.txt, nothing to run."
+  check "says so" test "$out" = "❌ No recording in ${file:t}, nothing to run."
   made=("$work"/*.mp4(N))
   check "runs nothing" test "${#made}" = 0
   check "and exits 1" test "$code" = 1
 }
 
 test_run_posts_one_banner_at_the_end() {
-  local box tools work out
+  local box tools work file out
   local -a banners
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'notify = true' 'notify_start = true' 'notify_sound = Ping'
@@ -534,10 +536,10 @@ test_run_posts_one_banner_at_the_end() {
   cp "$FIXTURES/take-green.mov" "$work/3 c.mov"
   # A sidecar left from 3.x, which a one-shot run names in a banner of its own.
   print -r -- '0-1' > "$work/2 b.mov.cuts"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov" "$work/3 c.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov" "$work/3 c.mov")"
   rm "$work/3 c.mov"
 
-  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
   banners=(${(f)"$(grep '^banner ' "$tools/osascript.log")"})
 
   check "one banner for the whole run" test "${#banners}" = 1
@@ -548,12 +550,12 @@ test_run_posts_one_banner_at_the_end() {
 
   print -r -- 'notify = false' >> "$box/settings.conf"
   : > "$tools/osascript.log"
-  run_file "$box" "$tools" "$work/1 a.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
   check "and with notify = false, none" test "$(grep -c '^banner ' "$tools/osascript.log")" = 0
 }
 
 test_run_puts_every_result_on_the_clipboard() {
-  local box tools work out
+  local box tools work file out
   local -a copies
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'copy_to_clipboard = true'
@@ -563,9 +565,9 @@ test_run_puts_every_result_on_the_clipboard() {
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
   copies=(${(f)"$(grep '^clipboard ' "$tools/osascript.log")"})
 
   check "one copy for the whole run" test "${#copies}" = 1

@@ -77,7 +77,8 @@ run_edit() {
 }
 
 # make_edit <box> <tools> <recording>...: the edit file shrinkit edit writes for the recordings, with
-# the edits of the editor in <tools>, which is cancelled so the file is left to run by hand.
+# the edits of the editor in <tools>, which is cancelled so the file is left to run by hand. Prints
+# the file's path, as the editor was handed it.
 make_edit() {
   local box="$1" tools="$2"
   shift 2
@@ -85,6 +86,23 @@ make_edit() {
   : > "$tools/cancel"
   run_edit "$box" "$tools" "$@" 2> /dev/null
   rm -f "$tools/cancel"
+  edited "$tools"
+}
+
+# The file the last editor in <tools> was handed.
+edited() {
+  local line
+  line="$(tail -1 "$1/editor.log")"
+  print -r -- "${line#* }"
+}
+
+# name_for <recording>...: the name SPEC.md gives the edit file of a set of recordings, from their
+# absolute paths: shrinkit-<code>.edit.txt, <code> the first 6 hex digits of the SHA-256 of the
+# paths sorted byte by byte, one per line.
+name_for() {
+  local sum
+  sum="$(print -rl -- "$@" | LC_ALL=C sort | shasum -a 256)"
+  print -r -- "shrinkit-${sum[1,6]}.edit.txt"
 }
 
 # run_file <box> <tools> <args...>: shrinkit run, with open and osascript from <tools>.
