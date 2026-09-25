@@ -328,7 +328,7 @@ doctor_check_input() {
   fi
   for item in "$IN_DIR"/*(DN); do
     name="${item:t}"
-    if [[ "$name" == .DS_Store || "$name" == ._* ]] || [[ "$name" == *.cuts && -f "${item%.cuts}" ]]; then
+    if [[ "$name" == .DS_Store || "$name" == ._* ]]; then
       continue
     elif [[ "$name" == .* || -L "$item" || ! -f "$item" || "$name" != (#i)*.(mov|mp4|m4v) ]]; then
       [[ -d "$item" ]] && name+=/
