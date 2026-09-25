@@ -44,7 +44,7 @@ test_cuts_keep_kept_audio_in_sync() {
   check "video and audio land within half a second of each other" roughly_equal "$video_len" "$audio_len" 0.5
 }
 
-test_cuts_bad_line_spoils_only_itself() {
+test_cuts_bad_range_spoils_only_itself() {
   local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
@@ -130,7 +130,7 @@ test_cuts_end_is_not_case_sensitive() {
 
 # A leading blank ("-0:20") is deliberately not a shorthand for "from the start": it reads exactly
 # like a negative number to anyone who has not read this file's own rules. "0-0:20" already does the
-# same job unambiguously, so a bare leading dash is left to fail like any other malformed line.
+# same job unambiguously, so a bare leading dash is left to fail like any other malformed range.
 test_cuts_leading_dash_is_not_a_shorthand() {
   local box work out
   box="$(sandbox)"
@@ -154,22 +154,22 @@ test_cuts_reject_a_malformed_end_like_a_stray_dash() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4-4 "$work/clip.mov"
   out="$work/clip.mp4"
   check "does not mistake the stray dash for a number" duration_near "$out" 12
-  check "logs the whole malformed line" logged "$box" "ignoring cut '3-4-4'"
+  check "logs the whole malformed range" logged "$box" "ignoring cut '3-4-4'"
 }
 
-test_cuts_long_bad_line_is_truncated_in_the_log() {
-  local box work i nums long_line
+test_cuts_long_bad_range_is_truncated_in_the_log() {
+  local box work i nums long_range
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
   nums=()
   for i in {0..499}; do nums+=("$i"); done
-  long_line="${(j:-:)nums}"
+  long_range="${(j:-:)nums}"
 
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut "$long_line" "$work/clip.mov"
-  check "logs the truncated line" logged "$box" "ignoring cut '${long_line:0:80}'"
-  check "not the whole thing" not_logged "$box" "$long_line"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut "$long_range" "$work/clip.mov"
+  check "logs it cut short" logged "$box" "ignoring cut '${long_range:0:80}'"
+  check "not the whole thing" not_logged "$box" "$long_range"
 }
 
 test_cuts_note_says_applied_when_a_cut_took() {
@@ -196,7 +196,7 @@ test_cuts_note_is_silent_when_no_cut_is_asked() {
   check "and no false 'none applied' either" not_logged "$box" 'none applied'
 }
 
-test_cuts_note_warns_when_every_line_was_rejected() {
+test_cuts_note_warns_when_every_range_was_rejected() {
   local box work
   box="$(sandbox)"
   settings "$box" 'speed = 1'
