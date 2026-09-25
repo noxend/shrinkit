@@ -283,9 +283,11 @@ screen_line() {
 
 # A line log() writes during a run, on the screen under the word for what it says, anything else
 # as a note. The filter graph is for reading a cut back in the log; ffmpeg's own output and mv's
-# reason are only in the log, so the screen names the log for them.
+# reason are only in the log, so the screen names the log for them. A result goes by its sizes
+# alone, since in a merged run its name is a part in the temporary folder.
 screen_log() {
   local line="$1" word=note
+  local -a match mbegin mend
   case "$line" in
     graph\ *) return 0 ;;
     # On a terminal run_ffmpeg draws the encode as it goes instead.
@@ -299,6 +301,8 @@ screen_log() {
     ignoring\ * | skip\ *) word=skipped ;;
   esac
   [[ "$word" == note ]] || line="${${line#* }##[[:space:]]#}"
+  [[ "$word" == done && "$line" =~ ' \(([^ ()]+ -> [^ ()]+)\)([^()]*)$' ]] \
+    && line="${match[1]}${match[2]}"
   line="${line//ffmpeg output is above/ffmpeg output is in $LOG}"
   screen_line "$word" "${line//the reason is (on the line |)above/the reason is in $LOG}"
 }

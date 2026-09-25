@@ -47,6 +47,10 @@ log_count() {
 duration() {
   "$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$1" 2> /dev/null
 }
+# A file's size as du -h gives it, which is how shrinkit says one.
+size_of() {
+  du -h "$1" | cut -f1 | tr -d ' '
+}
 video_codec() {
   "$FFPROBE" -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$1" 2> /dev/null
 }

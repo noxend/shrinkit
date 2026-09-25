@@ -135,13 +135,36 @@ test_run_shows_the_log_on_the_terminal_but_not_the_graph() {
   check "heads the block with its settings" contains "$out" $'\n[1/1] clip.mov\n      cut 3-4, speed 2\n'
   check "shows the encode under it" contains "$out" $'\n      encoding  clip.mov (360p, 2x, '
   check "on a line of its own, not a bar, since this is not a terminal" lacks "$out" $'\r'
-  check "and what came of it" contains "$out" $'\n      done      clip.mp4 ('
+  check "and what came of it, by its sizes" contains "$out" \
+    $'\n      done      '"$(size_of "$work/clip.mov") -> $(size_of "$work/clip.mp4"), cut applied"$'\n'
   check "without the dates the log has" lacks "$out" "$(date +%Y-)"
   check "and without the filter graph" lacks "$out" "graph"
   check "which stays in the log" logged "$box" 'graph  clip.mov'
   check "ends with what came out, its size and how long it plays" contains "$out" \
     $'\nDone  '"$(du -h "$work/clip.mp4" | cut -f1 | tr -d ' ')  $(printf '%.1fs' "$(duration "$work/clip.mp4")")"$'\n'
   check "and where it is" test "${${(@f)out}[-1]}" = "      $work/clip.mp4"
+}
+
+# The result's name has brackets of its own, as a second download of a file does.
+test_run_says_a_result_by_its_sizes_and_logs_it_by_its_name() {
+  local box tools work file out before after
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'add "take (2).mov" "cut = 1-2"'
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/take (2).mov"
+  file="$(make_edit "$box" "$tools" "$work/take (2).mov")"
+
+  out="$(run_file "$box" "$tools" "$file")"
+  before="$(size_of "$work/take (2).mov")"
+  after="$(size_of "$work/take (2).mp4")"
+
+  check "makes the result" exists "$work/take (2).mp4"
+  check "says it on the screen by its sizes alone" contains "$out" \
+    $'\n'"      done      $before -> $after, cut applied"$'\n'
+  check "while the log names it" logged "$box" "  done   take (2).mp4 ($before -> $after), cut applied\$"
 }
 
 test_run_names_the_block_a_bad_range_came_from() {
@@ -184,7 +207,7 @@ test_run_says_each_step_under_its_word_and_keeps_the_log_plain() {
   check "and a range" contains "$out" $'\n      skipped   cut \'3x-4\''
   check "a block's header" contains "$out" $'\n[1/3] 1 a.mov\n'
   check "an encode" contains "$out" $'\n      encoding  1 a.mov ('
-  check "a result" contains "$out" $'\n      done      1 a.mp4 ('
+  check "a result" contains "$out" $'\n      done      '"$(size_of "$work/1 a.mov") -> "
   check "a failure" contains "$out" $'\n      failed    '"$work/2 broken.mov"
   check "and the run's" contains "$out" $'\nNot every recording was shrunk.\n'
   check "the log keeps its words" logged "$box" '  line [0-9]*: .sped. is not a setting$'
