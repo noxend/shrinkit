@@ -452,14 +452,15 @@ notify_start() {
   notify "$1" "${2:-Optimizing…}" none
 }
 
-# Writes to NSPasteboard directly, so this needs no permission to control other apps.
+# Writes to NSPasteboard directly, so this needs no permission to control other apps. Every path
+# given goes on as one copy, the way Finder copies a selection.
 copy_to_clipboard() {
-  osascript -l JavaScript - "$1" << 'JXA' > /dev/null 2>&1 || true
+  osascript -l JavaScript - "$@" << 'JXA' > /dev/null 2>&1 || true
 function run(argv) {
   ObjC.import('AppKit');
   const board = $.NSPasteboard.generalPasteboard;
   board.clearContents;
-  board.writeObjects($.NSArray.arrayWithObject($.NSURL.fileURLWithPath(argv[0])));
+  board.writeObjects($(argv.map(p => $.NSURL.fileURLWithPath(p))));
 }
 JXA
 }

@@ -67,6 +67,18 @@ print -rl -- '#!/bin/zsh' 'exit 0' > "$TMPROOT/stub/pbs"
 chmod +x "$TMPROOT/stub/pbs"
 export SHRINKIT_PBS="$TMPROOT/stub/pbs"
 
+# open and osascript are reached through the PATH, so a test without stubs of its own finds these
+# first, not the ones that would open windows and post banners on this Mac. Each call is written
+# down as well, since every banner throws away what osascript says, and the test that made it fails.
+mkdir -p "$TMPROOT/refuse-bin"
+for _tool in open osascript; do
+  print -rl -- '#!/bin/zsh' "print -r -- \"$_tool \$*\" >> ${(qq)TMPROOT}/refused" \
+    "print -u2 -r -- \"a test reached $_tool without its stub: \$*\"" 'exit 99' > "$TMPROOT/refuse-bin/$_tool"
+  chmod +x "$TMPROOT/refuse-bin/$_tool"
+done
+unset _tool
+export PATH="$TMPROOT/refuse-bin:$PATH"
+
 # A sandbox is a folder under TMPROOT; anything else stops the run before it is used.
 sandboxed() {
   [[ "$1" == "$TMPROOT"/?* ]] || {
@@ -104,6 +116,10 @@ for CURRENT_TEST in "${TESTS[@]}"; do
   [[ -n "$FILTER" && "$CURRENT_TEST" != *"$FILTER"* ]] && continue
   print "${CURRENT_TEST#test_}"
   "$CURRENT_TEST"
+  [[ -s "$TMPROOT/refused" ]] && {
+    fail "reached $(head -1 "$TMPROOT/refused") without a stub"
+    : > "$TMPROOT/refused"
+  }
   RAN=RAN+1
 done
 
