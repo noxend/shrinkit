@@ -26,7 +26,7 @@ test_doctor_warns_about_entries_that_are_missing() {
   check "warns about the preset with no entry" \
     contains "$(doctor_block "$out" right-click)" "no right-click entry for the preset quick one"
   check "saying how to add it, quoted to paste" \
-    contains "$(doctor_block "$out" right-click)" "  shrinkit preset install 'quick one'"
+    contains "$(doctor_block "$out" right-click)" "  shrinkit preset add 'quick one'"
   check "and about the entries that went" contains "$(doctor_block "$out" right-click)" "no right-click entry for merge"
   check "edit among them" contains "$(doctor_block "$out" right-click)" "no right-click entry for edit"
   check "and run" contains "$(doctor_block "$out" right-click)" "no right-click entry for run"

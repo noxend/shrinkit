@@ -67,12 +67,14 @@ says what is wrong and what to run to fix it; its output can go into an issue as
 | `sharp` | Sharper and bigger, for a pull request |
 | `tiny` | As small as it gets, at most 1080p |
 
-A preset is a small file in `~/Movies/shrinkit/presets/` holding only the settings it changes.
+A preset is a small file in `~/Movies/shrinkit/presets/` holding only the settings it changes, with
+its own right-click entry.
 
 ```bash
+shrinkit preset                  # the presets there are
 shrinkit preset add mine         # makes mine.conf, adds "shrinkit: mine" to the menu, opens the file
-shrinkit preset remove mine      # takes it out of the menu, keeps the file
-shrinkit preset install mine     # puts it back
+shrinkit preset edit mine        # opens it
+shrinkit preset remove mine      # deletes it and its menu entry; the file goes to the Trash
 ```
 
 Flags beat a preset, and a preset beats `settings.conf`.
