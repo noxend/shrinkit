@@ -19,13 +19,14 @@ test_cuts_do_not_distort_footage_with_a_misleading_frame_rate() {
   work="$(scratch)"
   cp "$FIXTURES/vfr.mov" "$work/clip.mov"
 
-  # well past the fixture's own ~6.9s, so nothing real is actually removed -- this is purely about
-  # whether going through the cuts machinery at all distorts the timing of what survives
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 900-901 "$work/clip.mov"
+  # The cut ends inside the first frame, which vfr.mov holds from 0 to 2.5s: the rest of that frame
+  # is footage to keep.
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 0-1 "$work/clip.mov"
   out="$work/clip.mp4"
   # setpts=N/FRAME_RATE/TB read this fixture's declared 120fps instead of its real ~0.6fps and
   # compressed it to a fraction of a second; trim+concat rebases on the frames' own timestamps
-  check "keeps the real length, not a frame-rate-based guess at it" duration_near "$out" 6.9
+  check "goes through the cut graph" logged "$box" 'graph  clip.mov: '
+  check "keeps the real length, not a frame-rate-based guess at it" duration_near "$out" 5.9
 }
 
 test_cuts_merge_overlapping_ranges() {
@@ -35,9 +36,10 @@ test_cuts_merge_overlapping_ranges() {
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-5 --cut 4-6 "$work/clip.mov"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-6 --cut 4-5 "$work/clip.mov"
   out="$work/clip.mp4"
-  # two overlapping lines merge into one 3-6 cut (3s), not two independently-trimmed stretches
+  # 4-5 lies inside 3-6, so the two are one 3s cut. Kept apart, the footage after them would start
+  # where the second one ends and bring 5-6 back.
   check "cuts the merged 3s span, not something narrower" duration_near "$out" 9
 }
 

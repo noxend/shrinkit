@@ -22,11 +22,11 @@ test_cut_flag_sorts_and_merges_its_ranges() {
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
   out="$work/clip.mp4"
 
-  # out of order, and the last two overlap into one 3-5 stretch
+  # out of order, and the last one inside the one before it
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
-    zsh "$OPTIMIZER" --cut 8-9 --cut 3-4.5 --cut 4-5 "$work/clip.mov"
+    zsh "$OPTIMIZER" --cut 8-9 --cut 3-6 --cut 4-5 "$work/clip.mov"
 
-  check "merges the overlap and keeps the separate range" duration_near "$out" 9
+  check "merges the overlap and keeps the separate range" duration_near "$out" 8
 }
 
 test_cut_flag_reaches_the_real_end() {
