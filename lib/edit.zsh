@@ -32,6 +32,8 @@ edit_file_for() {
 write_edit_file() {
   local file="$1" how="$2" src name dur list="no presets yet"
   shift 2
+  # A link that points nowhere passes for no file, and writing it would create the file it names.
+  [[ -L "$file" ]] && return 1
   local -a presets
   presets=("$PRESET_DIR"/*.conf(N:t:r))
   ((${#presets})) && list="one of: ${(j:, :)presets}"
@@ -105,7 +107,7 @@ edit_line_problem() {
   }
   case "$key" in
     preset)
-      [[ -f "$(preset_file "$value")" ]] || {
+      preset_name_safe "$value" && [[ -f "$(preset_file "$value")" ]] || {
         print -r -- "no preset called '$value' (looked in $PRESET_DIR)"
         return 1
       }
@@ -138,12 +140,27 @@ read_edit_file() {
     fi
     line="$(trim "$line")"
     [[ -z "$line" || "$line" == '#'* ]] && continue
+    # Every line can end up on the screen, where an escape in it would set the terminal's title or
+    # colours; the line itself is not quoted back.
+    if [[ "$line" == *[$'\x01'-$'\x08'$'\x0b'-$'\x1f'$'\x7f']* ]]; then
+      EDIT_PROBLEMS+=("line $n holds a control character")
+      [[ "$line" == '['* ]] && block=-1
+      continue
+    fi
     # From the first [ to the last ], so a name that holds brackets reads right.
     if [[ "$line" == '['*']' ]]; then
       EDIT_NAMES+=("$(trim "${${line#\[}%\]*}")")
       block=${#EDIT_NAMES}
       continue
     fi
+    # A header that is not one names no recording, and the settings under it belong to none: read
+    # as they were, they went to the recording above.
+    if [[ "$line" == '['* ]]; then
+      EDIT_PROBLEMS+=("line $n: '$line' is not a header, which is [name] alone on its line; the lines under it are left out")
+      block=-1
+      continue
+    fi
+    ((block < 0)) && continue
     [[ "$line" == *=* ]] || {
       EDIT_PROBLEMS+=("line $n: '$line' has no '='")
       continue
