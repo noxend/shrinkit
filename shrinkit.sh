@@ -1366,6 +1366,36 @@ preset_add() {
   open_in_editor "$file"
 }
 
+# The right-click menu made to match presets/, for files put there or deleted by hand: an entry for
+# each preset in it, none for a preset that is gone, and edit, run and merge left as they are. What
+# changed is said, and then what the menu holds.
+preset_sync() {
+  local entry name file
+  local -a had gone added now
+  mkdir -p "$SERVICES_DIR"
+  for entry in "$SERVICES_DIR"/shrinkit:*.workflow(N); do
+    name="${${entry:t:r}#shrinkit: }"
+    [[ "$name" == (edit|run|merge) ]] || had+=("$name")
+  done
+  for name in "${had[@]}"; do
+    [[ -f "$(preset_file "$name")" ]] && in_menu "$name" && continue
+    rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
+    gone+=("$name")
+  done
+  for file in "$PRESET_DIR"/*.conf(N.); do
+    name="${file:t:r}"
+    in_menu "$name" || continue
+    install_preset_action "$name" > /dev/null || continue
+    now+=("$name")
+    ((${had[(Ie)$name]})) || added+=("$name")
+  done
+  "$PBS" -update 2> /dev/null || true
+  ((${#added})) && print -r -- "added to the menu: ${(j:, :)added}"
+  ((${#gone})) && print -r -- "taken out of the menu: ${(j:, :)gone}"
+  ((${#added} + ${#gone})) || print -r -- "the menu already matched presets/"
+  print -r -- "in the menu: ${(j:, :)now:-none}"
+}
+
 preset_edit() {
   [[ -f "$(preset_file "$1")" ]] || {
     no_such_preset "$1"
@@ -1381,7 +1411,7 @@ open_in_editor() {
   "${editor[@]}" "$1"
 }
 
-# shrinkit preset: the presets there are. add, edit and remove take a name; install, from 3.x,
+# shrinkit preset: the presets there are. add, edit and remove take a name, sync takes none; install, from 3.x,
 # gives a preset back its entry and is left out of the usage text.
 preset_command() {
   mkdir -p "$PRESET_DIR"
@@ -1402,6 +1432,9 @@ preset_command() {
         remove) remove_preset_action "$2" ;;
       esac
       ;;
+    sync)
+      preset_sync
+      ;;
     install)
       [[ -n "${2-}" ]] || {
         print -u2 -r -- "usage: preset add <name>"
@@ -1410,7 +1443,7 @@ preset_command() {
       install_preset_action "$2" && back_in_menu "$2" || return 2
       ;;
     *)
-      print -u2 -r -- "usage: preset [add <name> | edit <name> | remove <name>]"
+      print -u2 -r -- "usage: preset [add <name> | edit <name> | remove <name> | sync]"
       return 2
       ;;
   esac
@@ -1435,7 +1468,7 @@ answer_mark_cuts() {
 usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
        ${ZSH_ARGZERO:t} config [show | edit | folder [<path>] | <setting> <value>]
-       ${ZSH_ARGZERO:t} preset [add <name> | edit <name> | remove <name>]
+       ${ZSH_ARGZERO:t} preset [add <name> | edit <name> | remove <name> | sync]
        ${ZSH_ARGZERO:t} edit <file>...
        ${ZSH_ARGZERO:t} run <file>
        ${ZSH_ARGZERO:t} merge <file>...
@@ -1459,7 +1492,8 @@ A preset is a file of the same settings in $PRESET_DIR, with
 its own right-click entry. Use one for a run with --preset <name>. 'preset'
 lists them, 'preset add <name>' makes one (or gives it back its entry) and opens
 it, 'preset edit <name>' opens it, 'preset remove <name>' deletes it and its
-entry, the file going to the Trash.
+entry, the file going to the Trash. After putting files into presets/ or
+deleting them by hand, 'preset sync' makes the menu match.
 
 edit writes one file for up to 10 recordings, with a block for each, and opens
 it in \$VISUAL or \$EDITOR, or vi when neither is set. Under a recording's name

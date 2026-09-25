@@ -75,6 +75,7 @@ shrinkit preset                  # the presets there are
 shrinkit preset add mine         # makes mine.conf, adds "shrinkit: mine" to the menu, opens the file
 shrinkit preset edit mine        # opens it
 shrinkit preset remove mine      # deletes it and its menu entry; the file goes to the Trash
+shrinkit preset sync             # after adding or deleting files in presets/ by hand
 ```
 
 Flags beat a preset, and a preset beats `settings.conf`.
