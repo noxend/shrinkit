@@ -295,30 +295,42 @@ frame_rate() {
 # The one format every block of a merged run is encoded to, in PART_FORMAT: the first block's
 # codec; the largest width and height among the recordings, fitted to the first block's
 # max_height; the first block's fps, or the first recording's own rate when that is 0; and sound
-# when any block keeps some.
+# when any block keeps some. A later block's codec, fps or max_height that differs from the first
+# one's is not used, and each is said with the lines that cannot be used.
 edit_merge_format() {
-  local file="$1" i src width height maxw=0 maxh=0 sound=false rate
-  local -a first mine
-  for ((i = 1; i <= ${#EDIT_NAMES}; i++)); do
+  local file="$1" n=${#EDIT_NAMES} i src width height maxw=0 maxh=0 sound=false rate prefix
+  local -a mine codecs fpses heights
+  for ((i = 1; i <= n; i++)); do
     src="$(edit_source "${EDIT_NAMES[i]}" "${file:h}")"
     mine=("${(@f)$(edit_block_quietly $i codec fps max_height remove_audio)}")
-    ((i == 1)) && first=("${mine[@]}")
+    codecs[i]="${mine[1]}"
+    fpses[i]="${mine[2]}"
+    heights[i]="${mine[3]}"
     width="$(video_width "$src")"
     height="$(video_height "$src")"
     ((width > maxw)) && maxw=$width
     ((height > maxh)) && maxh=$height
     [[ "${mine[4]}" == false ]] && has_audio "$src" && sound=true
   done
-  if ((first[3] > 0 && maxh > first[3])); then
-    maxw=$((maxw * first[3] / maxh))
-    maxh=${first[3]}
+  if ((heights[1] > 0 && maxh > heights[1])); then
+    maxw=$((maxw * heights[1] / maxh))
+    maxh=${heights[1]}
   fi
   # libx264 refuses an odd frame size in yuv420p.
   ((maxw % 2)) && maxw=$((maxw + 1))
   ((maxh % 2)) && maxh=$((maxh + 1))
-  rate="${first[2]}"
+  rate="${fpses[1]}"
   ((rate > 0)) || rate="$(frame_rate "$(edit_source "${EDIT_NAMES[1]}" "${file:h}")")"
-  PART_FORMAT=(codec "${first[1]}" width "$maxw" height "$maxh" rate "${rate:-${DEFAULTS[fps]}}" sound "$sound")
+  rate="${rate:-${DEFAULTS[fps]}}"
+  PART_FORMAT=(codec "${codecs[1]}" width "$maxw" height "$maxh" rate "$rate" sound "$sound")
+
+  for ((i = 2; i <= n; i++)); do
+    prefix="[$i/$n] ${EDIT_NAMES[i]}:"
+    [[ "${codecs[i]}" == "${codecs[1]}" ]] || EDIT_PROBLEMS+=("$prefix codec ${codecs[i]} is not used; merge = true encodes every recording in the first one's ${codecs[1]}")
+    [[ "${fpses[i]}" == "${fpses[1]}" ]] || EDIT_PROBLEMS+=("$prefix fps ${fpses[i]} is not used; merge = true encodes every recording at the first one's $rate fps")
+    [[ "${heights[i]}" == "${heights[1]}" ]] || EDIT_PROBLEMS+=("$prefix max_height ${heights[i]} is not used; merge = true fits every recording into ${maxw}x${maxh}")
+  done
+  return 0
 }
 
 # merge = false, or a single block: each block shrunk beside its recording, under the name a
@@ -342,29 +354,38 @@ edit_run_apart() {
       EDIT_FAILED+=("${EDIT_NAMES[i]}")
     fi
   done
+  # One block has nothing to be joined to, so it is shrunk the way merge = false would.
+  [[ "$EDIT_MERGE" == true ]] && ((${#EDIT_MADE})) \
+    && edit_say "merge = true needs two recordings; ${EDIT_NAMES[1]} was shrunk on its own"
   ((${#EDIT_FAILED} == 0))
 }
 
 # merge = true: every block encoded to the set's one format as a part, in a folder of its own in
 # the temporary folder, then the parts joined by copying their streams into
 # <first recording>-merged.mp4 beside the first recording. A block that cannot be shrunk would
-# leave a hole in the video, so the run stops there and joins nothing.
+# leave a hole in the video, so the run joins nothing then: a block that cannot run at all is found
+# before the first encode, and one whose encode fails stops the run there.
 edit_run_merged() {
   local file="$1" n=${#EDIT_NAMES} i src out refused
-  local -a parts
-  edit_merge_format "$file"
+  local -a parts refusals
+  local nothing="[join] nothing joined: merge = true joins every recording or none"
+  for ((i = 1; i <= n; i++)); do
+    refused="$(edit_block_refused $i "$file")" || continue
+    refusals+=("[$i/$n] $refused")
+    EDIT_FAILED+=("${EDIT_NAMES[i]}")
+  done
+  ((${#refusals})) || edit_merge_format "$file"
   edit_say_problems
+  if ((${#refusals})); then
+    for refused in "${refusals[@]}"; do edit_say "$refused"; done
+    edit_say "$nothing"
+    return 1
+  fi
   PARTS_DIR="$(mktemp -d "$(temp_folder)/shrinkit.$$.edit.XXXXXX")" || {
     edit_say "cannot make a folder for the parts in $(temp_folder)"
     return 1
   }
   for ((i = 1; i <= n; i++)); do
-    refused="$(edit_block_refused $i "$file")" && {
-      edit_say "[$i/$n] $refused"
-      EDIT_FAILED+=("${EDIT_NAMES[i]}")
-      remove_parts
-      return 1
-    }
     edit_block_header $i
     src="$(edit_source "${EDIT_NAMES[i]}" "${file:h}")"
     edit_block_settings $i
@@ -373,6 +394,7 @@ edit_run_merged() {
     mkdir "${out:h}" && shrink "$src" "$out" false || {
       EDIT_FAILED+=("${EDIT_NAMES[i]}")
       remove_parts
+      edit_say "$nothing"
       return 1
     }
     parts+=("$out")
