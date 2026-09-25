@@ -25,7 +25,9 @@ STUB
 # the file it was handed to <dir>/editor.log, keeps a copy of the file as it was handed over in
 # <dir>/given, then runs the edit lines as zsh, with $file set and the helpers below:
 #   add <block> <line...>   the lines go right under the block's [header]
+#   top <line...>           the lines go right under the merge line, above the first block
 #   set_merge <value>       the merge line at the top says merge = <value>
+#   drop_blocks             every block goes, from the first [header] on
 # An edit line of 'exit 1' is an editor that fails, and so is any editor while <dir>/cancel exists.
 stub_editor() {
   local dir="$1" name="$2"
@@ -42,9 +44,16 @@ add() {
   HEADER="[$1]" TEXT="${(F)@[2,-1]}" awk '{ print } $0 == ENVIRON["HEADER"] { print ENVIRON["TEXT"] }' \
     "$file" > "$file.new" && mv "$file.new" "$file"
 }
+top() {
+  TEXT="${(F)@}" awk '{ print } /^merge = / { print ENVIRON["TEXT"] }' \
+    "$file" > "$file.new" && mv "$file.new" "$file"
+}
 set_merge() {
   VALUE="$1" awk '/^merge = / { print "merge = " ENVIRON["VALUE"]; next } { print }' \
     "$file" > "$file.new" && mv "$file.new" "$file"
+}
+drop_blocks() {
+  awk '/^\[/ { exit } { print }' "$file" > "$file.new" && mv "$file.new" "$file"
 }
 HELPERS
     print -rl -- "$@"
