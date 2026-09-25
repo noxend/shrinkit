@@ -581,3 +581,41 @@ test_run_puts_every_result_on_the_clipboard() {
   check "no recording claims a copy of its own" not_logged "$box" 'done .*copied to clipboard'
   check "and the terminal says so under them" test "${${(@f)out}[-1]}" = "      copied to the clipboard"
 }
+
+# SPEC.md, At most 10 recordings: an edit file holds a block per recording, and a recording may
+# have two.
+test_run_takes_at_most_ten_blocks() {
+  local box tools work file out code=0 i
+  local -a takes made
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor "print -rl -- '' '[1 take.mov]' >> \"\$file\""
+  work="$(scratch)"
+  for i in {1..10}; do
+    cp "$FIXTURES/take-red.mov" "$work/$i take.mov"
+    takes+=("$work/$i take.mov")
+  done
+  file="$(make_edit "$box" "$tools" "${takes[@]}")"
+
+  out="$(run_file "$box" "$tools" "$file" 2>&1)" || code=$?
+  made=("$work"/*.mp4(N))
+
+  check "the file has 11 blocks" test "$(headers_of "$file" | wc -l | tr -d ' ')" = 11
+  check "refuses it" test "$code" = 2
+  check "saying why" contains "$out" "run takes up to 10 recordings at a time; ${file:t} has 11"
+  check "and in the log" logged "$box" "run takes up to 10 recordings at a time; ${file:t} has 11"
+  check "encodes nothing" test "${#made}" = 0
+  check "not even the first" not_logged "$box" ' encode '
+
+  code=0
+  rm "$file"
+  stub_editor "$tools" editor
+  file="$(make_edit "$box" "$tools" "${takes[@]}")"
+  rm "${takes[@]}"
+  out="$(run_file "$box" "$tools" "$file" 2>&1)" || code=$?
+  check "takes 10" lacks "$out" "takes up to 10"
+  check "and runs them" contains "$out" "[10/10] 10 take.mov: not found beside ${file:t}"
+  check "as far as they go" test "$code" = 1
+}

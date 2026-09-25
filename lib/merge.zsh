@@ -305,6 +305,13 @@ merge_command() {
     notify "merge needs at least two videos"
     return 2
   }
+  ((${#clips} <= MAX_RECORDINGS)) || {
+    local said="shrinkit: merge takes up to $MAX_RECORDINGS recordings at a time; ${#clips} were selected"
+    print -u2 -r -- "$said"
+    log "$said"
+    notify "$said"
+    return 2
+  }
 
   for i in ${(f)"$(merge_order "${clips[@]}")"}; do ordered+=("${clips[i]}"); done
   log "merge  ${(j:, :)${(@)ordered:t}}"

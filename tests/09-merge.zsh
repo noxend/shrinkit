@@ -304,3 +304,50 @@ test_merge_does_not_overwrite_an_earlier_merge() {
   check "keeps the first result" exists "$work/one-merged.mov"
   check "and writes the second under a name of its own" test "${#extra}" = 1
 }
+
+# SPEC.md, At most 10 recordings: a re-encoding merge decodes every clip at once.
+test_merge_takes_at_most_ten_recordings() {
+  local box work out code=0 i
+  local -a clips made
+  box="$(sandbox)"
+  settings "$box"
+  work="$(scratch)"
+  for i in {1..11}; do
+    cp "$FIXTURES/take-red.mov" "$work/$i take.mov"
+    clips+=("$work/$i take.mov")
+  done
+
+  out="$(run_merge "$box" "${clips[@]}" 2>&1)" || code=$?
+  made=("$work"/*merged*(N))
+
+  check "refuses 11" test "$code" = 2
+  check "saying why" contains "$out" "shrinkit: merge takes up to 10 recordings at a time; 11 were selected"
+  check "and in the log" logged "$box" "shrinkit: merge takes up to 10 recordings at a time; 11 were selected"
+  check "joining nothing" test "${#made}" = 0
+  check "and writing nothing beside them" test "$(ls "$work" | wc -l | tr -d ' ')" = 11
+
+  code=0
+  run_merge "$box" "${clips[@]:0:10}" > /dev/null 2>&1 || code=$?
+  check "takes 10" test "$code" = 0
+  check "and joins them" duration_near "$work/1 take-merged.mov" 20
+}
+
+test_the_merge_entry_says_it_takes_at_most_ten_recordings() {
+  local box tools work code=0 i
+  local -a clips
+  box="$(installed_box)"
+  print -r -- 'notify_sound = Ping' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  work="$(scratch)"
+  for i in {1..11}; do
+    cp "$FIXTURES/take-red.mov" "$work/$i take.mov"
+    clips+=("$work/$i take.mov")
+  done
+
+  run_entry "$box" "$tools" merge "${clips[@]}" 2> /dev/null || code=$?
+
+  check "in a banner, since nothing else it says is seen" test "$(< "$tools/osascript.log")" = \
+    "banner shrinkit | shrinkit: merge takes up to 10 recordings at a time; 11 were selected | Ping"
+  check "and exits 2" test "$code" = 2
+}

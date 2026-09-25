@@ -183,6 +183,13 @@ find_tool() {
 FFMPEG="$(find_tool ffmpeg)"
 FFPROBE="$(find_tool ffprobe)"
 
+# At most this many recordings for edit and merge, and blocks in an edit file for run. Measured on
+# 2026-09-25 on 4K recordings (3456x1992, 120 fps): one encode peaks at 1.6 GB of memory, and a
+# re-encoding merge, which decodes every clip at once, at 1.8 GB for 2 clips, 2.5 GB for 10 and
+# 3.4 GB for 20. An 8 GB Mac has about 3 GB free, so 10 fit and 20 do not. An edit run encodes one
+# recording at a time, so for it the cap guards the join's fallback and a folder selected by mistake.
+MAX_RECORDINGS=10
+
 # The terminal an edit run shows its log on, as a file descriptor: a copy of its stdout taken before
 # any $(...) capture, so a line logged inside one still reaches the screen. Empty outside a run.
 SCREEN_FD=""

@@ -444,3 +444,34 @@ test_shrinkit_run_typed_in_a_terminal_leaves_it_open() {
   check "says nothing about closing" lacks "$(< "$tools/screen")" "closes in"
   check "and never asks Terminal to close it" never_asked_to_close "$tools"
 }
+
+# SPEC.md, At most 10 recordings.
+test_the_edit_entry_takes_at_most_ten_recordings() {
+  local box tools work code=0 i
+  local -a takes files
+  box="$(installed_box)"
+  print -r -- 'notify_sound = Ping' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  work="$(scratch)"
+  for i in {1..11}; do
+    cp "$FIXTURES/take-red.mov" "$work/$i take.mov"
+    takes+=("$work/$i take.mov")
+  done
+
+  run_entry "$box" "$tools" edit "${takes[@]}" 2> /dev/null || code=$?
+  files=("$work"/*.edit.txt(N))
+
+  check "says so in a banner" test "$(< "$tools/osascript.log")" = \
+    "banner shrinkit | shrinkit: edit takes up to 10 recordings at a time; 11 were selected | Ping"
+  check "and in the log" grep -qF "shrinkit: edit takes up to 10 recordings at a time; 11 were selected" \
+    "$box/work/.logs/optimizer.log"
+  check "exits 2" test "$code" = 2
+  check "writes no edit file" test "${#files}" = 0
+  check "and opens nothing" missing "$tools/open.log"
+
+  run_entry "$box" "$tools" edit "${takes[@]:0:10}"
+  files=("$work"/*.edit.txt(N))
+  check "takes 10" test "$(headers_of "${files[1]-/dev/null}" | wc -l | tr -d ' ')" = 10
+  check "and opens their file" test "$(< "$tools/open.log")" = "-e | ${files[1]-}"
+}
