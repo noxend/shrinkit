@@ -6,7 +6,6 @@ test_doctor_counts_what_is_waiting_and_ignores_what_finder_leaves() {
   : > "$box/work/input/.DS_Store"  # written by Finder whenever the folder is opened
   : > "$box/work/input/._clip.mov" # its metadata beside a file on a non-Apple drive
   cp "$FIXTURES/silent.mov" "$box/work/input/clip.mov"
-  print -r -- '0-0:02' > "$box/work/input/clip.mov.cuts"
 
   out="$(run_doctor "$box" 2>&1)"
 

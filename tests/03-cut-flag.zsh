@@ -15,20 +15,6 @@ test_cut_flag_cuts_without_any_sidecar() {
   check "and says a cut was applied" logged "$box" ', cut applied'
 }
 
-test_cut_flag_repeats_for_more_than_one_range() {
-  local box work out
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  work="$(scratch)"
-  cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  out="$work/clip.mp4"
-
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
-    zsh "$OPTIMIZER" --cut 3-4 --cut 8-9 "$work/clip.mov"
-
-  check "cuts both ranges" duration_near "$out" 10
-}
-
 # The flag path has its own copy of the sort-and-merge pipeline, so it needs its own coverage of
 # ranges arriving out of order and overlapping; the sidecar's copy being correct says nothing here.
 test_cut_flag_sorts_and_merges_its_ranges() {
@@ -46,7 +32,7 @@ test_cut_flag_sorts_and_merges_its_ranges() {
   check "merges the overlap and keeps the separate range" duration_near "$out" 9
 }
 
-test_cut_flag_reaches_the_edges_the_same_way_the_sidecar_does() {
+test_cut_flag_reaches_the_real_end() {
   local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'

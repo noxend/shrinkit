@@ -66,18 +66,18 @@ test_a_failed_move_into_place_is_reported_not_silent() {
   check "leaves the source in place" exists "$work/clip.mov"
 }
 
-test_one_shot_skips_a_cuts_sidecar_selected_alongside_the_video() {
+test_one_shot_skips_an_edit_file_selected_alongside_the_video() {
   local box work
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/recording.mov"
-  print -r -- '1-2' > "$work/recording.mov.cuts"
+  print -rl -- 'merge = false' '[recording.mov]' 'cut = 1-2' > "$work/recording.edit.txt"
 
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/recording.mov" "$work/recording.mov.cuts"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/recording.mov" "$work/recording.edit.txt"
 
   check "shrinks the video" exists "$work/recording.mp4"
-  check "does not try to encode the sidecar" logged "$box" "skip   recording.mov.cuts (not a video)"
+  check "does not try to encode the edit file" logged "$box" "skip   recording.edit.txt (not a video)"
   check "so it is never reported as a failed shrink" not_logged "$box" 'FAILED'
 }
 

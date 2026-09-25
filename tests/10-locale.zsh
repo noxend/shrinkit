@@ -31,18 +31,18 @@ test_a_comma_decimal_locale_leaves_the_audio_path_working() {
 # landed most of a second early, with nothing in the log to say so. LC_ALL here rather than
 # LC_NUMERIC: it outranks the pin, so the script has to move it aside for the pin to hold.
 test_a_comma_decimal_locale_does_not_move_a_fractional_cut() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1' 'fps = 0'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  # colored.mov is 12s. Truncating both ends of this range to whole seconds removes 7s and leaves
-  # 5, where the range as typed removes 6.2s and leaves 5.8.
-  print -r -- '0:02.9-0:09.1' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
   check "the locale this test needs is really a comma one" comma_locale_is_real
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" LC_ALL=uk_UA.UTF-8 zsh "$OPTIMIZER"
+  # colored.mov is 12s. Truncating both ends of this range to whole seconds removes 7s and leaves
+  # 5, where the range as typed removes 6.2s and leaves 5.8.
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" LC_ALL=uk_UA.UTF-8 zsh "$OPTIMIZER" --cut 0:02.9-0:09.1 "$work/clip.mov"
 
-  out="$box/output/clip.mp4"
+  out="$work/clip.mp4"
   check "cuts the fraction it was given, not the whole second" duration_near "$out" 5.8
   check "and reports the cut as applied" logged "$box" ', cut applied'
 }
