@@ -55,7 +55,7 @@ test_run_merge_on_a_terminal_says_the_join_and_the_result_in_colour() {
   check "and joined in magenta" contains "$screen" \
     "      ${ESC}[35mjoined   ${ESC}[0m 2 clips into ${out:t} (streams copied)"
   check "Done in bold green, the size in bold, how long it plays dim" contains "$screen" \
-    $'\n'"${ESC}[32m${ESC}[1mDone${ESC}[0m  ${ESC}[1m$(du -h "$out" | cut -f1 | tr -d ' ')${ESC}[0m  ${ESC}[2m$(printf '%.1fs' "$(duration "$out")")${ESC}[0m"$'\n'
+    $'\n'"${ESC}[32m${ESC}[1mDone${ESC}[0m  ${ESC}[1m$(size_of "$out")${ESC}[0m  ${ESC}[2m$(printf '%.1fs' "$(duration "$out")")${ESC}[0m"$'\n'
   check "then the file, its folder dim" contains "$screen" $'\n'"      ${ESC}[2m$work/${ESC}[0m${out:t}"$'\n'
   check "and what else happened dim" contains "$screen" $'\n'"      ${ESC}[2mcopied to the clipboard${ESC}[0m"
 }

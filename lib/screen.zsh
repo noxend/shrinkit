@@ -31,10 +31,16 @@ SCREEN_LINES=0
 SCREEN_HOLD=0
 typeset -a SCREEN_HELD
 
-# screen_line <word> <text>: one step on the screen, its word in a column of 9 after 6 spaces, so
-# the text of every step lines up.
+# screen_word <word>: the column a step goes under, in REPLY: its word coloured, in 9 columns after
+# 6 spaces, so the text of every step lines up. Not printed, since a bar asks for it at every redraw.
+screen_word() {
+  REPLY="      ${PAINT[${WORD_COLOUR[$1]}]}${(r:9:)1}${PAINT[reset]} "
+}
+
+# screen_line <word> <text>: one step on the screen, under its word.
 screen_line() {
-  local line="      ${PAINT[${WORD_COLOUR[$1]}]}${(r:9:)1}${PAINT[reset]} $2"
+  screen_word "$1"
+  local line="$REPLY$2"
   ((++SCREEN_LINES))
   if ((SCREEN_HOLD)); then
     SCREEN_HELD+=("$line")
@@ -110,10 +116,11 @@ screen_progress() {
   screen_stop
 }
 
-# M:SS, as a player shows it. Whole seconds, rounded down.
+# M:SS, as a player shows it, in REPLY. Whole seconds, rounded down. Not printed, since the bar
+# asks for it at every redraw.
 minutes() {
   local secs="${1%.*}"
-  printf '%d:%02d' $((secs / 60)) $((secs % 60))
+  printf -v REPLY '%d:%02d' $((secs / 60)) $((secs % 60))
 }
 
 # The columns a line redrawn in place may take: one fewer than the terminal is wide, so writing the
@@ -133,6 +140,8 @@ screen_room() {
 # the word and the percent fit, nothing is drawn.
 screen_bar() {
   local word="$1" colour="${PAINT[${WORD_COLOUR[$1]}]}" filled="" rest="" left="" line room i
+  screen_word "$word"
+  local head="$REPLY"
   local -F part elapsed
   local -i pct width cells secs
   part=$(($2 / ($3 * 1000000.0)))
@@ -141,7 +150,12 @@ screen_bar() {
   if ((pct > 3)); then
     elapsed=$((EPOCHREALTIME - $4))
     secs=$((elapsed * (1 - part) / part))
-    ((secs < 60)) && left="${secs}s left" || left="$(minutes $secs) left"
+    if ((secs < 60)); then
+      left="${secs}s left"
+    else
+      minutes $secs
+      left="$REPLY left"
+    fi
   fi
   # Around the bar: 16 columns for the indent and the word, 5 for the percent, and two spaces and
   # the time left.
@@ -161,7 +175,7 @@ screen_bar() {
   for ((i = 0; i < width; i++)); do
     ((i < cells)) && filled="$filled━" || rest="$rest━"
   done
-  line="      $colour${(r:9:)word}${PAINT[reset]} $colour$filled${PAINT[dim]}$rest${PAINT[reset]}"
+  line="$head$colour$filled${PAINT[dim]}$rest${PAINT[reset]}"
   line="$line ${(l:3:)pct}%${left:+  ${PAINT[dim]}$left${PAINT[reset]}}"
   print -rn -u "$SCREEN_FD" -- $'\r'"$line"$'\e[K'
 }
@@ -174,7 +188,8 @@ screen_spinner() {
   local colour="${PAINT[${WORD_COLOUR[$1]}]}" line room
   room="$(screen_room)"
   [[ -z "$room" ]] || ((room >= 17)) || return 0
-  line="      $colour${(r:9:)1}${PAINT[reset]} $colour${SPINNER[$2 % 10 + 1]}${PAINT[reset]}"
+  screen_word "$1"
+  line="$REPLY$colour${SPINNER[$2 % 10 + 1]}${PAINT[reset]}"
   print -rn -u "$SCREEN_FD" -- $'\r'"$line"$'\e[K'
 }
 

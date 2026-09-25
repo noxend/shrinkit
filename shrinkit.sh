@@ -164,6 +164,15 @@ PRESET_DIR="$BASE_DIR/presets"
 # per line. setup and doctor still leave them out; preset add and preset remove take a name off it.
 MENU_OFF="$PRESET_DIR/.not-in-menu"
 
+# The right-click entries shrinkit builds on its own, which no preset can be named after.
+OWN_ENTRIES=(edit run merge)
+own_entry() {
+  ((${OWN_ENTRIES[(Ie)$1]}))
+}
+
+# The names a recording can have: what the right-click menu offers and the watcher picks up.
+VIDEO_NAME='(#i)*.(mov|mp4|m4v)'
+
 OUT_DIR="$BASE_DIR/output"
 
 # First hit wins: whatever is on PATH, then the two usual Homebrew prefixes. SHRINKIT_TOOL_DIRS,
@@ -347,9 +356,12 @@ preset_file() {
   print -r -- "$PRESET_DIR/$1.conf"
 }
 
+# Whether the preset last read sets nothing, for the banner main posts about one.
+PRESET_EMPTY=0
 read_preset() {
   local file
   file="$(preset_file "$1")"
+  PRESET_EMPTY=0
   [[ -f "$file" ]] || {
     log "no preset called '$1' in $PRESET_DIR"
     print -u2 -r -- "no preset called '$1' (looked in $PRESET_DIR)"
@@ -357,6 +369,7 @@ read_preset() {
   }
   read_settings "$file"
   preset_sets_something "$file" || {
+    PRESET_EMPTY=1
     log "the preset '$1' sets nothing: every line of $file is a comment, so settings.conf applies"
     print -u2 -r -- "the preset '$1' sets nothing: take the # off the lines in $file"
   }
@@ -490,6 +503,14 @@ JXA
 notify_start() {
   [[ "${CFG[notify_start]}" == true ]] || return 0
   notify "$1" "${2:-Optimizing…}" none
+}
+
+# What a right-click entry has to say: on stderr, in the log and in a banner, since nothing a Quick
+# Action prints is ever seen.
+finder_says() {
+  print -u2 -r -- "$1"
+  log "$1"
+  notify "$1"
 }
 
 # Writes to NSPasteboard directly, so this needs no permission to control other apps. Every path
@@ -1015,7 +1036,7 @@ optimize_files() {
     # The right-click menu only offers video files, but a text file beside a recording is easy to
     # select along with it. Without this, encode() would be handed it and fail with a "could not
     # shrink" banner naming that file, not the video.
-    [[ "$src" == (#i)*.(mov|mp4|m4v) ]] || {
+    [[ "$src" == $~VIDEO_NAME ]] || {
       log "skip   ${src:t} (not a video)"
       print -u2 -r -- "${src:t} is not a video (.mov, .mp4 or .m4v)"
       continue
@@ -1059,7 +1080,7 @@ process_queue() {
 
   while ((progressed)); do
     progressed=0
-    pending=("$IN_DIR"/(#i)*.(mov|mp4|m4v)(N.))
+    pending=("$IN_DIR"/$~VIDEO_NAME(N.))
     for src in "${pending[@]}"; do
       seen=1
       out="$OUT_DIR/$(output_name "$src")"
@@ -1286,6 +1307,12 @@ install_quick_action() {
   print -r -- "right-click a video > shrinkit: $name"
 }
 
+# entry_command <word>...: what an entry runs, the folder and the program then the words given,
+# quoted as install_quick_action asks.
+entry_command() {
+  print -r -- "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} $*"
+}
+
 # The name of each preset in presets/, one per line.
 preset_names() {
   local file
@@ -1307,8 +1334,7 @@ install_preset_action() {
     no_such_preset "$name"
     return 1
   }
-  install_quick_action "$name" \
-    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} --preset ${(qq)name} \"\$@\""
+  install_quick_action "$name" "$(entry_command --preset ${(qq)name} '"$@"')"
 }
 
 # A preset goes whole: its file into the Trash, where it can be taken back from, then its
@@ -1362,7 +1388,7 @@ preset_name_ok() {
     print -u2 -r -- "a preset name cannot be empty, hold a /, or start with a dot"
     return 1
   fi
-  if [[ "$1" == (edit|run|merge) ]]; then
+  if own_entry "$1"; then
     print -u2 -r -- "'$1' is shrinkit's own right-click entry, so no preset can have that name"
     return 1
   fi
@@ -1404,17 +1430,18 @@ preset_sync() {
   mkdir -p "$SERVICES_DIR"
   for entry in "$SERVICES_DIR"/shrinkit:*.workflow(N); do
     name="${${entry:t:r}#shrinkit: }"
-    [[ "$name" == (edit|run|merge) ]] || had+=("$name")
-  done
-  for name in "${had[@]}"; do
-    [[ -f "$(preset_file "$name")" ]] && continue
-    rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
-    gone+=("$name")
+    own_entry "$name" && continue
+    if [[ -f "$(preset_file "$name")" ]]; then
+      had+=("$name")
+    else
+      rm -rf "$entry"
+      gone+=("$name")
+    fi
   done
   rm -f "$MENU_OFF"
   for file in "$PRESET_DIR"/*.conf(N.); do
     name="${file:t:r}"
-    [[ "$name" == (edit|run|merge) ]] && {
+    own_entry "$name" && {
       print -u2 -r -- "left out $file: '$name' is shrinkit's own right-click entry; rename the file"
       continue
     }
@@ -1491,9 +1518,7 @@ answer_mark_cuts() {
   mkdir -p "$LOG_DIR"
   read_config
   validate_config
-  print -u2 -r -- "$answer"
-  log "$answer"
-  notify "$answer"
+  finder_says "$answer"
   return 2
 }
 
@@ -1738,7 +1763,7 @@ main() {
   [[ -n "$PRESET" ]] && { read_preset "$PRESET" || return 2; }
   # A right-click run shows nothing but a banner, and this one would otherwise look like it did
   # nothing.
-  [[ -n "$PRESET" ]] && ! preset_sets_something "$(preset_file "$PRESET")" \
+  ((PRESET_EMPTY)) \
     && notify "The preset '$PRESET' sets nothing: every line is a comment. Take the # off a line in presets/$PRESET.conf."
   apply_overrides
   validate_config

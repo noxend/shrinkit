@@ -164,7 +164,7 @@ test_run_shows_the_log_on_the_terminal_but_not_the_graph() {
   check "and without the filter graph" lacks "$out" "graph"
   check "which stays in the log" logged "$box" 'graph  clip.mov'
   check "ends with what came out, its size and how long it plays" contains "$out" \
-    $'\nDone  '"$(du -h "$work/clip.mp4" | cut -f1 | tr -d ' ')  $(printf '%.1fs' "$(duration "$work/clip.mp4")")"$'\n'
+    $'\nDone  '"$(size_of "$work/clip.mp4")  $(printf '%.1fs' "$(duration "$work/clip.mp4")")"$'\n'
   check "and where it is" test "${${(@f)out}[-1]}" = "      $work/clip.mp4"
 }
 

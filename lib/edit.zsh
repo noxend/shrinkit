@@ -58,7 +58,9 @@ write_edit_file() {
         [[ "${src:h}" == "${file:h}" ]] && name="${src:t}" || name="$src"
         print -r -- "[$name]"
         dur="$(clip_duration "$src")"
-        if [[ -n "$dur" ]]; then print -r -- "# ${src:t} is $(minutes "$dur") long"; fi
+        [[ -n "$dur" ]] || continue
+        minutes "$dur"
+        print -r -- "# ${src:t} is $REPLY long"
       done
     } > "$file"
   } 2> /dev/null
@@ -178,22 +180,27 @@ read_edit_file() {
   done < "$1"
 }
 
+# The lines of block i, in reply: each an index into EDIT_KEY and EDIT_VALUE, in the order written.
+edit_block_lines() {
+  local j
+  reply=()
+  for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do ((EDIT_BLOCK[j] == $1)) && reply+=($j); done
+}
+
 # Whether block i has a line for key.
 edit_block_has() {
-  local i="$1" key="$2" j
-  for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
-    ((EDIT_BLOCK[j] == i)) && [[ "${EDIT_KEY[j]}" == "$key" ]] && return 0
-  done
+  local j
+  edit_block_lines "$1"
+  for j in "${reply[@]}"; do [[ "${EDIT_KEY[j]}" == "$2" ]] && return 0; done
   return 1
 }
 
 # A block's settings in the order written, "key value, key value", for the line that heads it.
 edit_block_summary() {
-  local i="$1" j
+  local j
   local -a parts
-  for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
-    ((EDIT_BLOCK[j] == i)) && parts+=("${EDIT_KEY[j]} ${EDIT_VALUE[j]}")
-  done
+  edit_block_lines "$1"
+  for j in "${reply[@]}"; do parts+=("${EDIT_KEY[j]} ${EDIT_VALUE[j]}"); done
   print -r -- "${(j:, :)parts}"
 }
 
@@ -205,18 +212,18 @@ typeset -A EDIT_BASE
 # nothing one block asked for reaches the next.
 edit_block_settings() {
   local i="$1" j key value
+  local -a lines
   CFG=("${(@kv)EDIT_BASE}")
   IGNORED=()
   PRESET=""
   CUT_RANGES=()
   KEEP_RANGES=()
   RANGE_ORIGIN="in the block for ${EDIT_NAMES[i]}"
-  for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
-    ((EDIT_BLOCK[j] == i)) && [[ "${EDIT_KEY[j]}" == preset ]] && PRESET="${EDIT_VALUE[j]}"
-  done
+  edit_block_lines $i
+  lines=("${reply[@]}")
+  for j in "${lines[@]}"; do [[ "${EDIT_KEY[j]}" == preset ]] && PRESET="${EDIT_VALUE[j]}"; done
   [[ -n "$PRESET" ]] && read_preset "$PRESET"
-  for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
-    ((EDIT_BLOCK[j] == i)) || continue
+  for j in "${lines[@]}"; do
     key="${EDIT_KEY[j]}"
     value="${EDIT_VALUE[j]}"
     case "$key" in
@@ -264,7 +271,7 @@ edit_block_refused() {
   src="$(edit_source "$name" "${file:h}")"
   if [[ ! -e "$src" ]]; then
     [[ "$name" == /* ]] && print -r -- "$name: not found" || print -r -- "$name: not found beside ${file:t}"
-  elif [[ ! -f "$src" || "$src" != (#i)*.(mov|mp4|m4v) ]]; then
+  elif [[ ! -f "$src" || "$src" != $~VIDEO_NAME ]]; then
     print -r -- "$name is not a video (.mov, .mp4 or .m4v)"
   elif edit_block_has "$i" cut && edit_block_has "$i" keep; then
     # As main refuses --cut with --keep: letting one win would cut what the other keeps.
@@ -416,16 +423,11 @@ edit_run_apart() {
 # run (run_edit_file).
 edit_run_merged() {
   local file="$1" n=${#EDIT_NAMES} i src out refused stem
-  local -a parts refusals
+  local -a parts
   local nothing="[join] nothing joined: merge = true joins every recording or none"
-  for ((i = 1; i <= n; i++)); do
-    refused="$(edit_block_refused $i "$file")" || continue
-    refusals+=("[$i/$n] $refused")
-    EDIT_FAILED+=("${EDIT_NAMES[i]}")
-  done
   edit_say_problems
-  if ((${#refusals})); then
-    for refused in "${refusals[@]}"; do edit_say skipped "$refused"; done
+  if ((${#EDIT_REFUSALS})); then
+    for refused in "${EDIT_REFUSALS[@]}"; do edit_say skipped "$refused"; done
     edit_say failed "$nothing"
     return 1
   fi
@@ -441,7 +443,6 @@ edit_run_merged() {
     out="$PARTS_DIR/$i/$(output_name "$src")"
     mkdir "${out:h}" && shrink "$src" "$out" false || {
       EDIT_FAILED+=("${EDIT_NAMES[i]}")
-      remove_parts
       edit_say failed "$nothing"
       return 1
     }
@@ -454,22 +455,24 @@ edit_run_merged() {
   # Called directly, not in $(...): the traps find the part it writes in CURRENT_PART.
   merge_files "$stem" "${parts[@]}" || {
     log "FAILED join of $n parts (the reason is above)"
-    remove_parts
     return 1
   }
-  remove_parts
   [[ "$MERGED_MODE" == re-encoded ]] \
     && log "joined by re-encoding: the parts did not agree, so it is larger than they are"
   EDIT_MADE+=("$MERGED_OUT")
 }
 
-# Whether every block of file can run at all.
-edit_blocks_can_run() {
-  local i
-  for ((i = 1; i <= ${#EDIT_NAMES}; i++)); do
-    edit_block_refused $i "$1" > /dev/null && return 1
+# The blocks of file that cannot run at all, each as "[i/n] why" in EDIT_REFUSALS, their names
+# among EDIT_FAILED.
+typeset -a EDIT_REFUSALS
+edit_find_refusals() {
+  local i n=${#EDIT_NAMES} refused
+  EDIT_REFUSALS=()
+  for ((i = 1; i <= n; i++)); do
+    refused="$(edit_block_refused $i "$1")" || continue
+    EDIT_REFUSALS+=("[$i/$n] $refused")
+    EDIT_FAILED+=("${EDIT_NAMES[i]}")
   done
-  return 0
 }
 
 # Every block in order, each through the one-shot path with its own settings, the log on the
@@ -513,9 +516,12 @@ run_edit_file() {
   validate_config
   EDIT_BASE=("${(@kv)CFG}")
   about="$(recordings $n), merge = $EDIT_MERGE"
-  if [[ "$merged" == true ]] && edit_blocks_can_run "$file"; then
-    edit_merge_format "$file"
-    about="$about, every part ${PART_FORMAT[width]}x${PART_FORMAT[height]} at ${PART_FORMAT[rate]} fps"
+  if [[ "$merged" == true ]]; then
+    edit_find_refusals "$file"
+    ((${#EDIT_REFUSALS})) || {
+      edit_merge_format "$file"
+      about="$about, every part ${PART_FORMAT[width]}x${PART_FORMAT[height]} at ${PART_FORMAT[rate]} fps"
+    }
   fi
   SCREEN_HOLD=0
   print -r -- "${PAINT[dim]}$about${PAINT[reset]}"
@@ -529,6 +535,8 @@ run_edit_file() {
     edit_run_apart "$file"
   fi
   rc=$?
+  # The parts and the set's format are the run's, gone whatever came of it.
+  remove_parts
   PART_FORMAT=()
   exec {SCREEN_FD}>&-
   SCREEN_FD=""
@@ -581,13 +589,12 @@ edit_summary() {
 # The one banner and the one copy of a run, both as settings.conf has them: what came out, and
 # what did not. 0 when the results went on the clipboard.
 edit_announce() {
-  local n="$1" failed="$2" extra="" copied=1
+  local n="$1" failed="$2" extra=""
   shift 2
   CFG=("${(@kv)EDIT_BASE}")
   if [[ "${CFG[copy_to_clipboard]}" == true ]] && (($#)); then
     copy_to_clipboard "$@"
     extra=", copied to clipboard"
-    copied=0
   fi
   if (($# == 0)); then
     # Nothing came out while no block failed only when a merged run's join did.
@@ -601,7 +608,7 @@ edit_announce() {
   else
     notify "$# of $n shrunk: ${(j:, :)@:t}$extra. Not shrunk: $failed" "shrinkit edit"
   fi
-  return $copied
+  [[ -n "$extra" ]]
 }
 
 # shrinkit run <file>: an edit file written before, run again. The right-click entry runs it as run
@@ -684,7 +691,7 @@ edit_videos() {
       print -u2 -r -- "'$src' is not a file"
       continue
     }
-    [[ "$src" == (#i)*.(mov|mp4|m4v) ]] || {
+    [[ "$src" == $~VIDEO_NAME ]] || {
       log "skip   ${src:t} (not a video)"
       print -u2 -r -- "${src:t} is not a video (.mov, .mp4 or .m4v)"
       continue
@@ -741,8 +748,7 @@ edit_command() {
 
 # The right-click entry for several recordings at once.
 install_edit_action() {
-  install_quick_action edit \
-    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} edit --finder \"\$@\""
+  install_quick_action edit "$(entry_command edit --finder '"$@"')"
 }
 
 # What the entry runs: the recordings' edit file, written unless an edit of the same set left it
@@ -775,18 +781,11 @@ edit_finder() {
   open -e "$file"
 }
 
-finder_says() {
-  print -u2 -r -- "$1"
-  log "$1"
-  notify "$1"
-}
-
 # --------------------------------------------------------------------- shrinkit: run
 
 # The right-click entry for edit files, which Finder takes for plain text.
 install_run_action() {
-  install_quick_action run \
-    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} run --finder \"\$@\"" public.plain-text
+  install_quick_action run "$(entry_command run --finder '"$@"')" public.plain-text
 }
 
 # What the entry runs: the edit files among the files it is handed, as one request in the queue, and

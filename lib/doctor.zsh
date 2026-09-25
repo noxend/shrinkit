@@ -244,11 +244,11 @@ doctor_check_right_click() {
   for preset in "$PRESET_DIR"/*.conf(N.); do
     in_menu "${preset:t:r}" && expected+=("${preset:t:r}")
   done
-  expected+=(edit run merge)
+  expected+=("${OWN_ENTRIES[@]}")
   for entry in ${(f)"$(our_entries)"}; do
     read_entry "$entry" || continue
     # Anything else was built by an older shrinkit, such as 3.x's mark cuts; setup sweeps it away.
-    [[ "$ENTRY_COMMAND" == (--preset|edit|run|merge) ]] || {
+    [[ "$ENTRY_COMMAND" == --preset ]] || own_entry "$ENTRY_COMMAND" || {
       doctor_found warn "right-click $ENTRY_NAME is left from an older shrinkit" \
         "Build the entries again with:" \
         "  $DOCTOR_SELF setup"
@@ -280,7 +280,7 @@ doctor_check_right_click() {
   fi
   for name in "${expected[@]}"; do
     ((${present[(Ie)$name]})) && continue
-    if [[ "$name" == (edit|run|merge) ]]; then
+    if own_entry "$name"; then
       doctor_found warn "no right-click entry for $name" "Build it again with:" "  $DOCTOR_SELF setup"
     else
       doctor_found warn "no right-click entry for the preset $name" "Add it with:" \
@@ -347,7 +347,7 @@ doctor_check_input() {
     name="${item:t}"
     if [[ "$name" == .DS_Store || "$name" == ._* ]]; then
       continue
-    elif [[ "$name" == .* || -L "$item" || ! -f "$item" || "$name" != (#i)*.(mov|mp4|m4v) ]]; then
+    elif [[ "$name" == .* || -L "$item" || ! -f "$item" || "$name" != $~VIDEO_NAME ]]; then
       [[ -d "$item" ]] && name+=/
       ignored+=("$name")
     elif already_done "$item"; then

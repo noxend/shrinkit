@@ -33,7 +33,7 @@ start_edit_window() {
 # The launcher runs the folder and the program every right-click entry runs.
 write_edit_launcher() {
   mkdir -p "${EDIT_LAUNCHER:h}" \
-    && print -rl -- '#!/bin/zsh' "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} run --next" \
+    && print -rl -- '#!/bin/zsh' "$(entry_command run --next)" \
       > "$EDIT_LAUNCHER" \
     && chmod +x "$EDIT_LAUNCHER"
 }
