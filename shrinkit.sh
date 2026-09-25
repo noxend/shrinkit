@@ -138,7 +138,7 @@ LIB_DIR="$(lib_dir)"
 
 # A missing part is a broken install, not a missing feature, so it stops here. Reported to stderr
 # and by exit code rather than to the log, which lives under a folder these parts help set up.
-for _part in merge setup doctor; do
+for _part in merge setup doctor edit; do
   [[ -r "$LIB_DIR/$_part.zsh" ]] || {
     print -u2 -r -- "shrinkit is incomplete: cannot read $LIB_DIR/$_part.zsh"
     exit 1
@@ -232,19 +232,22 @@ temp_part() {
 }
 
 # A name nothing holds yet: the one asked for, else with the time added, else with the time and
-# the pid. Wherever a second file of the same name must not replace the first.
+# the pid. Wherever a second file of the same name must not replace the first. The time goes in
+# front of the extension, or of the one named (edit.txt), so a name keeps what it ends in.
 free_name() {
-  local want="$1" stamp
+  local want="$1" ext stem stamp
+  ext="${2:-${want:e}}"
+  stem="${want%.$ext}"
   [[ -e "$want" ]] || {
     print -r -- "$want"
     return
   }
   stamp="$(date +%s)"
-  [[ -e "${want:r}-$stamp.${want:e}" ]] || {
-    print -r -- "${want:r}-$stamp.${want:e}"
+  [[ -e "$stem-$stamp.$ext" ]] || {
+    print -r -- "$stem-$stamp.$ext"
     return
   }
-  print -r -- "${want:r}-$stamp-$$.${want:e}"
+  print -r -- "$stem-$stamp-$$.$ext"
 }
 
 # --------------------------------------------------------------------- settings
@@ -1413,6 +1416,11 @@ main() {
     merge)
       shift
       merge_command "$@"
+      return
+      ;;
+    edit)
+      shift
+      edit_command "$@"
       return
       ;;
     setup)

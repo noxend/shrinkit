@@ -99,12 +99,12 @@ test_cut_flag_with_no_range_is_refused() {
 # on that line that reads the first gets the CALLER's variable of that name, silently, or aborts
 # the function under set -u when the caller has none. Proved, not reasoned:
 #   zsh -c 'set -u; src=/OUTER; f() { local src="$1" out="${src}.mp4"; print $out }; f /ARG'
-# prints /OUTER.mp4. The three places this file had all worked only because every caller happened
+# prints /OUTER.mp4. The three places shrinkit.sh had all worked only because every caller happened
 # to have the same variable set to the same value, which the next caller has no reason to.
 test_no_local_line_reads_a_name_it_declares() {
   local -a lines names
   local line name bad=""
-  lines=("${(@f)$(grep -n '^[[:space:]]*local .*=' "$OPTIMIZER")}")
+  lines=("${(@f)$(grep -n '^[[:space:]]*local .*=' "$OPTIMIZER" "$REPO_DIR"/lib/*.zsh)}")
   for line in "${lines[@]}"; do
     # Only assignments with a space in front of them: it keeps "concat=n=${n}" inside a filter
     # graph string from reading as a declaration of n.
