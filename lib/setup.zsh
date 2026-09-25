@@ -128,9 +128,8 @@ setup_actions() {
     in_menu "$name" || continue
     install_preset_action "$name" > /dev/null && installed+=("$name")
   done
-  install_cuts_action > /dev/null
   install_merge_action > /dev/null
-  print -r -- "==> Finder entries, one per preset, plus 'shrinkit: mark cuts' and 'shrinkit: merge': ${installed[*]}"
+  print -r -- "==> Finder entries, one per preset, plus 'shrinkit: merge': ${installed[*]}"
 }
 
 # A checkout registers the script that is running rather than a copy of it, so a git pull is picked

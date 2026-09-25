@@ -1,4 +1,4 @@
-# Sourced by tests/run-tests.sh: ranges at the edges, and cuts on odd footage.
+# Sourced by tests/run-tests.sh: ranges at the edges, cuts on odd footage, and mark-cuts answered.
 
 test_cuts_trims_whitespace_around_the_dash() {
   local box work out
@@ -106,8 +106,28 @@ test_cuts_accept_a_range_that_is_exactly_the_minimum_length() {
   check "does not treat it as too short" not_logged "$box" 'too short'
 }
 
-test_mark_cuts_with_no_files_is_refused() {
-  local code=0
-  zsh "$OPTIMIZER" mark-cuts > /dev/null 2>&1 || code=$?
-  check "stops with a usage error" test "$code" = 2
+# A right-click entry an older setup built still runs mark-cuts until setup runs again. Read as a
+# file name, the word would be skipped and the selected recordings shrunk.
+test_mark_cuts_is_answered_with_what_replaced_it() {
+  local box work fakebin msg code=0
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'notify = true' 'notify_start = false'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+  # Banners go through osascript, which writes them down here instead. open is stubbed too: 3.x's
+  # mark-cuts opened the recording, and a return of that must not open it on this Mac.
+  fakebin="$(scratch)"
+  print -rl -- '#!/bin/zsh' "print -r -- \"\$*\" >> ${(qq)fakebin}/banners" > "$fakebin/osascript"
+  print -rl -- '#!/bin/zsh' 'exit 0' > "$fakebin/open"
+  chmod +x "$fakebin/osascript" "$fakebin/open"
+
+  msg="$(PATH="$fakebin:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" mark-cuts "$work/clip.mov" 2>&1 > /dev/null)" || code=$?
+
+  check "says what replaced it" test "$msg" = \
+    "mark-cuts was replaced by edit in shrinkit 4: shrinkit edit <file>... Run 'shrinkit setup' to update the right-click menu."
+  check "in the log too" logged "$box" 'mark-cuts was replaced by edit in shrinkit 4'
+  check "and in a banner" grep -q 'mark-cuts was replaced by edit in shrinkit 4' "$fakebin/banners"
+  check "exits 2" test "$code" = 2
+  check "and shrinks nothing" test "$(ls "$work")" = clip.mov
 }
