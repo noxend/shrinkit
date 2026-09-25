@@ -535,7 +535,7 @@ edit_run_apart() {
 
 # merge = true: every block encoded to the set's one format as a part, in a folder of its own in
 # the temporary folder, then the parts joined by copying their streams into
-# <first recording>-merged.mp4 beside the first recording. A block that cannot be shrunk would
+# <edit file without .edit.txt>-merged.mp4 beside the edit file. A block that cannot be shrunk would
 # leave a hole in the video, so the run joins nothing then: a block that cannot run at all is found
 # before the first encode, and one whose encode fails stops the run there. The set's format is in
 # PART_FORMAT already when every block can run (run_edit_file).
@@ -575,7 +575,7 @@ edit_run_merged() {
   print
   print -r -- "${PAINT[bold]}[join]${PAINT[reset]} $n parts"
   # Called directly, not in $(...): the traps find the part it writes in CURRENT_PART.
-  merge_files "$(edit_source "${EDIT_NAMES[1]}" "${file:h}")" "${parts[@]}" || {
+  merge_files "${file%.edit.txt}" "${parts[@]}" || {
     log "FAILED join of $n parts (the reason is above)"
     remove_parts
     return 1
