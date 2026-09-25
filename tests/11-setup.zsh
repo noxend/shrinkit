@@ -740,3 +740,93 @@ test_preset_sync_makes_the_menu_match_the_presets_folder() {
   out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset sync 2>&1)"
   check "run again, says there was nothing to do" contains "$out" "the menu already matched presets/"
 }
+
+# The Services folder does not tell Edit from edit, so neither may the preset commands.
+test_preset_commands_leave_shrinkits_own_entries_alone_in_any_case() {
+  local box services name command code before
+  local -a entries=(edit run merge)
+  local -A was
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  for name in "${entries[@]}"; do was[$name]="$(action_command "$services/shrinkit: $name.workflow")"; done
+  print -r -- 'speed = 3' > "$box/work/presets/Run.conf"
+  for command in add edit remove install; do
+    for name in Edit RUN Merge Run; do
+      code=0
+      HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR=false \
+        zsh "$OPTIMIZER" preset $command "$name" > /dev/null 2>&1 || code=$?
+      check "$command $name is refused" test "$code" = 2
+    done
+  done
+  for name in "${entries[@]}"; do
+    check "the $name entry is as it was" test "$(action_command "$services/shrinkit: $name.workflow")" = "${was[$name]}"
+  done
+}
+
+# The 3.x install that stays: it checks a name as add does, and still gives an entry back.
+test_preset_install_checks_the_name_and_gives_an_entry_back() {
+  local box services out code before
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  before="$(action_command "$services/shrinkit: edit.workflow")"
+  print -r -- 'speed = 3' > "$box/work/presets/edit.conf"
+
+  code=0
+  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset install edit > /dev/null 2>&1 || code=$?
+  check "install edit is refused" test "$code" = 2
+  check "and the edit entry is as it was" test "$(action_command "$services/shrinkit: edit.workflow")" = "$before"
+
+  code=0
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset install ../settings 2>&1)" || code=$?
+  check "install ../settings is refused" test "$code" = 2
+  check "claiming no entry" lacks "$out" "right-click a video"
+
+  rm -rf "$services/shrinkit: sharp.workflow"
+  code=0
+  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset install sharp > /dev/null 2>&1 || code=$?
+  check "install sharp exits 0" test "$code" = 0
+  check "and gives its entry back" test "$(action_command "$services/shrinkit: sharp.workflow")" != ""
+}
+
+# With no template in the repository, an entry could be copied from itself after it was removed.
+test_an_entry_is_never_rebuilt_from_itself() {
+  local box services entry code
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  for entry in "$services"/shrinkit:*.workflow; do
+    [[ "$entry" == */"shrinkit: sharp.workflow" ]] || rm -rf "$entry"
+  done
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_REPO="" EDITOR=true \
+    zsh "$OPTIMIZER" preset add sharp > /dev/null 2>&1
+  check "add on the one entry there is keeps it" exists "$services/shrinkit: sharp.workflow/Contents/document.wflow"
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" preset sync > /dev/null 2>&1
+  check "and so does sync" exists "$services/shrinkit: sharp.workflow/Contents/document.wflow"
+}
+
+# An entry named like one of shrinkit's but not built by it: its command does not set SHRINKIT_DIR.
+test_preset_commands_leave_an_entry_that_is_not_shrinkits() {
+  local box services out code
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  mkdir -p "$services/shrinkit: upload.workflow/Contents"
+  print -r -- "someone else's upload" > "$services/shrinkit: upload.workflow/Contents/document.wflow"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset sync 2>&1)"
+  check "sync leaves it" exists "$services/shrinkit: upload.workflow/Contents/document.wflow"
+  check "and does not count it" lacks "$out" upload
+
+  code=0
+  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset remove upload > /dev/null 2>&1 || code=$?
+  check "remove says there is no such preset" test "$code" = 2
+  check "and leaves it too" exists "$services/shrinkit: upload.workflow/Contents/document.wflow"
+}

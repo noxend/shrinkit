@@ -164,10 +164,11 @@ PRESET_DIR="$BASE_DIR/presets"
 # per line. setup and doctor still leave them out; preset add and preset remove take a name off it.
 MENU_OFF="$PRESET_DIR/.not-in-menu"
 
-# The right-click entries shrinkit builds on its own, which no preset can be named after.
+# The right-click entries shrinkit builds on its own, which no preset can be named after, in any
+# case: the Services folder does not tell Edit from edit.
 OWN_ENTRIES=(edit run merge)
 own_entry() {
-  ((${OWN_ENTRIES[(Ie)$1]}))
+  ((${OWN_ENTRIES[(Ie)${(L)1}]}))
 }
 
 # The names a recording can have: what the right-click menu offers and the watcher picks up.
@@ -367,7 +368,11 @@ read_preset() {
     print -u2 -r -- "no preset called '$1' (looked in $PRESET_DIR)"
     return 1
   }
-  read_settings "$file"
+  read_settings "$file" || {
+    log "cannot read the preset '$1' ($file)"
+    print -u2 -r -- "cannot read the preset '$1' ($file)"
+    return 1
+  }
   preset_sets_something "$file" || {
     PRESET_EMPTY=1
     log "the preset '$1' sets nothing: every line of $file is a comment, so settings.conf applies"
@@ -1270,7 +1275,8 @@ PBS="${SHRINKIT_PBS:-/System/Library/CoreServices/pbs}"
 quick_action_template() {
   local candidate
   for candidate in "$REPO_DIR/quick-action/shrinkit.workflow" "$SERVICES_DIR"/shrinkit*.workflow(N); do
-    [[ -d "$candidate" ]] && {
+    # Never the entry about to be replaced: it is removed before the copy is made.
+    [[ -d "$candidate" && "$candidate" != "${1-}" ]] && {
       print -r -- "$candidate"
       return
     }
@@ -1286,15 +1292,18 @@ quick_action_template() {
 # quotes a $ or a backtick in a folder or preset name ran as code on every right-click.
 install_quick_action() {
   local name="$1" command="$2" type="${3:-public.movie}" template action
-  template="$(quick_action_template)" || {
+  action="$SERVICES_DIR/shrinkit: $name.workflow"
+  template="$(quick_action_template "$action")" || {
     print -u2 -r -- "cannot find a Quick Action to copy (looked in ${REPO_DIR:-<unset>}/quick-action)"
     return 1
   }
 
-  action="$SERVICES_DIR/shrinkit: $name.workflow"
   mkdir -p "$SERVICES_DIR"
   rm -rf "$action"
-  cp -R "$template" "$action"
+  cp -R "$template" "$action" || {
+    print -u2 -r -- "could not build $action"
+    return 1
+  }
 
   plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string "$command" \
     "$action/Contents/document.wflow"
@@ -1330,6 +1339,7 @@ no_such_preset() {
 
 install_preset_action() {
   local name="$1"
+  preset_name_ok "$name" || return 1
   [[ -f "$(preset_file "$name")" ]] || {
     no_such_preset "$name"
     return 1
@@ -1344,7 +1354,7 @@ remove_preset_action() {
   local name="$1" file trash n=1
   preset_name_ok "$name" || return 2
   file="$(preset_file "$name")"
-  [[ -d "$SERVICES_DIR/shrinkit: $name.workflow" || -f "$file" ]] || {
+  [[ -f "$file" ]] || our_entry "$SERVICES_DIR/shrinkit: $name.workflow" || {
     no_such_preset "$name"
     return 2
   }
@@ -1356,7 +1366,7 @@ remove_preset_action() {
       return 1
     }
   fi
-  rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
+  our_entry "$SERVICES_DIR/shrinkit: $name.workflow" && rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
   back_in_menu "$name"
   "$PBS" -update 2> /dev/null || true
   print -r -- "removed the preset '$name'${trash:+; its file is in the Trash}"
@@ -1383,6 +1393,12 @@ PRESET_KEYS=(speed fps crf codec remove_audio max_height)
 
 # Whether a name can be a preset: a file in presets/, and not one of the entries shrinkit builds on
 # its own. Says why not.
+# Whether a right-click entry is shrinkit's: one it built sets SHRINKIT_DIR in its command, so an
+# entry of somebody else's with a similar name is never taken for one.
+our_entry() {
+  grep -q "SHRINKIT_DIR=" "$1/Contents/document.wflow" 2> /dev/null
+}
+
 preset_name_ok() {
   if [[ -z "$1" || "$1" == */* || "$1" == .* ]]; then
     print -u2 -r -- "a preset name cannot be empty, hold a /, or start with a dot"
@@ -1429,6 +1445,7 @@ preset_sync() {
   local -a had gone added now
   mkdir -p "$SERVICES_DIR"
   for entry in "$SERVICES_DIR"/shrinkit:*.workflow(N); do
+    our_entry "$entry" || continue
     name="${${entry:t:r}#shrinkit: }"
     own_entry "$name" && continue
     if [[ -f "$(preset_file "$name")" ]]; then
@@ -1445,9 +1462,14 @@ preset_sync() {
       print -u2 -r -- "left out $file: '$name' is shrinkit's own right-click entry; rename the file"
       continue
     }
+    # An entry that is there stays as it is; setup rebuilds them all when the program moves.
+    if ((${had[(Ie)$name]})); then
+      now+=("$name")
+      continue
+    fi
     install_preset_action "$name" > /dev/null || continue
     now+=("$name")
-    ((${had[(Ie)$name]})) || added+=("$name")
+    added+=("$name")
   done
   "$PBS" -update 2> /dev/null || true
   ((${#added})) && print -r -- "added to the menu: ${(j:, :)added}"

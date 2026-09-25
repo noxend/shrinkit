@@ -213,7 +213,7 @@ doctor_check_watcher() {
 our_entries() {
   local action
   for action in "$SERVICES_DIR"/shrinkit:*.workflow(N); do
-    grep -q "SHRINKIT_DIR=" "$action/Contents/document.wflow" 2> /dev/null && print -r -- "$action"
+    our_entry "$action" && print -r -- "$action"
   done
 }
 
