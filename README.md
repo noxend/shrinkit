@@ -44,9 +44,9 @@ in `output/`, and the original is kept in the hidden `.processed/` folder.
 or `shrinkit: tiny`. The result lands beside it as `clip-2x.mp4`, `clip-sharp.mp4` or
 `clip-tiny.mp4`, and the recording stays where it was. Select several to do them together.
 
-**Right-click several recordings** and pick `shrinkit: edit` to give each its own preset and cuts in
-one text file, and join them if you want. Then right-click that file and pick `shrinkit: run`. See
-[Editing several recordings](#editing-several-recordings).
+**Right-click several recordings**, up to 10, and pick `shrinkit: edit` to give each its own preset
+and cuts in one text file, and join them if you want. Then right-click that file and pick
+`shrinkit: run`. See [Editing several recordings](#editing-several-recordings).
 
 **From the terminal**, name the file. Any setting works as a one-off flag:
 
@@ -79,8 +79,8 @@ Flags beat a preset, and a preset beats `settings.conf`.
 
 ## Editing several recordings
 
-Select the recordings in Finder, right-click, and pick `shrinkit: edit`. TextEdit opens one file
-with a block per recording:
+Select up to 10 recordings in Finder, right-click, and pick `shrinkit: edit`. TextEdit opens one
+file with a block per recording:
 
 ```
 merge = false
@@ -102,11 +102,12 @@ recording out. Open a recording in QuickTime to read the times off it.
 
 Save the file, then right-click it in Finder (which may show it as `shrinkit-3f9a2c.edit`) and pick
 `shrinkit: run`. A Terminal window opens and runs the blocks in order, with the log in that window.
-Before it encodes anything, shrinkit names each line it cannot use, and skips it. Each line in the
-window starts with a mark: 🎬 a recording, ⏳ an encode, ✅ a result, 🔗 the join, 🟡 something
-left out or skipped, ❌ a failure. When everything went through, the window closes itself 3 seconds
-later; otherwise it stays open with the log. Pick `shrinkit: run` on several edit files to get a
-window for each.
+Before it encodes anything, shrinkit names each line it cannot use, and skips it. Each step goes
+under a word in colour: `encoding` with a bar that fills as ffmpeg works and the time left, then
+`done`, `joined` or `failed` in its place, and `skipped` for a line, a range or a recording left
+out. With `NO_COLOR` set, the words come without colour or bar. When everything went through, the
+window closes itself 3 seconds later; otherwise it stays open with the log and the command that runs
+the file again. Pick `shrinkit: run` on several edit files to get a window for each.
 
 With `merge = false`, each result lands beside its recording, named after its preset the way a
 right-click names it (`clip-sharp.mp4`), or `clip.mp4` without one. With `merge = true`, the results
@@ -143,14 +144,15 @@ From the terminal: `shrinkit --cut 0:32-0:35 recording.mov`, or `--keep 1:00-2:0
 
 ## Joining recordings
 
-Select several recordings, right-click, pick `shrinkit: merge`. They are joined into
+Select up to 10 recordings, right-click, pick `shrinkit: merge`. They are joined into
 `<first>-merged.mov` beside the first one, in the order they were recorded. To choose the order,
 start the names with a number and a space: `1 intro.mov`, `2 bug.mov`.
 
 Merging does not shrink, so run a preset on the result afterwards. Recordings of the same size and
 format are joined as they are, which is quick; mixed ones are re-encoded to match into an `.mp4`.
-To shrink each one with its own settings and join them in one go, use `shrinkit: edit` with
-`merge = true`.
+That decodes all of them at once, which is why ten is the most at a time: ten 4K recordings fit in
+the memory an 8 GB Mac usually has free, twenty do not. To shrink each one with its own settings and
+join them in one go, use `shrinkit: edit` with `merge = true`.
 
 ## Settings
 
