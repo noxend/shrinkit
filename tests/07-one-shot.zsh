@@ -256,8 +256,9 @@ test_an_interrupted_merge_leaves_nothing_behind() {
 test_a_missing_ffprobe_is_named_by_every_run() {
   local box tools work file out
   box="$(sandbox)"
-  settings "$box" 'speed = 2'
+  settings "$box" 'speed = 2' 'notify = true'
   tools="$(scratch)"
+  stub_tools "$tools"
   ln -s "$FFMPEG" "$tools/ffmpeg"
   work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/a.mov"
@@ -274,6 +275,21 @@ test_a_missing_ffprobe_is_named_by_every_run() {
 
   check "the log names ffprobe for each" test "$(grep -c 'ffprobe is not on PATH' "$box/.logs/optimizer.log")" = 3
   check "and never blames the cuts" not_logged "$box" "nothing was left"
+  check "the one-shot run and merge say it in a banner, all a right-click run shows" \
+    test "$(grep -c '^banner shrinkit | shrinkit: ffprobe is not on PATH' "$tools/osascript.log")" = 2
   check "run says it on the terminal" contains "$out" "ffprobe is not on PATH"
   check "and nothing is made" missing "$work/a.mp4"
+}
+
+# A name may hold a newline, which the videos among the names given are passed on without splitting.
+test_one_shot_takes_a_name_with_a_newline() {
+  local box work
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/take"$'\n'"two.mov"
+
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/take"$'\n'"two.mov" > /dev/null 2>&1
+
+  check "shrinks it under its own name" exists "$work/take"$'\n'"two.mp4"
 }

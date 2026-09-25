@@ -407,6 +407,26 @@ test_run_says_once_that_a_preset_sets_nothing() {
   check "says it once" test "$(grep -c "preset 'empty' sets nothing" <<< "$out")" = 1
 }
 
+# A settings line the log quotes reaches an edit run's screen too, and so would an escape in it.
+test_run_keeps_control_characters_of_a_preset_off_the_screen() {
+  local box tools work file out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  mkdir -p "$box/presets"
+  print -rl -- 'crf = 18' $'no equals \e]0;PWNED\a here' > "$box/presets/sharp.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'add clip.mov "preset = sharp"'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
+
+  out="$(run_file "$box" "$tools" "$file" 2>&1)"
+
+  check "says the line" contains "$out" "no equals ?]0;PWNED? here"
+  check "with no escape" lacks "$out" $'\e'
+}
+
 test_run_keeps_the_presets_value_when_a_line_is_refused() {
   local box tools work file
   box="$(sandbox)"

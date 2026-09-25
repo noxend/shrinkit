@@ -143,7 +143,7 @@ merge_duration_ok() {
 merge_encode() {
   local out="$1" length="$2"
   shift 2
-  local -a clips=("$@") inputs chains audio_args video_args=(-c:v libx264)
+  local -a clips=("$@") inputs chains audio_args codec_args=(-c:v libx264)
   local src dur width height maxw=0 maxh=0 audio=false labels="" i
 
   for src in "${clips[@]}"; do
@@ -178,7 +178,7 @@ merge_encode() {
     labels="${labels}[a$i]"
   done
 
-  [[ "${PART_FORMAT[codec]-}" == hevc ]] && video_args=(-c:v libx265 -tag:v hvc1)
+  [[ "${PART_FORMAT[codec]-}" == hevc ]] && codec_args=(-c:v libx265 -tag:v hvc1)
 
   local graph="${(j:;:)chains};${labels}concat=n=${#clips}:v=1"
   local -a maps
@@ -193,7 +193,7 @@ merge_encode() {
   fi
 
   run_ffmpeg joining "$length" -nostdin -y "${inputs[@]}" -filter_complex "$graph" "${maps[@]}" \
-    "${audio_args[@]}" "${video_args[@]}" -crf 18 -preset veryfast -pix_fmt yuv420p \
+    "${audio_args[@]}" "${codec_args[@]}" -crf 18 -preset veryfast -pix_fmt yuv420p \
     -movflags +faststart "$out" >> "$LOG" 2>&1
 }
 
@@ -278,11 +278,14 @@ merge_command() {
   mkdir -p "$LOG_DIR"
   read_config
   validate_config
-  have_tools || return 1
+  have_tools || {
+    finder_says "shrinkit: $REPLY"
+    return 1
+  }
 
   local -a clips ordered
   local i out
-  clips=(${(f)"$(video_args "is not a file" "$@")"})
+  clips=(${(0)"$(video_args "is not a file" "$@")"})
   # One file selected and merge asked for is a slip, not an instruction to copy that file under a
   # new name. A banner as well as stderr, since nothing a Quick Action prints is ever seen.
   ((${#clips} >= 2)) || {

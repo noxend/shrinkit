@@ -178,7 +178,8 @@ setup_bin() {
   mkdir -p "$BIN_DIR"
 
   if guarded_path "$SELF"; then
-    if [[ -e "$share" ]] && ! our_share "$share"; then
+    # An empty one is what a setup stopped halfway leaves.
+    if [[ -e "$share" ]] && ! our_share "$share" && [[ -n "$share"(#qNF) ]]; then
       print -u2 -r -- "!! $share is not shrinkit's, so setup leaves it alone: move it away and run setup again"
       return 1
     fi

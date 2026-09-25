@@ -247,6 +247,12 @@ test_setup_from_a_guarded_checkout_leaves_a_share_folder_not_ours() {
   check "keeps what is in it" exists "$box/home/.local/share/shrinkit/notes.txt"
   check "says why it stops" contains "$out" "is not shrinkit's, so setup leaves it alone"
   check "and exits non-zero" test "$code" != 0
+
+  # An empty one is what a setup stopped halfway leaves, and it is no reason to stop the next.
+  rm "$box/home/.local/share/shrinkit/notes.txt"
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
+    "$script" setup > /dev/null 2>&1
+  check "an empty one is filled" exists "$box/home/.local/share/shrinkit/lib/setup.zsh"
 }
 
 test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {

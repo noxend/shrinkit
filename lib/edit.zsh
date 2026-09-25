@@ -504,6 +504,7 @@ run_edit_file() {
   EDIT_MADE=() EDIT_FAILED=() SCREEN_LINES=0
   mkdir -p "$LOG_DIR"
   have_tools || {
+    log "$REPLY"
     print -u2 -r -- "$REPLY"
     return 1
   }
@@ -708,7 +709,7 @@ edit_window() {
 edit_videos() {
   local i
   local -a videos
-  videos=(${(f)"$(video_args "is not a file" "$@")"})
+  videos=(${(0)"$(video_args "is not a file" "$@")"})
   videos=("${videos[@]:a}")
   ((${#videos})) || return 0
   for i in ${(f)"$(merge_order "${videos[@]}")"}; do print -r -- "${videos[i]}"; done
@@ -759,7 +760,7 @@ edit_command() {
   # code, subl and open -t return at once unless told to wait, with the file still open and not yet
   # edited; nobody reads and closes a file that fast.
   if ((EPOCHREALTIME - started < 2)) && [[ "$(cksum < "$file")" == "$before" ]]; then
-    print -u2 -r -- "${editor[1]:t} returned at once with the file as it was, so nothing was run. Give it its wait flag in VISUAL or EDITOR (code --wait, subl -w), or run the file once it is saved: shrinkit run ${(qq)file}"
+    print -u2 -r -- "${editor[1]:t} returned at once with the file as it was, so nothing was run. An editor that does not wait needs its wait flag in VISUAL or EDITOR (code --wait, subl -w). To run the file as it is: shrinkit run ${(qq)file}"
     return 1
   fi
   run_edit_file "$file"

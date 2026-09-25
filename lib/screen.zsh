@@ -37,10 +37,12 @@ screen_word() {
   REPLY="      ${PAINT[${WORD_COLOUR[$1]}]}${(r:9:)1}${PAINT[reset]} "
 }
 
-# screen_line <word> <text>: one step on the screen, under its word.
+# screen_line <word> <text>: one step on the screen, under its word. A control character in the
+# text, from a settings or preset line the log quotes, goes as a ?, since an escape would set the
+# terminal's title or colours.
 screen_line() {
   screen_word "$1"
-  local line="$REPLY$2"
+  local line="$REPLY${2//[$'\x01'-$'\x08'$'\x0b'-$'\x1f'$'\x7f']/?}"
   ((++SCREEN_LINES))
   if ((SCREEN_HOLD)); then
     SCREEN_HELD+=("$line")

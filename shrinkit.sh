@@ -176,7 +176,7 @@ VIDEO_NAME='(#i)*.(mov|mp4|m4v)'
 VIDEO_KINDS='.mov, .mp4 or .m4v'
 
 # video_args <end of the not-a-file sentence> <name>...: the videos among the names, in the order
-# given, one per line. Every other name is logged and said on stderr: the right-click menu offers
+# given, each ending in a NUL, which no name holds. Every other name is logged and said on stderr: the right-click menu offers
 # only videos, but a text file beside a recording is easy to select with it, and in a terminal a
 # mistyped command reads as a file name.
 video_args() {
@@ -193,7 +193,7 @@ video_args() {
       print -u2 -r -- "${src:t} is not a video ($VIDEO_KINDS)"
       continue
     }
-    print -r -- "$src"
+    print -rN -- "$src"
   done
 }
 
@@ -215,14 +215,14 @@ find_tool() {
 FFMPEG="$(find_tool ffmpeg)"
 FFPROBE="$(find_tool ffprobe)"
 
-# Whether both were found, logging the one that was not in REPLY: every encode asks ffprobe about
-# the recording first, and without it said only that nothing was left to encode.
+# Whether both were found, the one that was not named in REPLY for the caller to say: every
+# encode asks ffprobe about the recording first, and without it said only that nothing was left
+# to encode.
 have_tools() {
   local name
   for name in ffmpeg ffprobe; do
     [[ -x "${(P)${(U)name}}" ]] && continue
     REPLY="$name is not on PATH or in the Homebrew folders"
-    log "$REPLY"
     return 1
   done
 }
@@ -1080,7 +1080,7 @@ shrink() {
 # One-shot mode (the Finder Quick Action): write the result next to each source, originals alone.
 optimize_files() {
   local src out
-  for src in ${(f)"$(video_args "is not a file or a command (see --help)" "$@")"}; do
+  for src in ${(0)"$(video_args "is not a file or a command (see --help)" "$@")"}; do
     out="${src:h}/$(output_name "$src")"
     out="$(free_name "$out")"
     shrink "$src" "$out" false
@@ -1831,7 +1831,11 @@ main() {
   # nothing. After the flags, so --no-notify holds for it too.
   ((PRESET_EMPTY)) \
     && notify "The preset '$PRESET' sets nothing: every line is a comment. Take the # off a line in presets/$PRESET.conf."
-  have_tools || return 1
+  # A banner too: a right-click run shows nothing else.
+  have_tools || {
+    finder_says "shrinkit: $REPLY"
+    return 1
+  }
 
   # Given files (the Finder Quick Action), just optimize those and stop. No files means the
   # folder-watching mode the launchd agent uses.
