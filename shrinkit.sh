@@ -173,6 +173,29 @@ own_entry() {
 
 # The names a recording can have: what the right-click menu offers and the watcher picks up.
 VIDEO_NAME='(#i)*.(mov|mp4|m4v)'
+VIDEO_KINDS='.mov, .mp4 or .m4v'
+
+# video_args <end of the not-a-file sentence> <name>...: the videos among the names, in the order
+# given, one per line. Every other name is logged and said on stderr: the right-click menu offers
+# only videos, but a text file beside a recording is easy to select with it, and in a terminal a
+# mistyped command reads as a file name.
+video_args() {
+  local not_file="$1" src
+  shift
+  for src in "$@"; do
+    [[ -f "$src" ]] || {
+      log "skip   $src (not a file)"
+      print -u2 -r -- "'$src' $not_file"
+      continue
+    }
+    [[ "$src" == $~VIDEO_NAME ]] || {
+      log "skip   ${src:t} (not a video)"
+      print -u2 -r -- "${src:t} is not a video ($VIDEO_KINDS)"
+      continue
+    }
+    print -r -- "$src"
+  done
+}
 
 OUT_DIR="$BASE_DIR/output"
 
@@ -1057,21 +1080,7 @@ shrink() {
 # One-shot mode (the Finder Quick Action): write the result next to each source, originals alone.
 optimize_files() {
   local src out
-  for src in "$@"; do
-    # Said on the terminal as well as in the log: a mistyped command lands here as a file name.
-    [[ -f "$src" ]] || {
-      log "skip   $src (not a file)"
-      print -u2 -r -- "'$src' is not a file or a command (see --help)"
-      continue
-    }
-    # The right-click menu only offers video files, but a text file beside a recording is easy to
-    # select along with it. Without this, encode() would be handed it and fail with a "could not
-    # shrink" banner naming that file, not the video.
-    [[ "$src" == $~VIDEO_NAME ]] || {
-      log "skip   ${src:t} (not a video)"
-      print -u2 -r -- "${src:t} is not a video (.mov, .mp4 or .m4v)"
-      continue
-    }
+  for src in ${(f)"$(video_args "is not a file or a command (see --help)" "$@")"}; do
     out="${src:h}/$(output_name "$src")"
     out="$(free_name "$out")"
     shrink "$src" "$out" false

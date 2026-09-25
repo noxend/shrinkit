@@ -281,18 +281,8 @@ merge_command() {
   have_tools || return 1
 
   local -a clips ordered
-  local src i out
-  for src in "$@"; do
-    [[ -f "$src" ]] || {
-      log "skip   $src (not a file)"
-      continue
-    }
-    [[ "$src" == $~VIDEO_NAME ]] || {
-      log "skip   ${src:t} (not a video)"
-      continue
-    }
-    clips+=("$src")
-  done
+  local i out
+  clips=(${(f)"$(video_args "is not a file" "$@")"})
   # One file selected and merge asked for is a slip, not an instruction to copy that file under a
   # new name. A banner as well as stderr, since nothing a Quick Action prints is ever seen.
   ((${#clips} >= 2)) || {

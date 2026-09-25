@@ -275,7 +275,7 @@ test_merge_needs_at_least_two_videos() {
 }
 
 test_merge_skips_a_file_that_is_not_a_video() {
-  local box work code
+  local box work code out
   box="$(sandbox)"
   settings "$box"
   work="$(scratch)"
@@ -283,9 +283,10 @@ test_merge_skips_a_file_that_is_not_a_video() {
   print -r -- "one.mov is the good one" > "$work/notes.txt"
 
   code=0
-  run_merge "$box" "$work/one.mov" "$work/notes.txt" > /dev/null 2>&1 || code=$?
+  out="$(run_merge "$box" "$work/one.mov" "$work/notes.txt" 2>&1)" || code=$?
   check "does not count it towards the two" test "$code" = 2
   check "and says which file it skipped" logged "$box" 'skip   notes.txt (not a video)'
+  check "on the terminal too, as a one-shot run does" contains "$out" "notes.txt is not a video (.mov, .mp4 or .m4v)"
 }
 
 test_merge_does_not_overwrite_an_earlier_merge() {

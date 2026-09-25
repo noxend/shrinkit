@@ -291,7 +291,7 @@ edit_block_refused() {
   if [[ ! -e "$src" ]]; then
     [[ "$name" == /* ]] && print -r -- "$name: not found" || print -r -- "$name: not found beside ${file:t}"
   elif [[ ! -f "$src" || "$src" != $~VIDEO_NAME ]]; then
-    print -r -- "$name is not a video (.mov, .mp4 or .m4v)"
+    print -r -- "$name is not a video ($VIDEO_KINDS)"
   elif edit_block_has "$i" cut && edit_block_has "$i" keep; then
     # As main refuses --cut with --keep: letting one win would cut what the other keeps.
     print -r -- "$name: cut and keep are the same edit from opposite sides; this recording is left out"
@@ -706,21 +706,10 @@ edit_window() {
 # The videos among the names given, as absolute paths in merge order, one per line. What is not a
 # video is said on stderr and in the log, the way a one-shot run says it.
 edit_videos() {
-  local src i
+  local i
   local -a videos
-  for src in "$@"; do
-    [[ -f "$src" ]] || {
-      log "skip   $src (not a file)"
-      print -u2 -r -- "'$src' is not a file"
-      continue
-    }
-    [[ "$src" == $~VIDEO_NAME ]] || {
-      log "skip   ${src:t} (not a video)"
-      print -u2 -r -- "${src:t} is not a video (.mov, .mp4 or .m4v)"
-      continue
-    }
-    videos+=("${src:a}")
-  done
+  videos=(${(f)"$(video_args "is not a file" "$@")"})
+  videos=("${videos[@]:a}")
   ((${#videos})) || return 0
   for i in ${(f)"$(merge_order "${videos[@]}")"}; do print -r -- "${videos[i]}"; done
 }
@@ -739,7 +728,7 @@ edit_command() {
   mkdir -p "$LOG_DIR"
   videos=(${(f)"$(edit_videos "$@")"})
   ((${#videos})) || {
-    print -u2 -r -- "edit needs at least one video (.mov, .mp4 or .m4v)"
+    print -u2 -r -- "edit needs at least one video ($VIDEO_KINDS)"
     return 2
   }
   ((${#videos} <= MAX_RECORDINGS)) || {
