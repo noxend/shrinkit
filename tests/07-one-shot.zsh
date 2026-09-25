@@ -16,6 +16,21 @@ test_one_shot_optimizes_a_file_in_place() {
   check "does not use the watch folder" empty_dir "$box/output"
 }
 
+test_a_name_that_is_no_file_is_answered_on_the_terminal() {
+  local box out code=0
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  print -r -- 'not a recording' > "$box/notes.txt"
+
+  # A mistyped command reads as a file name, and only the log used to say what became of it.
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" doctr "$box/notes.txt" 2>&1)" || code=$?
+
+  check "names what is neither a file nor a command" contains "$out" "'doctr' is not a file or a command"
+  check "and the file that is not a video" contains "$out" "notes.txt is not a video"
+  # 0 all the same: a right-click entry that exits non-zero puts up an error in Finder.
+  check "and exits 0" test "$code" = 0
+}
+
 test_one_shot_handles_several_files() {
   local box work
   box="$(sandbox)"

@@ -950,8 +950,10 @@ shrink() {
 optimize_files() {
   local src out
   for src in "$@"; do
+    # Said on the terminal as well as in the log: a mistyped command lands here as a file name.
     [[ -f "$src" ]] || {
       log "skip   $src (not a file)"
+      print -u2 -r -- "'$src' is not a file or a command (see --help)"
       continue
     }
     # The right-click menu only offers video files, but a .cuts sidecar sits right next to its
@@ -959,6 +961,7 @@ optimize_files() {
     # text file and fail with a "could not shrink" notification naming the sidecar, not the video.
     [[ "$src" == (#i)*.(mov|mp4|m4v) ]] || {
       log "skip   ${src:t} (not a video)"
+      print -u2 -r -- "${src:t} is not a video (.mov, .mp4 or .m4v)"
       continue
     }
     out="${src:h}/$(output_name "$src")"
