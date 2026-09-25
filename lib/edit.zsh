@@ -227,6 +227,9 @@ edit_source() {
 
 # --------------------------------------------------------------------- running it
 
+# What a run made, and the blocks it could not shrink, for its summary and its one banner.
+typeset -a EDIT_MADE EDIT_FAILED
+
 # One line on the terminal as it is, and the same words in the log.
 edit_say() {
   local fd="$SCREEN_FD"
@@ -252,12 +255,147 @@ edit_block_refused() {
   fi
 }
 
+# The lines that cannot be used, said before the first encode, then a blank line when anything was
+# said, settings.conf's own lines among them.
+edit_say_problems() {
+  local problem
+  for problem in "${EDIT_PROBLEMS[@]}"; do log "$problem"; done
+  ((${#EDIT_PROBLEMS} + ${#IGNORED})) && print
+  return 0
+}
+
+# The line that heads block i: its name, then its settings as written.
+edit_block_header() {
+  local i="$1" summary
+  summary="$(edit_block_summary $i)"
+  print -r -- "[$i/${#EDIT_NAMES}] ${EDIT_NAMES[i]}${summary:+   $summary}"
+}
+
+# What block i's settings come to, one line per key asked for, with nothing said on the terminal
+# or in the log: each block says its own problems when it runs.
+edit_block_quietly() {
+  local i="$1" key
+  shift
+  (
+    LOG=/dev/null
+    SCREEN_FD=""
+    edit_block_settings "$i" 2> /dev/null
+    for key in "$@"; do print -r -- "${CFG[$key]}"; done
+  )
+}
+
+# A recording's own frame rate as ffprobe states it, 60 or 30000/1001, or nothing.
+frame_rate() {
+  local rate
+  rate="$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=r_frame_rate \
+    -of default=nw=1:nk=1 "$1" 2> /dev/null | head -1)"
+  [[ "$rate" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]] && print -r -- "${rate%/1}"
+}
+
+# The one format every block of a merged run is encoded to, in PART_FORMAT: the first block's
+# codec; the largest width and height among the recordings, fitted to the first block's
+# max_height; the first block's fps, or the first recording's own rate when that is 0; and sound
+# when any block keeps some.
+edit_merge_format() {
+  local file="$1" i src width height maxw=0 maxh=0 sound=false rate
+  local -a first mine
+  for ((i = 1; i <= ${#EDIT_NAMES}; i++)); do
+    src="$(edit_source "${EDIT_NAMES[i]}" "${file:h}")"
+    mine=("${(@f)$(edit_block_quietly $i codec fps max_height remove_audio)}")
+    ((i == 1)) && first=("${mine[@]}")
+    width="$(video_width "$src")"
+    height="$(video_height "$src")"
+    ((width > maxw)) && maxw=$width
+    ((height > maxh)) && maxh=$height
+    [[ "${mine[4]}" == false ]] && has_audio "$src" && sound=true
+  done
+  if ((first[3] > 0 && maxh > first[3])); then
+    maxw=$((maxw * first[3] / maxh))
+    maxh=${first[3]}
+  fi
+  # libx264 refuses an odd frame size in yuv420p.
+  ((maxw % 2)) && maxw=$((maxw + 1))
+  ((maxh % 2)) && maxh=$((maxh + 1))
+  rate="${first[2]}"
+  ((rate > 0)) || rate="$(frame_rate "$(edit_source "${EDIT_NAMES[1]}" "${file:h}")")"
+  PART_FORMAT=(codec "${first[1]}" width "$maxw" height "$maxh" rate "${rate:-${DEFAULTS[fps]}}" sound "$sound")
+}
+
+# merge = false, or a single block: each block shrunk beside its recording, under the name a
+# one-shot run gives it.
+edit_run_apart() {
+  local file="$1" n=${#EDIT_NAMES} i src out refused
+  edit_say_problems
+  for ((i = 1; i <= n; i++)); do
+    refused="$(edit_block_refused $i "$file")" && {
+      edit_say "[$i/$n] $refused"
+      EDIT_FAILED+=("${EDIT_NAMES[i]}")
+      continue
+    }
+    edit_block_header $i
+    src="$(edit_source "${EDIT_NAMES[i]}" "${file:h}")"
+    edit_block_settings $i
+    out="$(free_name "${src:h}/$(output_name "$src")")"
+    if shrink "$src" "$out" false; then
+      EDIT_MADE+=("$out")
+    else
+      EDIT_FAILED+=("${EDIT_NAMES[i]}")
+    fi
+  done
+  ((${#EDIT_FAILED} == 0))
+}
+
+# merge = true: every block encoded to the set's one format as a part, in a folder of its own in
+# the temporary folder, then the parts joined by copying their streams into
+# <first recording>-merged.mp4 beside the first recording. A block that cannot be shrunk would
+# leave a hole in the video, so the run stops there and joins nothing.
+edit_run_merged() {
+  local file="$1" n=${#EDIT_NAMES} i src out refused
+  local -a parts
+  edit_merge_format "$file"
+  edit_say_problems
+  PARTS_DIR="$(mktemp -d "$(temp_folder)/shrinkit.$$.edit.XXXXXX")" || {
+    edit_say "cannot make a folder for the parts in $(temp_folder)"
+    return 1
+  }
+  for ((i = 1; i <= n; i++)); do
+    refused="$(edit_block_refused $i "$file")" && {
+      edit_say "[$i/$n] $refused"
+      EDIT_FAILED+=("${EDIT_NAMES[i]}")
+      remove_parts
+      return 1
+    }
+    edit_block_header $i
+    src="$(edit_source "${EDIT_NAMES[i]}" "${file:h}")"
+    edit_block_settings $i
+    CFG[codec]="${PART_FORMAT[codec]}"
+    out="$PARTS_DIR/$i/$(output_name "$src")"
+    mkdir "${out:h}" && shrink "$src" "$out" false || {
+      EDIT_FAILED+=("${EDIT_NAMES[i]}")
+      remove_parts
+      return 1
+    }
+    parts+=("$out")
+  done
+  print -r -- "[join] $n parts"
+  # Called directly, not in $(...): the traps find the part it writes in CURRENT_PART.
+  merge_files "$(edit_source "${EDIT_NAMES[1]}" "${file:h}")" "${parts[@]}" || {
+    log "FAILED join of $n parts (ffmpeg output is above)"
+    remove_parts
+    return 1
+  }
+  remove_parts
+  [[ "$MERGED_MODE" == re-encoded ]] \
+    && log "joined by re-encoding: the parts did not agree, so it is larger than they are"
+  EDIT_MADE+=("$MERGED_OUT")
+}
+
 # Every block in order, each through the one-shot path with its own settings, the log on the
-# terminal as it goes. Every line that cannot be used is said before the first encode, while there
-# is still time for Ctrl-C. 0 when every recording was shrunk.
+# terminal as it goes; with merge = true and two blocks or more, joined into one video. Every line
+# that cannot be used is said before the first encode, while there is still time for Ctrl-C. 0 when
+# every recording was shrunk, and joined when asked to be.
 run_edit_file() {
-  local file="${1:a}" i n src out summary refused problem
-  local -a made failed
+  local file="${1:a}" n merged=false rc out
   mkdir -p "$LOG_DIR"
   read_config
   [[ -x "$FFMPEG" ]] || {
@@ -275,42 +413,38 @@ run_edit_file() {
     edit_say "No recording in ${file:t}, nothing to run."
     return 1
   }
+  [[ "$EDIT_MERGE" == true ]] && ((n > 1)) && merged=true
   log "run    $file"
   print -r -- "Running ${file:t}: $(recordings $n), merge = $EDIT_MERGE"
   print
 
+  EDIT_MADE=() EDIT_FAILED=()
   exec {SCREEN_FD}>&1
   # Checked once for the whole run: a value in settings.conf that does not fit is said here, once.
   validate_config
   EDIT_BASE=("${(@kv)CFG}")
-  for problem in "${EDIT_PROBLEMS[@]}"; do log "$problem"; done
-  ((${#EDIT_PROBLEMS} + ${#IGNORED})) && print
-  for ((i = 1; i <= n; i++)); do
-    refused="$(edit_block_refused $i "$file")" && {
-      edit_say "[$i/$n] $refused"
-      failed+=("${EDIT_NAMES[i]}")
-      continue
-    }
-    summary="$(edit_block_summary $i)"
-    print -r -- "[$i/$n] ${EDIT_NAMES[i]}${summary:+   $summary}"
-    src="$(edit_source "${EDIT_NAMES[i]}" "${file:h}")"
-    edit_block_settings $i
-    out="$(free_name "${src:h}/$(output_name "$src")")"
-    if shrink "$src" "$out" false; then
-      made+=("$out")
-    else
-      failed+=("${EDIT_NAMES[i]}")
-    fi
-  done
+  if [[ "$merged" == true ]]; then
+    edit_run_merged "$file"
+  else
+    edit_run_apart "$file"
+  fi
+  rc=$?
+  PART_FORMAT=()
   exec {SCREEN_FD}>&-
   SCREEN_FD=""
 
   print
-  ((${#failed})) && print -r -- "Not every recording was shrunk." || print -r -- "Done."
-  for out in "${made[@]}"; do print -r -- "  $out  ($(human_size "$out"))"; done
-  ((${#failed})) && print -r -- "Not shrunk: ${(j:, :)failed}"
-  edit_announce "$n" "${(j:, :)failed}" "${made[@]}"
-  ((${#failed} == 0))
+  if ((rc == 0)); then
+    print -r -- "Done."
+  elif [[ "$merged" == true ]]; then
+    print -r -- "Nothing was joined."
+  else
+    print -r -- "Not every recording was shrunk."
+  fi
+  for out in "${EDIT_MADE[@]}"; do print -r -- "  $out  ($(human_size "$out"))"; done
+  ((${#EDIT_FAILED})) && print -r -- "Not shrunk: ${(j:, :)EDIT_FAILED}"
+  edit_announce "$n" "${(j:, :)EDIT_FAILED}" "${EDIT_MADE[@]}"
+  return $rc
 }
 
 # The one banner and the one copy of a run, both as settings.conf has them: what came out, and
@@ -324,12 +458,17 @@ edit_announce() {
     print -r -- "Copied to the clipboard."
     extra=", copied to clipboard"
   fi
-  if [[ -z "$failed" ]]; then
+  if (($# == 0)); then
+    # Nothing came out while no block failed only when a merged run's join did.
+    if [[ -n "$failed" ]]; then
+      notify "Not shrunk: $failed" "Could not shrink"
+    else
+      notify "$(recordings $n) shrunk, but nothing was joined" "Could not merge"
+    fi
+  elif [[ -z "$failed" ]]; then
     notify "$(recordings $n) shrunk: ${(j:, :)@:t}$extra" "shrinkit edit"
-  elif (($#)); then
-    notify "$# of $n shrunk: ${(j:, :)@:t}$extra. Not shrunk: $failed" "shrinkit edit"
   else
-    notify "Not shrunk: $failed" "Could not shrink"
+    notify "$# of $n shrunk: ${(j:, :)@:t}$extra. Not shrunk: $failed" "shrinkit edit"
   fi
 }
 

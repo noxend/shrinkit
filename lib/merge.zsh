@@ -154,7 +154,7 @@ merge_encode() {
   for ((i = 1; i <= ${#clips}; i++)); do
     src="${clips[i]}"
     inputs+=(-i "$src")
-    chains+=("[$((i - 1)):v]scale=${maxw}:${maxh}:force_original_aspect_ratio=decrease,pad=${maxw}:${maxh}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v$i]")
+    chains+=("[$((i - 1)):v]$(fit_frame $maxw $maxh),format=yuv420p[v$i]")
     # concat reads one segment's streams together, so a segment's labels stay next to each other:
     # [v1][a1][v2][a2], not every video first.
     labels="${labels}[v$i]"
@@ -189,14 +189,18 @@ merge_encode() {
     -movflags +faststart "$out" >> "$LOG" 2>&1
 }
 
-# Joins the clips, in the order given, into one file beside the first of them, and prints the path
-# it wrote. Non-zero means nothing was written and every source is untouched.
+# merge_files <name> <clip>...: joins the clips, in the order given, into <name>-merged beside
+# <name>, with the clips' own extension when their streams are copied. MERGED_OUT is the file it
+# wrote and MERGED_MODE how it joined them. Non-zero means nothing was written and every source is
+# untouched.
 merge_files() {
+  local name="$1"
+  shift
   local -a clips=("$@")
   local first="${clips[1]}" part out total mode=""
 
   total="$(merge_total_duration "${clips[@]}")" || total=""
-  part="$(temp_part "${first:h}" "${first:t:r}-merged" "${first:e}")"
+  part="$(temp_part "${name:h}" "${name:t:r}-merged" "${first:e}")"
   CURRENT_PART="$part"
 
   if ! merge_signatures_match "${clips[@]}"; then
@@ -217,7 +221,7 @@ merge_files() {
   fi
 
   if [[ -z "$mode" ]]; then
-    part="$(temp_part "${first:h}" "${first:t:r}-merged" mp4)"
+    part="$(temp_part "${name:h}" "${name:t:r}-merged" mp4)"
     CURRENT_PART="$part"
     merge_encode "$part" "${clips[@]}" || {
       rm -f "$part"
@@ -226,7 +230,7 @@ merge_files() {
     mode="re-encoded"
   fi
 
-  out="${first:h}/${first:t:r}-merged.${part:e}"
+  out="${name:h}/${name:t:r}-merged.${part:e}"
   [[ -e "$out" ]] && out="${out:r}-$(date +%s).${part:e}"
   # Two merges of the same takes inside one second would otherwise land on that same name, and the
   # mv below overwrites. No other run can hold this pid while this one is still using it.
@@ -239,6 +243,7 @@ merge_files() {
   CURRENT_PART=""
   log "merged ${#clips} clips into ${out:t} ($mode)"
   MERGED_OUT="$out"
+  MERGED_MODE="$mode"
 }
 
 # The size line, clipboard copy and banner for a merge. Kept apart from announce(), which speaks in
@@ -298,7 +303,7 @@ merge_command() {
 
   # Called directly, not in $(...): the part it writes is recorded in CURRENT_PART, and a subshell's
   # copy of that is out of reach of the INT and TERM trap.
-  merge_files "${ordered[@]}" || {
+  merge_files "${ordered[1]}" "${ordered[@]}" || {
     log "FAILED merge of ${#ordered} clips (ffmpeg output is above)"
     notify "${ordered[1]:t}" "Could not merge"
     return 1

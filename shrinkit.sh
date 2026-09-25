@@ -187,6 +187,10 @@ FFPROBE="$(find_tool ffprobe)"
 # any $(...) capture, so a line logged inside one still reaches the screen. Empty outside a run.
 SCREEN_FD=""
 
+# The one format every part of a merged edit run is encoded to, so the parts join by copying their
+# streams: codec, width, height, rate and sound (true or false). Empty outside such a run.
+typeset -A PART_FORMAT
+
 log() {
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
   # The filter graph is for reading a cut back in the log, not for reading along. ffmpeg's own
@@ -199,6 +203,13 @@ log() {
 # The part being written and the ffmpeg writing it, so an interrupted run can stop both.
 CURRENT_PART=""
 CURRENT_CHILD=""
+
+# The folder a merged edit run keeps its parts in until they are joined.
+PARTS_DIR=""
+remove_parts() {
+  [[ -n "$PARTS_DIR" ]] && rm -rf "$PARTS_DIR"
+  PARTS_DIR=""
+}
 
 # zsh runs a trap only once a foreground child exits, and launchd kills the agent five seconds after
 # asking it to stop, so ffmpeg runs in the background and is waited for: the trap then runs at once
@@ -715,7 +726,7 @@ cut_filter_graph() {
   # it in full, pushing the real cut point out by however long that held frame was. Resampling to a
   # steady rate before any trim runs bounds that to a single frame, the same margin read_cuts()
   # already assumes elsewhere.
-  local cutfps=$((CFG[fps] > 0 ? CFG[fps] : 30))
+  local cutfps=${PART_FORMAT[rate]:-$((CFG[fps] > 0 ? CFG[fps] : 30))}
 
   # A plain shared [vnorm] read by more than one filter looked fine but was not: ffmpeg only ever
   # handed the fps-normalized stream to the FIRST filter that read the label, silently handing every
@@ -737,32 +748,50 @@ cut_filter_graph() {
     fi
   done
 
-  local -a vtail
-  ((CFG[max_height] > 0 && height > CFG[max_height])) && vtail+=("scale=-2:${CFG[max_height]}")
-  vtail+=("setpts=PTS/${CFG[speed]}")
-  # Speeding up after the trims changes the real frame density (2x speed roughly doubles it), so the
-  # configured cap has to be re-applied here too, the same as video_filters() already does for a run
-  # with no cuts at all -- otherwise "fps" stops being a cap the moment a cut is involved.
-  ((CFG[fps] > 0)) && vtail+=("fps=${CFG[fps]}")
-
   local vlabels="" alabels=""
   for ((i = 0; i < n; i++)); do
     vlabels="${vlabels}[v$i]"
     alabels="${alabels}[a$i]"
   done
 
-  local graph="${pre}${(j:;:)vchains};${vlabels}concat=n=${n}:v=1:a=0[vcut];[vcut]${(j:,:)vtail}[vout]"
+  # Speeding up after the trims changes the real frame density (2x speed roughly doubles it), so the
+  # joined stretches end in the same filters as a run with no cuts, the fps cap among them. Without
+  # it "fps" would stop being a cap the moment a cut is involved.
+  local graph="${pre}${(j:;:)vchains};${vlabels}concat=n=${n}:v=1:a=0[vcut];[vcut]$(video_filters "$height")[vout]"
   [[ "$keep_audio" == true ]] \
-    && graph="${graph};${(j:;:)achains};${alabels}concat=n=${n}:v=0:a=1[acut];[acut]$(atempo_chain "${CFG[speed]}")[aout]"
+    && graph="${graph};${(j:;:)achains};${alabels}concat=n=${n}:v=0:a=1[acut];[acut]$(audio_filters)[aout]"
   print -r -- "$graph"
 }
 
-# No cuts: the plain per-file filters, unchanged by anything above.
+# Scaled to fit a width x height frame and padded out to it, keeping the picture's shape.
+fit_frame() {
+  print -r -- "scale=$1:$2:force_original_aspect_ratio=decrease,pad=$1:$2:(ow-iw)/2:(oh-ih)/2,setsar=1"
+}
+
+# The size, the speed and the frame rate, with or without cuts before them. In a merged edit run
+# every recording is fitted into the set's frame and brought to its rate.
 video_filters() {
   local height="$1" chain=""
-  ((CFG[max_height] > 0 && height > CFG[max_height])) && chain="scale=-2:${CFG[max_height]},"
+  if ((${#PART_FORMAT})); then
+    chain="$(fit_frame "${PART_FORMAT[width]}" "${PART_FORMAT[height]}"),"
+  elif ((CFG[max_height] > 0 && height > CFG[max_height])); then
+    chain="scale=-2:${CFG[max_height]},"
+  fi
   chain="${chain}setpts=PTS/${CFG[speed]}"
-  ((CFG[fps] > 0)) && chain="$chain,fps=${CFG[fps]}"
+  if ((${#PART_FORMAT})); then
+    chain="$chain,fps=${PART_FORMAT[rate]}"
+  elif ((CFG[fps] > 0)); then
+    chain="$chain,fps=${CFG[fps]}"
+  fi
+  print -r -- "$chain"
+}
+
+# The sound sped up with the picture. In a merged edit run it also takes the set's one layout,
+# 48 kHz stereo, which every part's track has.
+audio_filters() {
+  local chain
+  chain="$(atempo_chain "${CFG[speed]}")"
+  ((${#PART_FORMAT})) && chain="$chain,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo"
   print -r -- "$chain"
 }
 
@@ -781,7 +810,7 @@ encode() {
   local src="$1" out="$2" cuts="$3" height keep_audio=false
   height="$(video_height "$src")"
 
-  local -a audio codec filter_args
+  local -a audio codec filter_args silence
   if [[ "${CFG[remove_audio]}" == true ]] || ! has_audio "$src"; then
     audio=(-an)
   else
@@ -790,12 +819,21 @@ encode() {
 
   if [[ "${CFG[codec]}" == hevc ]]; then
     codec=(-c:v libx265 -tag:v hvc1)
+    # x265 writes its settings, crf among them, into the header of the stream unless info=0.
+    ((${#PART_FORMAT})) && codec+=(-x265-params info=0)
   else
     codec=(-c:v libx264)
+    # x264 fits its picture parameter set to the crf unless the encode is stitchable.
+    ((${#PART_FORMAT})) && codec+=(-x264-params stitchable=1)
   fi
   codec+=(-crf "${CFG[crf]}" -preset veryfast)
 
-  local label="${height}p, ${CFG[speed]}x, ${CFG[fps]}fps, ${CFG[codec]} crf${CFG[crf]}"
+  local frame="${height}p" rate="${CFG[fps]}"
+  if ((${#PART_FORMAT})); then
+    frame="${PART_FORMAT[width]}x${PART_FORMAT[height]}"
+    rate="${PART_FORMAT[rate]}"
+  fi
+  local label="$frame, ${CFG[speed]}x, ${rate}fps, ${CFG[codec]} crf${CFG[crf]}"
   [[ -n "$cuts" ]] && label="$label, cut"
 
   if [[ -n "$cuts" ]]; then
@@ -818,7 +856,15 @@ encode() {
     fi
   else
     filter_args=(-filter:v "$(video_filters "$height")")
-    [[ "$keep_audio" == true ]] && audio=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "${CFG[speed]}")" -shortest)
+    [[ "$keep_audio" == true ]] && audio=(-c:a aac -b:a 128k -filter:a "$(audio_filters)" -shortest)
+  fi
+
+  # A merged set with sound gives every part a track, a silent one where the recording keeps none.
+  if [[ "$keep_audio" == false && "${PART_FORMAT[sound]-}" == true ]]; then
+    silence=(-f lavfi -i anullsrc=r=48000:cl=stereo)
+    # Once one stream is mapped every stream has to be, and the cut graph maps its own video.
+    [[ -n "$cuts" ]] || filter_args+=(-map 0:v:0)
+    audio=(-map 1:a -c:a aac -b:a 128k -shortest)
   fi
 
   # Written to a temp file first, so two runs on one name can never collide mid-write.
@@ -827,7 +873,7 @@ encode() {
   CURRENT_PART="$part"
 
   log "encode ${src:t} ($label)"
-  run_ffmpeg -nostdin -y -i "$src" "${filter_args[@]}" \
+  run_ffmpeg -nostdin -y -i "$src" "${silence[@]}" "${filter_args[@]}" \
     "${audio[@]}" "${codec[@]}" -pix_fmt yuv420p -movflags +faststart \
     "$part" >> "$LOG" 2>&1 || {
     rm -f "$part"
