@@ -539,12 +539,17 @@ EDIT_LAUNCHER="${FOLDER_FILE:h}/shrinkit edit.command"
 EDIT_QUEUE="${FOLDER_FILE:h}/edit-queue"
 
 # The request for file left in the queue, then a Terminal window opened on the launcher to take it.
+# When no window opens the request goes too, or the next click's window, which takes the oldest,
+# would open this file instead of its own.
 start_edit_window() {
-  local file="$1" request
+  local file="$1" request queued
   mkdir -p "$EDIT_QUEUE" && request="$(mktemp "$EDIT_QUEUE/.new.XXXXXX")" || return 1
+  queued="$EDIT_QUEUE/${${request:t}#.new.}"
   # Written under a hidden name and renamed once whole, so no window takes a request half written.
-  print -r -- "$file" > "$request" && mv "$request" "$EDIT_QUEUE/${${request:t}#.new.}" || return 1
-  open -a Terminal "$EDIT_LAUNCHER"
+  print -r -- "$file" > "$request" && mv "$request" "$queued" || return 1
+  open -a Terminal "$EDIT_LAUNCHER" && return 0
+  rm -f "$queued"
+  return 1
 }
 
 # The launcher runs the folder and the program every right-click entry runs.

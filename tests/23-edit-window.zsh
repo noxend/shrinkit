@@ -316,6 +316,33 @@ test_the_edit_entry_says_when_its_terminal_window_does_not_open() {
   check "and exits 1" test "$code" = 1
 }
 
+# Each window takes the oldest request, so one left by a click whose window never opened would be
+# taken by the next click's window instead of that click's own.
+test_a_click_whose_window_does_not_open_leaves_no_request() {
+  local box tools work support
+  box="$(installed_box)"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  print -rl -- '#!/bin/zsh' "print -r -- \"\${(j: | :)@}\" >> ${(qq)tools}/open.log" \
+    '[[ "$1" != -a ]]' > "$tools/open"
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/first.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/second.mov"
+  support="$box/home/Library/Application Support/shrinkit"
+
+  run_entry "$box" "$tools" edit "$work/first.mov" 2> /dev/null
+
+  check "leaves no request in the queue" empty_dir "$support/edit-queue"
+
+  # Terminal opens again for the next click.
+  stub_tools "$tools"
+  run_entry "$box" "$tools" edit "$work/second.mov"
+  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$support/shrinkit edit.command" < /dev/null > /dev/null)
+
+  check "so the next click's window opens that click's own file" \
+    test "$(tail -1 "$tools/open.log")" = "-e | $work/second.edit.txt"
+}
+
 # The folder, the program and the recordings reach the entry's command, the launcher and the window
 # as the words they are, never as code.
 test_the_edit_entry_takes_names_as_written() {
