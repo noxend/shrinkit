@@ -501,9 +501,8 @@ run_edit_file() {
   local file="${1:a}" note="${2-}" n merged=false rc about line
   EDIT_MADE=() EDIT_FAILED=() SCREEN_LINES=0
   mkdir -p "$LOG_DIR"
-  [[ -x "$FFMPEG" ]] || {
-    log "ffmpeg is not on PATH or in the Homebrew folders"
-    print -u2 -r -- "ffmpeg is not on PATH or in the Homebrew folders"
+  have_tools || {
+    print -u2 -r -- "$REPLY"
     return 1
   }
   read_edit_file "$file"

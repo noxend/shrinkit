@@ -192,6 +192,18 @@ find_tool() {
 FFMPEG="$(find_tool ffmpeg)"
 FFPROBE="$(find_tool ffprobe)"
 
+# Whether both were found, logging the one that was not in REPLY: every encode asks ffprobe about
+# the recording first, and without it said only that nothing was left to encode.
+have_tools() {
+  local name
+  for name in ffmpeg ffprobe; do
+    [[ -x "${(P)${(U)name}}" ]] && continue
+    REPLY="$name is not on PATH or in the Homebrew folders"
+    log "$REPLY"
+    return 1
+  done
+}
+
 # At most this many recordings for edit and merge, and blocks in an edit file for run. Measured on
 # 2026-09-25 on 4K recordings (3456x1992, 120 fps): one encode peaks at 1.6 GB of memory, and a
 # re-encoding merge, which decodes every clip at once, at 1.8 GB for 2 clips, 2.5 GB for 10 and
@@ -776,7 +788,7 @@ cut_filter_graph() {
   local -a segments vchains achains
   local start end i n
 
-  segments=("${(@f)$(keep_ranges "$duration" <<< "$cuts")}")
+  segments=(${(f)"$(keep_ranges "$duration" <<< "$cuts")"})
   n="${#segments}"
   ((n > 0)) || return 0
 
@@ -1138,8 +1150,14 @@ lock_owner_alive() {
 }
 
 acquire_lock() {
+  local -a young
   if [[ -d "$LOCK_DIR" ]]; then
     lock_owner_alive && return 1
+    # The folder and its pid are made one after the other, so a lock seconds old with no pid yet is
+    # being taken, not left behind. Two runs taking over the same stale lock at once can still both
+    # hold it; a lock the kernel holds (zsystem flock) would close that too.
+    young=("$LOCK_DIR"(Nms-10))
+    [[ ! -s "$LOCK_PID_FILE" ]] && ((${#young})) && return 1
     rm -f "$LOCK_PID_FILE" 2> /dev/null
     rmdir "$LOCK_DIR" 2> /dev/null
   fi
@@ -1795,10 +1813,7 @@ main() {
     && notify "The preset '$PRESET' sets nothing: every line is a comment. Take the # off a line in presets/$PRESET.conf."
   apply_overrides
   validate_config
-  [[ -x "$FFMPEG" ]] || {
-    log "ffmpeg is not on PATH or in the Homebrew folders"
-    return 1
-  }
+  have_tools || return 1
 
   # Given files (the Finder Quick Action), just optimize those and stop. No files means the
   # folder-watching mode the launchd agent uses.

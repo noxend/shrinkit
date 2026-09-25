@@ -93,16 +93,21 @@ test_cuts_reject_a_range_past_the_real_end() {
 }
 
 test_cuts_that_remove_everything_fail_instead_of_destroying_the_original() {
-  local box work
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  work="$(scratch)"
-  cp "$FIXTURES/colored.mov" "$work/clip.mov"
+  local box work range
+  # 0-end left one empty stretch behind rather than none, and ffmpeg refused the graph built on it
+  # with "Invalid argument" instead of the run saying why.
+  for range in 0-12 0-end; do
+    box="$(sandbox)"
+    settings "$box" 'speed = 1'
+    work="$(scratch)"
+    cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 0-12 "$work/clip.mov"
-  check "does not write a broken output" missing "$work/clip.mp4"
-  check "leaves the original in place" exists "$work/clip.mov"
-  check "logs it as a failure, not a success" logged "$box" "FAILED $work/clip.mov"
+    SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut "$range" "$work/clip.mov"
+    check "$range does not write a broken output" missing "$work/clip.mp4"
+    check "leaves the original in place" exists "$work/clip.mov"
+    check "logs it as a failure, not a success" logged "$box" "FAILED $work/clip.mov"
+    check "saying nothing was left" logged "$box" "nothing was left to encode"
+  done
 }
 
 test_cuts_zero_cuts_from_the_start() {
