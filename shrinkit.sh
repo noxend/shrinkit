@@ -123,7 +123,7 @@ registered_path() {
   print -r -- "$SELF"
 }
 
-# Where the two biggest self-contained features live: beside the script, or under
+# Where the parts sourced below live: beside the script, or under
 # ~/.local/share/shrinkit for the copy of a guarded checkout. Deliberately not data_dir(): SHRINKIT_REPO names where the
 # presets and the menu template are, which the test suite blanks on purpose, and code is not that.
 lib_dir() {
@@ -189,8 +189,10 @@ SCREEN_FD=""
 
 log() {
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
-  # The filter graph is for reading a cut back in the log, not for reading along.
-  [[ -n "$SCREEN_FD" && "$*" != graph\ * ]] && print -r -u "$SCREEN_FD" -- "  $*"
+  # The filter graph is for reading a cut back in the log, not for reading along. ffmpeg's own
+  # output goes to the log alone, so on the terminal it is in the log, not above.
+  [[ -n "$SCREEN_FD" && "$*" != graph\ * ]] \
+    && print -r -u "$SCREEN_FD" -- "  ${*//ffmpeg output is above/ffmpeg output is in $LOG}"
   return 0
 }
 
