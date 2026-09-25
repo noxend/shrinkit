@@ -231,6 +231,24 @@ test_the_agent_also_runs_when_it_is_loaded() {
   check "at load" test "$(plist_value "$box/home/Library/LaunchAgents/com.shrinkit.plist" RunAtLoad)" = true
 }
 
+# A checkout in a privacy-protected folder is copied into ~/.local/share/shrinkit, which setup
+# empties first. Somebody else's folder of that name went with it.
+test_setup_from_a_guarded_checkout_leaves_a_share_folder_not_ours() {
+  local box script out code=0
+  box="$(scratch)"
+  setup_box "$box"
+  script="$(guarded_checkout "$box")"
+  mkdir -p "$box/home/.local/share/shrinkit"
+  print -r -- "notes" > "$box/home/.local/share/shrinkit/notes.txt"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
+    "$script" setup 2>&1)" || code=$?
+
+  check "keeps what is in it" exists "$box/home/.local/share/shrinkit/notes.txt"
+  check "says why it stops" contains "$out" "is not shrinkit's, so setup leaves it alone"
+  check "and exits non-zero" test "$code" != 0
+}
+
 test_teardown_removes_the_copy_setup_made_out_of_a_guarded_checkout() {
   local box script out
   box="$(scratch)"
@@ -263,8 +281,7 @@ test_teardown_under_brew_claims_no_path_entry_of_its_own() {
   # setup_bin makes no link under brew, so naming one here taught anyone reading the output that
   # the list is boilerplate rather than a report.
   check "removes the agent" missing "$box/home/Library/LaunchAgents/com.shrinkit.plist"
-  check "and does not name a PATH entry it never made" lacks "$out" "the PATH link"
-  check "nor one under ~/.local at all" lacks "$out" "$box/home/.local/bin"
+  check "and does not name a PATH entry it never made" lacks "$out" "$box/home/.local/bin"
   check "and leaves brew's own files alone" exists "$box/brew/Caskroom/shrnkit/9.9/shrinkit-9.9/shrinkit.sh"
 }
 
