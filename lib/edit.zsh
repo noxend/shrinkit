@@ -55,19 +55,73 @@ write_edit_file() {
 # --------------------------------------------------------------------- reading it
 
 # What read_edit_file found: merge from above the first block, each block's name as its header
-# gives it, and every setting line of every block, one entry per line across the four arrays.
+# gives it, the setting lines of every block that can be used, one entry per line across three
+# arrays, and a sentence for each line that cannot. EDIT_RTF is 1 for a file saved as rich text.
 EDIT_MERGE=false
-typeset -a EDIT_NAMES EDIT_BLOCK EDIT_LINE EDIT_KEY EDIT_VALUE
+EDIT_RTF=0
+typeset -a EDIT_NAMES EDIT_BLOCK EDIT_KEY EDIT_VALUE EDIT_PROBLEMS
+
+# settings.conf keys that mean nothing for one recording: the first two act only in the watch
+# folder, the rest on the run as a whole.
+EDIT_RUN_KEYS=(keep_original keep_days notify notify_start notify_sound copy_to_clipboard)
+
+# Why a block's line cannot be used, or nothing when it can.
+edit_line_problem() {
+  local key="$1" value="$2" reason
+  case "$key" in
+    merge)
+      print -r -- "merge goes above the first recording"
+      return 1
+      ;;
+    preset | cut | keep) ;;
+    *)
+      [[ -n "${DEFAULTS[$key]+known}" ]] || {
+        print -r -- "'$key' is not a setting"
+        return 1
+      }
+      ((${EDIT_RUN_KEYS[(Ie)$key]})) && {
+        print -r -- "$key applies to the whole run; set it in settings.conf"
+        return 1
+      }
+      ;;
+  esac
+  [[ -n "$value" ]] || {
+    print -r -- "'$key' has no value"
+    return 1
+  }
+  case "$key" in
+    preset)
+      [[ -f "$(preset_file "$value")" ]] || {
+        print -r -- "no preset called '$value' (looked in $PRESET_DIR)"
+        return 1
+      }
+      ;;
+    cut | keep) ;;
+    *)
+      reason="$(check_setting "$key" "$value")" || {
+        print -r -- "$key = $value ($reason)"
+        return 1
+      }
+      ;;
+  esac
+}
 
 # The rules read_settings has for settings.conf, plus the [headers]. A key is read whatever its
 # case and with '-' for '_', since TextEdit capitalises a line and a flag spells it with '-'.
 read_edit_file() {
-  local line key value n=0 block=0
+  local line key value problem n=0 block=0
   EDIT_MERGE=false
-  EDIT_NAMES=() EDIT_BLOCK=() EDIT_LINE=() EDIT_KEY=() EDIT_VALUE=()
+  EDIT_RTF=0
+  EDIT_NAMES=() EDIT_BLOCK=() EDIT_KEY=() EDIT_VALUE=() EDIT_PROBLEMS=()
   while IFS= read -r line || [[ -n "$line" ]]; do
     ((++n))
-    ((n == 1)) && line="${line#$'\xef\xbb\xbf'}"
+    if ((n == 1)); then
+      line="${line#$'\xef\xbb\xbf'}"
+      [[ "$line" == '{\rtf'* ]] && {
+        EDIT_RTF=1
+        return
+      }
+    fi
     line="$(trim "$line")"
     [[ -z "$line" || "$line" == '#'* ]] && continue
     # From the first [ to the last ], so a name that holds brackets reads right.
@@ -76,20 +130,47 @@ read_edit_file() {
       block=${#EDIT_NAMES}
       continue
     fi
-    [[ "$line" == *=* ]] || continue
+    [[ "$line" == *=* ]] || {
+      EDIT_PROBLEMS+=("line $n: '$line' has no '='")
+      continue
+    }
     key="${line%%=*}"
     key="${${(L)key//[[:space:]]/}//-/_}"
     value="$(trim "${line#*=}")"
     value="${value//\"/}"
+    case "$key" in
+      # A range never holds a #, and a note after one was allowed in the sidecar the edit file
+      # replaced.
+      cut | keep) value="$(trim "${value%% \#*}")" ;;
+      codec | remove_audio | merge) value="${(L)value}" ;;
+    esac
     if ((block == 0)); then
-      [[ "$key" == merge ]] && EDIT_MERGE="${(L)value}"
+      if [[ "$key" != merge ]]; then
+        EDIT_PROBLEMS+=("line $n: only merge goes above the first recording")
+      elif [[ "$value" == (true|false) ]]; then
+        EDIT_MERGE="$value"
+      else
+        EDIT_PROBLEMS+=("line $n: merge = $value (want true or false)")
+      fi
       continue
     fi
+    problem="$(edit_line_problem "$key" "$value")" || {
+      EDIT_PROBLEMS+=("line $n: $problem")
+      continue
+    }
     EDIT_BLOCK+=("$block")
-    EDIT_LINE+=("$n")
     EDIT_KEY+=("$key")
     EDIT_VALUE+=("$value")
   done < "$1"
+}
+
+# Whether block i has a line for key.
+edit_block_has() {
+  local i="$1" key="$2" j
+  for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
+    ((EDIT_BLOCK[j] == i)) && [[ "${EDIT_KEY[j]}" == "$key" ]] && return 0
+  done
+  return 1
 }
 
 # A block's settings in the order written, "key value, key value", for the line that heads it.
@@ -119,7 +200,7 @@ edit_block_settings() {
   for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
     ((EDIT_BLOCK[j] == i)) && [[ "${EDIT_KEY[j]}" == preset ]] && PRESET="${EDIT_VALUE[j]}"
   done
-  [[ -n "$PRESET" ]] && { read_preset "$PRESET" || PRESET=""; }
+  [[ -n "$PRESET" ]] && read_preset "$PRESET"
   for ((j = 1; j <= ${#EDIT_BLOCK}; j++)); do
     ((EDIT_BLOCK[j] == i)) || continue
     key="${EDIT_KEY[j]}"
@@ -127,8 +208,8 @@ edit_block_settings() {
     case "$key" in
       cut) CUT_RANGES+=("$value") ;;
       keep) KEEP_RANGES+=("$value") ;;
-      speed | fps | crf | max_height) CFG[$key]="$value" ;;
-      codec | remove_audio) CFG[$key]="${(L)value}" ;;
+      preset) ;;
+      *) CFG[$key]="$value" ;;
     esac
   done
   validate_config
@@ -141,10 +222,36 @@ edit_source() {
 
 # --------------------------------------------------------------------- running it
 
+# One line on the terminal as it is, and the same words in the log.
+edit_say() {
+  local fd="$SCREEN_FD"
+  print -r -- "$1"
+  SCREEN_FD=""
+  log "$1"
+  SCREEN_FD="$fd"
+}
+
+# Why block i of file cannot run at all, the way its line on the terminal says it, or nothing.
+edit_block_refused() {
+  local i="$1" file="$2" name="${EDIT_NAMES[$1]}" src
+  src="$(edit_source "$name" "${file:h}")"
+  if [[ ! -e "$src" ]]; then
+    [[ "$name" == /* ]] && print -r -- "$name: not found" || print -r -- "$name: not found beside ${file:t}"
+  elif [[ ! -f "$src" || "$src" != (#i)*.(mov|mp4|m4v) ]]; then
+    print -r -- "$name is not a video (.mov, .mp4 or .m4v)"
+  elif edit_block_has "$i" cut && edit_block_has "$i" keep; then
+    # As main refuses --cut with --keep: letting one win would cut what the other keeps.
+    print -r -- "$name: cut and keep are the same edit from opposite sides; this recording is left out"
+  else
+    return 1
+  fi
+}
+
 # Every block in order, each through the one-shot path with its own settings, the log on the
-# terminal as it goes. 0 when every recording was shrunk.
+# terminal as it goes. Every line that cannot be used is said before the first encode, while there
+# is still time for Ctrl-C. 0 when every recording was shrunk.
 run_edit_file() {
-  local file="${1:a}" i n src out summary
+  local file="${1:a}" i n src out summary refused problem
   local -a made failed
   mkdir -p "$LOG_DIR"
   read_config
@@ -155,12 +262,28 @@ run_edit_file() {
     return 1
   }
   read_edit_file "$file"
+  ((EDIT_RTF)) && {
+    edit_say "${file:t} was saved as rich text: in TextEdit, Format > Make Plain Text, save, and run it again"
+    return 1
+  }
   n=${#EDIT_NAMES}
+  ((n > 0)) || {
+    edit_say "No recording in ${file:t}, nothing to run."
+    return 1
+  }
+  log "run    $file"
   print -r -- "Running ${file:t}: $(recordings $n), merge = $EDIT_MERGE"
   print
 
   exec {SCREEN_FD}>&1
+  for problem in "${EDIT_PROBLEMS[@]}"; do log "$problem"; done
+  ((${#EDIT_PROBLEMS})) && print
   for ((i = 1; i <= n; i++)); do
+    refused="$(edit_block_refused $i "$file")" && {
+      edit_say "[$i/$n] $refused"
+      failed+=("${EDIT_NAMES[i]}")
+      continue
+    }
     summary="$(edit_block_summary $i)"
     print -r -- "[$i/$n] ${EDIT_NAMES[i]}${summary:+   $summary}"
     src="$(edit_source "${EDIT_NAMES[i]}" "${file:h}")"

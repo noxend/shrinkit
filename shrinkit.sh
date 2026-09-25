@@ -550,6 +550,9 @@ parse_time() {
 parse_range() {
   local line="$1" duration="$2" where="$3" kind="$4" shown start end
   shown="${line:0:80}"
+  # TextEdit's Smart Dashes can turn the '-' typed between two times into an en dash, or into an em
+  # dash. A range holds no other dash, so either one is read as the '-'.
+  line="${${line//$'\xe2\x80\x93'/-}//$'\xe2\x80\x94'/-}"
   start="$(trim "${line%%-*}")"
   end="$(trim "${line#*-}")"
   start="$(parse_time "$start")"
@@ -561,14 +564,7 @@ parse_range() {
   # punctuation trick.
   [[ "${(L)end}" == end ]] && end="$duration" || end="$(parse_time "$end")"
   if [[ -z "$start" || -z "$end" ]] || ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b > a) }'; then
-    # TextEdit's Smart Dashes turns a typed "-" into an en dash the split above never sees, so the
-    # line reads as one blob with no separator at all -- worth naming, since it looks nothing like
-    # a formatting mistake to whoever typed it.
-    if [[ "$line" == *[–—]* && "$line" != *-* ]]; then
-      log "ignoring $kind '$shown' $where (looks like a smart dash -- turn off Smart Dashes in TextEdit's Edit > Substitutions, or retype the -)"
-    else
-      log "ignoring $kind '$shown' $where (want start-end, end after start)"
-    fi
+    log "ignoring $kind '$shown' $where (want start-end, end after start)"
     return 1
   fi
   # Under one frame interval at any fps this tool allows (fps <= 240, 1 frame = ~4ms) can match
