@@ -63,6 +63,13 @@ playable() {
   "$FFPROBE" -v error "$1" > /dev/null 2>&1
 }
 
+# Every pic_init_qp_minus26 the file's video carries, in its header and in its stream, one distinct
+# value per line: the picture parameter sets a copy join has to keep the same.
+pps_values() {
+  "$FFMPEG" -nostdin -i "$1" -map 0:v -c copy -bsf:v trace_headers -f null - 2>&1 \
+    | awk '/pic_init_qp_minus26/ { print $NF }' | sort -u
+}
+
 # color_at <seconds> <file>, a corner untouched by colored.mov's moving overlay
 color_at() {
   "$FFMPEG" -y -ss "$1" -i "$2" -frames:v 1 -vf "crop=4:4:600:330" \

@@ -1,13 +1,6 @@
 # Sourced by tests/run-tests.sh: shrinkit run with merge = true, every block encoded to one format
 # and the parts joined by copying their streams.
 
-# Every pic_init_qp_minus26 the file's video carries, in its header and in its stream, one distinct
-# value per line: the picture parameter sets a copy join has to keep the same.
-pps_values() {
-  "$FFMPEG" -nostdin -i "$1" -map 0:v -c copy -bsf:v trace_headers -f null - 2>&1 \
-    | awk '/pic_init_qp_minus26/ { print $NF }' | sort -u
-}
-
 frame_of() {
   "$FFPROBE" -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$1" 2> /dev/null
 }

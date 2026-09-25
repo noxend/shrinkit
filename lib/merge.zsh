@@ -73,10 +73,14 @@ merge_total_duration() {
 
 # What has to match for clips to be joined without re-encoding: the codecs, the frame size, the
 # pixel format and the audio layout, one line per stream, so a clip with no sound never matches
-# one that has some.
+# one that has some; then the video's parameter sets, as a hash. Clips whose sets differ copy into
+# one track that carries the first clip's sets in its header and the others' in the stream, which
+# an avc1 or hvc1 track does not allow.
 merge_signature() {
   "$FFPROBE" -v error \
     -show_entries stream=codec_name,codec_type,width,height,pix_fmt,sample_rate,channels \
+    -of csv=p=0 "$1" 2> /dev/null
+  "$FFPROBE" -v error -select_streams v -show_data_hash MD5 -show_entries stream=extradata_hash \
     -of csv=p=0 "$1" 2> /dev/null
 }
 
@@ -204,7 +208,7 @@ merge_files() {
   CURRENT_PART="$part"
 
   if ! merge_signatures_match "${clips[@]}"; then
-    log "merge  the clips differ in size, codec or sound, so they are re-encoded to match"
+    log "merge  the clips differ in size, codec, encoder settings or sound, so they are re-encoded to match"
   elif ! merge_copy "$part" "${clips[@]}"; then
     rm -f "$part"
     log "merge  joining the streams as they are failed, re-encoding instead (ffmpeg output is above)"
