@@ -1,73 +1,63 @@
-# Sourced by tests/run-tests.sh: cutting from a .cuts sidecar.
+# Sourced by tests/run-tests.sh: cutting, with --cut and with a .cuts sidecar.
 
 test_cuts_remove_the_marked_ranges() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -rl -- '3-4' '8-9' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 --cut 8-9 "$work/clip.mov"
+  out="$work/clip.mp4"
 
   check "produces the output" exists "$out"
-  check "drops roughly the cut two seconds (12s -> ~10s)" duration_near "$out" 10
+  check "drops both ranges, one per --cut (12s -> ~10s)" duration_near "$out" 10
   check "no red or green frame survives anywhere" no_marker_color_anywhere "$out" 10
   check "encodes it" logged "$box" 'encode clip.mov'
   check "says so in the log" logged "$box" ', cut)'
 }
 
 test_cuts_accept_the_mm_ss_format() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -rl -- '0:03-0:04' '0:08-0:09' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 0:03-0:04 --cut 0:08-0:09 "$work/clip.mov"
+  out="$work/clip.mp4"
   check "cuts the same two seconds either way" duration_near "$out" 10
 }
 
 test_cuts_keep_kept_audio_in_sync() {
-  local box out video_len audio_len
+  local box work out video_len audio_len
   box="$(sandbox)"
   settings "$box" 'speed = 1' 'remove_audio = false'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -rl -- '3-4' '8-9' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 --cut 8-9 "$work/clip.mov"
+  out="$work/clip.mp4"
   video_len="$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=duration -of default=nw=1:nk=1 "$out")"
   audio_len="$("$FFPROBE" -v error -select_streams a:0 -show_entries stream=duration -of default=nw=1:nk=1 "$out")"
   check "keeps the audio" has_audio "$out"
   check "video and audio land within half a second of each other" roughly_equal "$video_len" "$audio_len" 0.5
 }
 
-test_cuts_are_skipped_with_no_sidecar_file() {
-  local box
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-
-  optimize "$box"
-  check "keeps the full length" duration_near "$box/output/clip.mp4" 12
-}
-
 test_cuts_bad_line_spoils_only_itself() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -rl -- 'not-a-range' '3-4' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut not-a-range --cut 3-4 "$work/clip.mov"
+  out="$work/clip.mp4"
   check "still applies the good range" duration_near "$out" 11
-  # Names the sidecar, not just the bad range: the flag path shares this rejection code and passes
-  # its own origin phrase in, so an assertion stopping at the range would pass either way round.
-  check "logs the bad one against the file it came from" \
-    logged "$box" "ignoring cut 'not-a-range' in clip.mov.cuts"
+  # Names the flag, not just the bad range: every origin shares this rejection code and passes its
+  # own phrase in, so an assertion stopping at the range would pass whichever origin it named.
+  check "logs the bad one against the flag it came from" \
+    logged "$box" "ignoring cut 'not-a-range' from --cut"
 }
 
 test_cuts_sidecar_is_archived_with_the_original() {
@@ -113,14 +103,14 @@ test_a_failed_archive_does_not_orphan_the_cuts_sidecar() {
 }
 
 test_cuts_reject_a_range_under_one_frame() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '3.001-3.015' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3.001-3.015 "$work/clip.mov"
+  out="$work/clip.mp4"
   check "cuts nothing, the range is under one frame" duration_near "$out" 12
   check "says why in the log" logged "$box" "too short to reliably cut"
   check "does not claim a cut happened" not_logged "$box" ', cut)'
@@ -130,65 +120,53 @@ test_cuts_reject_a_range_under_one_frame() {
 # to the real end), and must be reported as such rather than as an applied cut -- otherwise a
 # mistyped or misjudged timestamp ships the source untouched while claiming it was redacted.
 test_cuts_reject_a_range_past_the_real_end() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '15-16' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 15-16 "$work/clip.mov"
+  out="$work/clip.mp4"
   check "cuts nothing, the range starts past the clip's end" duration_near "$out" 12
   check "says why in the log" logged "$box" "starts at or after the clip's real length"
   check "does not claim a cut happened" logged "$box" "cut requested but none applied"
 }
 
 test_cuts_that_remove_everything_fail_instead_of_destroying_the_original() {
-  local box
+  local box work
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '0-12' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  check "does not write a broken output" missing "$box/output/clip.mp4"
-  check "leaves the original in place" exists "$box/input/clip.mov"
-  check "logs it as a failure, not a success" logged "$box" 'FAILED clip.mov'
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 0-12 "$work/clip.mov"
+  check "does not write a broken output" missing "$work/clip.mp4"
+  check "leaves the original in place" exists "$work/clip.mov"
+  check "logs it as a failure, not a success" logged "$box" "FAILED $work/clip.mov"
 }
 
 test_cuts_zero_cuts_from_the_start() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '0-3' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 0-3 "$work/clip.mov"
+  out="$work/clip.mp4"
   check "cuts the first 3 seconds" duration_near "$out" 9
 }
 
-test_cuts_end_reaches_the_real_length() {
-  local box out
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '9-end' > "$box/input/clip.mov.cuts"
-
-  optimize "$box"
-  out="$box/output/clip.mp4"
-  check "cuts from 9s to the end" duration_near "$out" 9
-}
-
 test_cuts_end_is_not_case_sensitive() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '9-END' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 9-END "$work/clip.mov"
+  out="$work/clip.mp4"
   check "cuts from 9s to the end" duration_near "$out" 9
 }
 
@@ -196,27 +174,27 @@ test_cuts_end_is_not_case_sensitive() {
 # like a negative number to anyone who has not read this file's own rules. "0-0:20" already does the
 # same job unambiguously, so a bare leading dash is left to fail like any other malformed line.
 test_cuts_leading_dash_is_not_a_shorthand() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '-3' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut -3 "$work/clip.mov"
+  out="$work/clip.mp4"
   check "cuts nothing, not read as -0:03 from the start" duration_near "$out" 12
   check "logs it as malformed" logged "$box" "ignoring cut '-3'"
 }
 
 test_cuts_reject_a_malformed_end_like_a_stray_dash() {
-  local box out
+  local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '3-4-4' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  out="$box/output/clip.mp4"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4-4 "$work/clip.mov"
+  out="$work/clip.mp4"
   check "does not mistake the stray dash for a number" duration_near "$out" 12
   check "logs the whole malformed line" logged "$box" "ignoring cut '3-4-4'"
 }
@@ -248,51 +226,53 @@ test_cuts_without_a_trailing_newline_still_applies() {
 }
 
 test_cuts_long_bad_line_is_truncated_in_the_log() {
-  local box i nums long_line
+  local box work i nums long_line
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
   nums=()
   for i in {0..499}; do nums+=("$i"); done
   long_line="${(j:-:)nums}"
-  print -r -- "$long_line" > "$box/input/clip.mov.cuts"
 
-  optimize "$box"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut "$long_line" "$work/clip.mov"
   check "logs the truncated line" logged "$box" "ignoring cut '${long_line:0:80}'"
   check "not the whole thing" not_logged "$box" "$long_line"
 }
 
 test_cuts_note_says_applied_when_a_cut_took() {
-  local box
+  local box work
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '3-4' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 "$work/clip.mov"
   check "says so on the done line" logged "$box" 'done   clip.mp4.*, cut applied'
 }
 
-test_cuts_note_is_silent_with_no_sidecar() {
-  local box
+test_cuts_note_is_silent_when_no_cut_is_asked() {
+  local box work
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" "$work/clip.mov"
+  check "keeps the full length" duration_near "$work/clip.mp4" 12
   check "no cuts mentioned on a plain shrink" not_logged "$box" 'cut applied'
   check "and no false 'none applied' either" not_logged "$box" 'none applied'
 }
 
 test_cuts_note_warns_when_every_line_was_rejected() {
-  local box
+  local box work
   box="$(sandbox)"
   settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- 'garbage' > "$box/input/clip.mov.cuts"
+  work="$(scratch)"
+  cp "$FIXTURES/colored.mov" "$work/clip.mov"
 
-  optimize "$box"
-  check "says the sidecar was there but nothing came of it" \
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut garbage "$work/clip.mov"
+  check "says a cut was asked for but nothing came of it" \
     logged "$box" 'done   clip.mp4.*, cut requested but none applied'
 }
 
