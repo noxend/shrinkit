@@ -275,6 +275,29 @@ test_edit_stops_when_the_editor_fails() {
   check "and says where it is" contains "$out" "The file stays: $file"
 }
 
+# code, subl and open -t return at once unless told to wait, and the run started on the file as it
+# was written, every recording at settings.conf's values.
+test_edit_runs_nothing_when_the_editor_returns_at_once() {
+  local box tools work file out code=0
+  local -a made
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
+
+  out="$(run_edit "$box" "$tools" "$work/clip.mov" 2>&1)" || code=$?
+  file="$(edited "$tools")"
+
+  check "exits 1" test "$code" = 1
+  made=("$work"/*.mp4(N))
+  check "runs nothing" test "${#made}" = 0
+  check "says why" contains "$out" "editor returned at once with the file as it was"
+  check "and how to run it later" contains "$out" "shrinkit run ${(qq)file}"
+}
+
 test_edit_opens_visual_then_editor_then_vi() {
   local box tools work name
   box="$(sandbox)"

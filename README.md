@@ -124,7 +124,8 @@ paths of the recordings. Pick `shrinkit: edit` on the same recordings again and 
 as you left it; delete the file to start over. To run the same edit again, pick `shrinkit: run` on
 it, or type `shrinkit run shrinkit-3f9a2c.edit.txt` in a terminal. The terminal has
 `shrinkit edit '1 intro.mov' '2 bug.mov'` too: it writes the same file, or opens it when it is
-there, in `$EDITOR`, and runs it when the editor closes. Delete every block to cancel.
+there, in `$VISUAL` or `$EDITOR`, and runs it when the editor closes. Delete every block to cancel.
+An editor that returns at once needs its wait flag there: `code --wait`, `subl -w`.
 
 ## Cutting a stretch out
 

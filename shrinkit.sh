@@ -358,7 +358,9 @@ read_settings() {
   done < "$1"
 }
 
+# From the defaults each time, so a line taken out of the file since the last read is gone here too.
 read_config() {
+  CFG=("${(@kv)DEFAULTS}")
   [[ -f "$CONFIG" ]] && read_settings "$CONFIG"
   return 0
 }
@@ -1514,7 +1516,7 @@ preset_edit() {
 open_in_editor() {
   local -a editor
   # zsh does not split an expansion into words on its own, hence the =
-  editor=(${=EDITOR:-open -t})
+  editor=(${=${VISUAL:-${EDITOR:-open -t}}})
   "${editor[@]}" "$1"
 }
 

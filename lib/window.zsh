@@ -44,19 +44,20 @@ write_edit_launcher() {
 # click, so the window that request was for never came (closed while its shell started, or Terminal
 # quit), and taken now it would run in a window opened for a later click. The hidden ones go at 2
 # minutes too: a request is written or taken under a hidden name for a moment, and one still there
-# was left by a process that ended in between. Prints the paths of the request's edit files that
-# are there, each ending in a NUL, and fails when none is waiting.
+# was left by a process that ended in between. Prints the paths of the request's edit files, each
+# ending in a NUL, with those gone since among them for the window to name, and fails when none is
+# waiting.
 take_edit_request() {
-  local request mine="$EDIT_QUEUE/.taken.$$" file
+  local request mine="$EDIT_QUEUE/.taken.$$" file there
   local -a files
   rm -f "$EDIT_QUEUE"/*(DN.mm+1)
   for request in "$EDIT_QUEUE"/*(N.mm-2Om); do
     mv "$request" "$mine" 2> /dev/null || continue
-    for file in ${(0)"$(< "$mine")"}; do
-      [[ -f "$file" ]] && files+=("$file")
-    done
+    files=(${(0)"$(< "$mine")"})
     rm -f "$mine"
-    ((${#files})) || continue
+    there=0
+    for file in "${files[@]}"; do [[ -f "$file" ]] && ((++there)); done
+    ((there)) || continue
     print -rN -- "${files[@]}"
     return 0
   done
@@ -65,7 +66,9 @@ take_edit_request() {
 
 # The id of the Terminal window whose selected tab is on the terminal tty, asked for as the run
 # starts, while the tab Terminal just opened for it is still the selected one. Nothing when no window
-# says so. A window whose tab cannot answer is passed over rather than ending the search.
+# says so, or when that window holds other tabs too, since close_window_later leaves such a window
+# open and the run says how to run its files again instead. A window whose tab cannot answer is
+# passed over rather than ending the search.
 terminal_window() {
   local id
   id="$(
@@ -74,7 +77,10 @@ on run argv
   tell application "Terminal"
     repeat with w in windows
       try
-        if tty of selected tab of w is (item 1 of argv) then return id of w
+        if tty of selected tab of w is (item 1 of argv) then
+          if (count of tabs of w) is 1 then return id of w
+          return ""
+        end if
       end try
     end repeat
   end tell

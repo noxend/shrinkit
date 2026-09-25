@@ -550,6 +550,29 @@ test_preset_add_makes_the_file_and_its_entry_and_opens_it() {
   check "and says where it is" contains "$out" "created $file"
 }
 
+# edit opens VISUAL before EDITOR, and so do config edit and the preset commands, or one machine
+# gets two editors depending on the command.
+test_preset_and_config_edit_open_visual_before_editor() {
+  local box tools name
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  tools="$(scratch)"
+  for name in visual editor; do
+    print -rl -- '#!/bin/zsh' "print -r -- \"\$@\" >> ${(qq)tools}/$name.log" > "$tools/$name"
+    chmod +x "$tools/$name"
+  done
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" VISUAL="$tools/visual" EDITOR="$tools/editor" \
+    zsh "$OPTIMIZER" config edit > /dev/null 2>&1
+  HOME="$box/home" SHRINKIT_DIR="$box/work" VISUAL="$tools/visual" EDITOR="$tools/editor" \
+    zsh "$OPTIMIZER" preset edit sharp > /dev/null 2>&1
+
+  check "both open in VISUAL" test "$(< "$tools/visual.log")" = \
+    "$box/work/settings.conf"$'\n'"$box/work/presets/sharp.conf"
+  check "and never in EDITOR" missing "$tools/editor.log"
+}
+
 # add on a preset there is: its file as it is, its entry back if it had none, and the file opened.
 test_preset_add_on_a_preset_there_is_opens_it_as_it_is() {
   local box tools before code=0

@@ -675,7 +675,12 @@ edit_window() {
     ((++i > 1)) && print
     note=""
     ((i == $# && rc == 0)) && [[ -n "$window" ]] && note="this window closes in 3 seconds"
-    if [[ -r "$file" ]]; then
+    if [[ ! -e "$file" ]]; then
+      # Nothing to run again: the file was moved or deleted after it was picked.
+      print -r -- "${file:t} is gone from ${file:h}"
+      rc=2
+      continue
+    elif [[ -r "$file" ]]; then
       run_edit_file "$file" "$note"
       one=$?
       made+=("${EDIT_MADE[@]}")
@@ -722,7 +727,7 @@ edit_videos() {
 # it there, opened in the editor the way git opens one, and run once the editor closes without an
 # error. edit --finder is the right-click entry's, not in the usage text.
 edit_command() {
-  local file rc
+  local file rc before started
   local -a videos editor
   [[ "${1-}" == --finder ]] && {
     shift
@@ -751,12 +756,21 @@ edit_command() {
   fi
 
   editor=(${=${VISUAL:-${EDITOR:-vi}}})
+  zmodload zsh/datetime
+  before="$(cksum < "$file")"
+  started=$EPOCHREALTIME
   "${editor[@]}" "$file"
   rc=$?
   ((rc == 0)) || {
     print -u2 -r -- "${editor[1]:t} exited with $rc, so nothing was run. The file stays: $file"
     return 1
   }
+  # code, subl and open -t return at once unless told to wait, with the file still open and not yet
+  # edited; nobody reads and closes a file that fast.
+  if ((EPOCHREALTIME - started < 2)) && [[ "$(cksum < "$file")" == "$before" ]]; then
+    print -u2 -r -- "${editor[1]:t} returned at once with the file as it was, so nothing was run. Give it its wait flag in VISUAL or EDITOR (code --wait, subl -w), or run the file once it is saved: shrinkit run ${(qq)file}"
+    return 1
+  fi
   run_edit_file "$file"
 }
 
