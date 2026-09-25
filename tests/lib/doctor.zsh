@@ -10,9 +10,10 @@ installed_box() {
 }
 
 # A PATH with nothing on it but the system and the folders named, since the machine running the
-# tests may have a shrinkit of its own on its PATH, and doctor reports a second install.
+# tests may have a shrinkit of its own on its PATH, and doctor reports a second install. The
+# runner's refusing open and osascript stay in front of the system's.
 clean_path() {
-  local -a dirs=("$@" /usr/bin /bin /usr/sbin /sbin)
+  local -a dirs=("$@" "$TMPROOT/refuse-bin" /usr/bin /bin /usr/sbin /sbin)
   print -r -- "${(j.:.)dirs}"
 }
 

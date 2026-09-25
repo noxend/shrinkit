@@ -1,5 +1,24 @@
 # Sourced by tests/run-tests.sh: shrinkit run, each block of an edit file with its own settings.
 
+# The runner puts these first on the PATH, as it points launchctl at a refusal: a test that forgot
+# its own stub would otherwise open windows or post banners on the Mac running it.
+test_open_and_osascript_without_a_stub_are_refused() {
+  local out code
+  code=0
+  out="$(open -R /nonexistent/shrinkit-refusal-probe 2>&1)" || code=$?
+  check "open is refused" test "$code" = 99
+  check "and says why" contains "$out" "a test reached open without its stub"
+  code=0
+  out="$(osascript -e 'return 0' 2>&1)" || code=$?
+  check "osascript is refused" test "$code" = 99
+  check "and says why" contains "$out" "a test reached osascript without its stub"
+  # notify throws away all osascript says, so the refusal is written down for the runner to see.
+  osascript -l JavaScript - banner > /dev/null 2>&1 < /dev/null || true
+  check "a call whose output is thrown away is still caught" \
+    grep -q '^osascript -l JavaScript - banner$' "$TMPROOT/refused"
+  : > "$TMPROOT/refused"
+}
+
 test_run_shrinks_each_recording_with_its_own_settings() {
   local box tools work code=0
   local -a files
@@ -414,4 +433,58 @@ test_run_with_no_block_runs_nothing() {
   made=("$work"/*.mp4(N))
   check "runs nothing" test "${#made}" = 0
   check "and exits 1" test "$code" = 1
+}
+
+test_run_posts_one_banner_at_the_end() {
+  local box tools work out
+  local -a banners
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'notify = true' 'notify_start = true' 'notify_sound = Ping'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
+  cp "$FIXTURES/take-green.mov" "$work/3 c.mov"
+  # A sidecar left from 3.x, which a one-shot run names in a banner of its own.
+  print -r -- '0-1' > "$work/2 b.mov.cuts"
+  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov" "$work/3 c.mov"
+  rm "$work/3 c.mov"
+
+  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
+  banners=(${(f)"$(grep '^banner ' "$tools/osascript.log")"})
+
+  check "one banner for the whole run" test "${#banners}" = 1
+  check "saying what came out and what did not" contains "${banners[1]-}" \
+    "2 of 3 shrunk: 1 a.mp4, 2 b.mp4. Not shrunk: 3 c.mov"
+  check "with the sound settings.conf names" test "${${banners[1]-}##* | }" = Ping
+  check "a leftover .cuts is still said on the terminal" contains "$out" "  2 b.mov.cuts is no longer read"
+
+  print -r -- 'notify = false' >> "$box/settings.conf"
+  : > "$tools/osascript.log"
+  run_file "$box" "$tools" "$work/1 a.edit.txt" > /dev/null
+  check "and with notify = false, none" test "$(grep -c '^banner ' "$tools/osascript.log")" = 0
+}
+
+test_run_puts_every_result_on_the_clipboard() {
+  local box tools work out
+  local -a copies
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'copy_to_clipboard = true'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
+  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+
+  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
+  copies=(${(f)"$(grep '^clipboard ' "$tools/osascript.log")"})
+
+  check "one copy for the whole run" test "${#copies}" = 1
+  check "holding every result" test "${copies[1]-}" = "clipboard $work/1 a.mp4 | $work/2 b.mp4"
+  check "no recording claims a copy of its own" not_logged "$box" 'done .*copied to clipboard'
+  check "and the terminal says so" contains "$out" $'\nCopied to the clipboard.'
 }

@@ -213,6 +213,9 @@ edit_block_settings() {
     esac
   done
   validate_config
+  # The run posts one banner and makes one copy at its end, from settings.conf.
+  CFG[notify]=false
+  CFG[copy_to_clipboard]=false
 }
 
 # A header names a recording beside the edit file by its name, any other by its path.
@@ -301,10 +304,30 @@ run_edit_file() {
   print
   ((${#failed})) && print -r -- "Not every recording was shrunk." || print -r -- "Done."
   for out in "${made[@]}"; do print -r -- "  $out  ($(human_size "$out"))"; done
-  ((${#failed} == 0)) || {
-    print -r -- "Not shrunk: ${(j:, :)failed}"
-    return 1
-  }
+  ((${#failed})) && print -r -- "Not shrunk: ${(j:, :)failed}"
+  edit_announce "$n" "${(j:, :)failed}" "${made[@]}"
+  ((${#failed} == 0))
+}
+
+# The one banner and the one copy of a run, both as settings.conf has them: what came out, and
+# what did not.
+edit_announce() {
+  local n="$1" failed="$2" extra=""
+  shift 2
+  CFG=("${(@kv)EDIT_BASE}")
+  validate_config
+  if [[ "${CFG[copy_to_clipboard]}" == true ]] && (($#)); then
+    copy_to_clipboard "$@"
+    print -r -- "Copied to the clipboard."
+    extra=", copied to clipboard"
+  fi
+  if [[ -z "$failed" ]]; then
+    notify "$(recordings $n) shrunk: ${(j:, :)@:t}$extra" "shrinkit edit"
+  elif (($#)); then
+    notify "$# of $n shrunk: ${(j:, :)@:t}$extra. Not shrunk: $failed" "shrinkit edit"
+  else
+    notify "Not shrunk: $failed" "Could not shrink"
+  fi
 }
 
 # shrinkit run <file>: an edit file written before, run again.
