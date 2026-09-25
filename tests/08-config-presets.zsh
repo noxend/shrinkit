@@ -298,3 +298,50 @@ test_a_preset_name_that_leaves_the_presets_folder_is_refused() {
   check "says there is no such preset" contains "$out" "no preset called '../outside'"
   check "and encodes nothing" test -z "$(ls "$work" | grep -v '^clip.mov$')"
 }
+
+# The banner about a preset that sets nothing went out before the flags were applied, so
+# --no-notify did not hold for it.
+test_a_preset_that_sets_nothing_posts_no_banner_under_no_notify() {
+  local box tools
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'notify = true'
+  mkdir -p "$box/presets"
+  print -rl -- '# max_height = 320' > "$box/presets/320p.conf"
+  cp "$FIXTURES/silent.mov" "$box/clip.mov"
+  tools="$(scratch)"
+  stub_tools "$tools"
+
+  PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" --preset 320p --no-notify "$box/clip.mov" > /dev/null 2>&1
+
+  check "still logs it" grep -qF "the preset '320p' sets nothing" "$box/.logs/optimizer.log"
+  check "but posts no banner" missing "$tools/osascript.log"
+}
+
+# A BOM is no text, so a file of a BOM and comments sets nothing all the same.
+test_a_preset_of_a_bom_and_comments_sets_nothing() {
+  local box out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  mkdir -p "$box/presets"
+  print -rn -- $'\xef\xbb\xbf# max_height = 320\n' > "$box/presets/320p.conf"
+  cp "$FIXTURES/silent.mov" "$box/clip.mov"
+
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --preset 320p "$box/clip.mov" 2>&1)"
+
+  check "says it sets nothing" contains "$out" "the preset '320p' sets nothing"
+}
+
+# A folder is no preset, whatever it is called.
+test_a_folder_in_presets_is_no_preset() {
+  local box out
+  box="$(sandbox)"
+  settings "$box"
+  mkdir -p "$box/presets/old.conf"
+  print -r -- 'speed = 3' > "$box/presets/fast.conf"
+
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" preset 2>&1)"
+
+  check "lists the file" contains "$out" "fast"
+  check "and not the folder" lacks "$out" "old"
+}

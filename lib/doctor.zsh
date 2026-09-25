@@ -283,8 +283,8 @@ doctor_check_right_click() {
     if own_entry "$name"; then
       doctor_found warn "no right-click entry for $name" "Build it again with:" "  $DOCTOR_SELF setup"
     else
-      doctor_found warn "no right-click entry for the preset $name" "Add it with:" \
-        "  $DOCTOR_SELF preset add ${(qq)name}"
+      doctor_found warn "no right-click entry for the preset $name" "Make the menu match presets/ with:" \
+        "  $DOCTOR_SELF preset sync"
     fi
   done
   DOCTOR_OK="${#present} entries (whether each is switched on, doctor cannot see)"

@@ -182,6 +182,8 @@ test_edit_names_each_recordings_length_and_the_presets_there_are() {
   print -r -- 'crf = 18' > "$box/presets/sharp.conf"
   print -r -- 'crf = 32' > "$box/presets/tiny.conf"
   print -r -- 'tiny' > "$box/presets/.not-in-menu"
+  # A folder is no preset, whatever it is called.
+  mkdir "$box/presets/old.conf"
   tools="$(scratch)"
   stub_tools "$tools"
   # The editor gives up, so nothing runs: this test is about the file it was handed.

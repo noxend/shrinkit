@@ -401,9 +401,15 @@ read_preset() {
   return 0
 }
 
-# Whether a preset file has a line that is not a comment, which is what makes it change anything.
+# Whether a preset file has a line that is not a comment, which is what makes it change anything,
+# read the way read_settings reads it: a BOM before the first line is no text.
 preset_sets_something() {
-  grep -qv -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$1"
+  local line n=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    ((++n == 1)) && line="${line#$'\xef\xbb\xbf'}"
+    [[ "$line" == [[:space:]]#('#'*|) ]] || return 0
+  done < "$1"
+  return 1
 }
 
 # Written as regexes rather than zsh's <-> globs so shell tooling can still parse this file.
@@ -1351,7 +1357,7 @@ entry_command() {
 # The name of each preset in presets/, one per line.
 preset_names() {
   local file
-  for file in "$PRESET_DIR"/*.conf(N); do print -r -- "${file:t:r}"; done
+  for file in "$PRESET_DIR"/*.conf(N.); do print -r -- "${file:t:r}"; done
 }
 
 # That there is no preset of that name, and which there are.
@@ -1447,6 +1453,7 @@ preset_add() {
     print -r -- "the preset '$name' is there already: $file"
   else
     read_config
+    validate_config
     {
       print -r -- "# shrinkit preset '$name'. Write the settings it changes under this note, one per line,"
       print -r -- "# for example:"
@@ -1523,7 +1530,7 @@ open_in_editor() {
 # shrinkit preset: the presets there are. add, edit and remove take a name, sync takes none; install, from 3.x,
 # gives a preset back its entry and is left out of the usage text.
 preset_command() {
-  mkdir -p "$PRESET_DIR"
+  mkdir -p "$PRESET_DIR" "$LOG_DIR"
   case "${1-}" in
     '')
       local -a names
@@ -1809,12 +1816,12 @@ main() {
   mkdir -p "$IN_DIR" "$OUT_DIR" "$DONE_DIR" "$LOG_DIR" "$PRESET_DIR"
   read_config
   [[ -n "$PRESET" ]] && { read_preset "$PRESET" || return 2; }
-  # A right-click run shows nothing but a banner, and this one would otherwise look like it did
-  # nothing.
-  ((PRESET_EMPTY)) \
-    && notify "The preset '$PRESET' sets nothing: every line is a comment. Take the # off a line in presets/$PRESET.conf."
   apply_overrides
   validate_config
+  # A right-click run shows nothing but a banner, and this one would otherwise look like it did
+  # nothing. After the flags, so --no-notify holds for it too.
+  ((PRESET_EMPTY)) \
+    && notify "The preset '$PRESET' sets nothing: every line is a comment. Take the # off a line in presets/$PRESET.conf."
   have_tools || return 1
 
   # Given files (the Finder Quick Action), just optimize those and stop. No files means the
