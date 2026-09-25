@@ -111,8 +111,9 @@ the file again. Pick `shrinkit: run` on several edit files to get a window for e
 
 With `merge = false`, each result lands beside its recording, named after its preset the way a
 right-click names it (`clip-sharp.mp4`), or `clip.mp4` without one. With `merge = true`, the results
-are joined into `<first>-merged.mp4` beside the first recording, in the order of the blocks, and the
-first block's `codec`, `fps` and `max_height` apply to all of them.
+are joined in the order of the blocks into one file beside the edit file and named after it:
+`shrinkit-3f9a2c-merged.mp4`, or `demo-merged.mp4` for a file you renamed `demo.edit.txt`. The first
+block's `codec`, `fps` and `max_height` apply to all of them.
 
 The file stays beside the first recording as `shrinkit-<code>.edit.txt`, the code made from the
 paths of the recordings. Pick `shrinkit: edit` on the same recordings again and it opens that file

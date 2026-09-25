@@ -198,18 +198,18 @@ merge_encode() {
     -movflags +faststart "$out" >> "$LOG" 2>&1
 }
 
-# merge_files <name> <clip>...: joins the clips, in the order given, into <name>-merged beside
-# <name>, with the clips' own extension when their streams are copied. MERGED_OUT is the file it
-# wrote and MERGED_MODE how it joined them. Non-zero means nothing was written and every source is
-# untouched.
+# merge_files <stem> <clip>...: joins the clips, in the order given, into <stem>-merged, with the
+# clips' own extension when their streams are copied, or under a free name beside it when that is
+# taken. MERGED_OUT is the file it wrote and MERGED_MODE how it joined them. Non-zero means nothing
+# was written and every source is untouched.
 merge_files() {
-  local name="$1"
+  local stem="$1"
   shift
   local -a clips=("$@")
   local first="${clips[1]}" part out total mode=""
 
   total="$(merge_total_duration "${clips[@]}")" || total=""
-  part="$(temp_part "${name:h}" "${name:t:r}-merged" "${first:e}")"
+  part="$(temp_part "${stem:h}" "${stem:t}-merged" "${first:e}")"
   CURRENT_PART="$part"
 
   if ! merge_signatures_match "${clips[@]}"; then
@@ -230,7 +230,7 @@ merge_files() {
   fi
 
   if [[ -z "$mode" ]]; then
-    part="$(temp_part "${name:h}" "${name:t:r}-merged" mp4)"
+    part="$(temp_part "${stem:h}" "${stem:t}-merged" mp4)"
     CURRENT_PART="$part"
     merge_encode "$part" "$total" "${clips[@]}" || {
       rm -f "$part"
@@ -239,7 +239,7 @@ merge_files() {
     mode="re-encoded"
   fi
 
-  out="${name:h}/${name:t:r}-merged.${part:e}"
+  out="${stem:h}/${stem:t}-merged.${part:e}"
   [[ -e "$out" ]] && out="${out:r}-$(date +%s).${part:e}"
   # Two merges of the same takes inside one second would otherwise land on that same name, and the
   # mv below overwrites. No other run can hold this pid while this one is still using it.
@@ -319,7 +319,7 @@ merge_command() {
 
   # Called directly, not in $(...): the part it writes is recorded in CURRENT_PART, and a subshell's
   # copy of that is out of reach of the INT and TERM trap.
-  merge_files "${ordered[1]}" "${ordered[@]}" || {
+  merge_files "${ordered[1]:r}" "${ordered[@]}" || {
     log "FAILED merge of ${#ordered} clips (the reason is above)"
     notify "${ordered[1]:t}" "Could not merge"
     return 1

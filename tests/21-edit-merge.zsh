@@ -34,11 +34,11 @@ test_run_merge_joins_the_recordings_in_the_order_of_the_blocks() {
   recorded_copy "$FIXTURES/take-blue.mov" "$work/blue.mov" 2026-01-01T10:05:00
   recorded_copy "$FIXTURES/take-green.mov" "$work/green.mov" 2026-01-01T10:10:00
   file="$(make_edit "$box" "$tools" "$work/red.mov" "$work/blue.mov" "$work/green.mov")"
-  out="$work/green-merged.mp4"
+  out="${file%.edit.txt}-merged.mp4"
 
   TMPDIR="$tmp" run_file "$box" "$tools" "$file" > /dev/null || code=$?
 
-  check "writes one file beside the first block's recording" exists "$out"
+  check "writes one file, named after the edit file" exists "$out"
   check "in the order of the blocks" takes_are "$out" green red blue
   check "as long as the three together" duration_near "$out" 6
   check "by copying the parts" logged "$box" 'streams copied'
@@ -46,6 +46,66 @@ test_run_merge_joins_the_recordings_in_the_order_of_the_blocks() {
   left=("$work"/*(N))
   check "and nothing beside the recordings but the edit file and the result" test "${#left}" = 5
   check "exits 0" test "$code" = 0
+}
+
+# The first block is a recording in another folder than the edit file, which sits beside the
+# first recording in merge order: the join goes beside the edit file, under its name.
+test_run_merge_names_the_result_after_its_edit_file_in_its_folder() {
+  local box tools one two file name out first code=0 again=0
+  local -a later
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  one="$(scratch)"
+  two="$(scratch)"
+  stub_editor "$tools" editor 'set_merge true' 'drop_blocks' \
+    "print -rl -- '' '[$two/2 b.mov]' '' '[1 a.mov]' >> \"\$file\""
+  cp "$FIXTURES/take-red.mov" "$one/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$two/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$one/1 a.mov" "$two/2 b.mov")"
+  name="$(name_for "$one/1 a.mov" "$two/2 b.mov")"
+  out="$one/${name%.edit.txt}-merged.mp4"
+
+  run_file "$box" "$tools" "$file" > /dev/null || code=$?
+  first="$(stat -f %i "$out" 2> /dev/null)"
+  run_file "$box" "$tools" "$file" > /dev/null || again=$?
+  later=("$one/${name%.edit.txt}-merged-"[0-9]##.mp4(N))
+
+  check "the edit file is the set's, beside the first recording" test "$file" = "$one/$name"
+  check "names the join after the edit file, beside it" exists "$out"
+  check "in the order of the blocks" takes_are "$out" blue red
+  check "puts nothing beside the first block's recording" test "$(ls "$two")" = "2 b.mov"
+  check "gives a second run's join the next free name" test "${#later}" = 1
+  check "and leaves the first one as it was" test -n "$first" -a "$(stat -f %i "$out" 2> /dev/null)" = "$first"
+  check "with nothing else beside the edit file" test "$(ls "$one" | wc -l | tr -d ' ')" = 4
+  check "exits 0 both times" test "$code$again" = 00
+}
+
+# The second name keeps a dot of its own: only .edit.txt goes.
+test_run_merge_names_the_result_after_an_edit_file_named_by_hand() {
+  local box tools work file code=0 again=0
+  local -a merged
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'set_merge true'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
+  mv "$file" "$work/demo.edit.txt"
+
+  run_file "$box" "$tools" "$work/demo.edit.txt" > /dev/null || code=$?
+  merged=("$work"/*merged*(N))
+  mv "$work/demo.edit.txt" "$work/take 1.5.edit.txt"
+  run_file "$box" "$tools" "$work/take 1.5.edit.txt" > /dev/null || again=$?
+
+  check "names the join demo-merged.mp4" exists "$work/demo-merged.mp4"
+  check "and nothing else" test "${merged[*]}" = "$work/demo-merged.mp4"
+  check "names the next one take 1.5-merged.mp4" exists "$work/take 1.5-merged.mp4"
+  check "exits 0 both times" test "$code$again" = 00
 }
 
 # Two sizes of frame, sound taken out of one, missing from another and kept in the third, three crf
@@ -67,12 +127,12 @@ test_run_merge_encodes_each_recording_once_and_copies_the_join() {
   cp "$FIXTURES/silent.mov" "$work/2 silent.mov"
   cp "$FIXTURES/colored.mov" "$work/3 colored.mov"
   file="$(make_edit "$box" "$tools" "$work/1 loud.mov" "$work/2 silent.mov" "$work/3 colored.mov")"
-  out="$work/1 loud-merged.mp4"
+  out="${file%.edit.txt}-merged.mp4"
 
   run_file "$box" "$tools" "$file" > /dev/null
 
   check "encodes each recording once" test "$(log_count "$box" ' encode ')" = 3
-  check "and joins the parts by copying them" logged "$box" 'merged 3 clips into 1 loud-merged.mp4 (streams copied)'
+  check "and joins the parts by copying them" logged "$box" "merged 3 clips into ${out:t} (streams copied)"
   check "at the largest frame in the set" test "$(frame_of "$out")" = 1920x1080
   check "with one sound track" test "$(audio_tracks "$out")" = 1
   check "as long as the three parts together" roughly_equal "$(duration "$out")" 11.5 0.5
@@ -89,7 +149,7 @@ test_run_merge_gives_every_part_the_same_parameter_sets() {
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
   file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
-  out="$work/1 a-merged.mp4"
+  out="${file%.edit.txt}-merged.mp4"
 
   run_file "$box" "$tools" "$file" > /dev/null
 
@@ -109,7 +169,7 @@ test_run_merge_copies_a_join_of_hevc_parts() {
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
   file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
-  out="$work/1 a-merged.mp4"
+  out="${file%.edit.txt}-merged.mp4"
 
   run_file "$box" "$tools" "$file" > /dev/null
 
@@ -134,11 +194,11 @@ test_run_merge_that_has_to_re_encode_the_join_keeps_the_sets_codec() {
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
   file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
-  out="$work/1 a-merged.mp4"
+  out="${file%.edit.txt}-merged.mp4"
 
   run_file "$box" "$tools" "$file" > /dev/null
 
-  check "re-encodes the join" logged "$box" 'merged 2 clips into 1 a-merged.mp4 (re-encoded)'
+  check "re-encodes the join" logged "$box" "merged 2 clips into ${out:t} (re-encoded)"
   check "in the set's hevc" test "$(video_codec "$out")" = hevc
   check "tagged hvc1, as the parts are, so QuickTime plays it" test "$(codec_tag_of "$out")" = hvc1
   check "as long as the two together" duration_near "$out" 4
@@ -155,7 +215,7 @@ test_run_merge_fps_zero_keeps_the_first_recordings_rate() {
   cp "$FIXTURES/silent.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-red.mov" "$work/2 b.mov"
   file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
-  out="$work/1 a-merged.mp4"
+  out="${file%.edit.txt}-merged.mp4"
 
   run_file "$box" "$tools" "$file" > /dev/null
 
@@ -181,7 +241,7 @@ test_run_merge_uses_the_first_blocks_codec_fps_and_height() {
   cp "$FIXTURES/take-red.mov" "$work/1 small.mov"
   cp "$FIXTURES/take-loud.mov" "$work/2 large.mov"
   file="$(make_edit "$box" "$tools" "$work/1 small.mov" "$work/2 large.mov")"
-  out="$work/1 small-merged.mp4"
+  out="${file%.edit.txt}-merged.mp4"
 
   text="$(run_file "$box" "$tools" "$file")"
 
@@ -333,8 +393,8 @@ test_run_merge_says_each_part_and_heads_the_join_on_the_terminal() {
   check "not by its name in the temporary folder" lacks "${(F)done_lines}" ".mp4"
   check "heads the join" contains "$out" $'\n\n[join] 2 parts\n'
   check "and says it under joined" \
-    contains "$out" $'\n      joined    2 clips into 1 a-merged.mp4 (streams copied)\n'
-  check "while the log keeps the words alone" logged "$box" '  merged 2 clips into 1 a-merged.mp4'
+    contains "$out" $'\n      joined    2 clips into '"${${file:t}%.edit.txt}-merged.mp4"$' (streams copied)\n'
+  check "while the log keeps the words alone" logged "$box" "  merged 2 clips into ${${file:t}%.edit.txt}-merged.mp4"
 }
 
 test_run_merge_puts_the_merged_file_on_the_clipboard_and_in_the_banner() {
@@ -355,10 +415,12 @@ test_run_merge_puts_the_merged_file_on_the_clipboard_and_in_the_banner() {
   banners=(${(f)"$(grep '^banner ' "$tools/osascript.log")"})
 
   check "one copy" test "${#copies}" = 1
-  check "holding the merged file alone" test "${copies[1]-}" = "clipboard $work/1 a-merged.mp4"
+  check "holding the merged file alone" test "${copies[1]-}" = "clipboard ${file%.edit.txt}-merged.mp4"
   check "one banner" test "${#banners}" = 1
-  check "naming the merged file" contains "${banners[1]-}" "2 recordings shrunk: 1 a-merged.mp4, copied to clipboard"
-  check "and the terminal names it" contains "$out" $'\n      '"$work/1 a-merged.mp4"$'\n      copied to the clipboard'
+  check "naming the merged file" contains "${banners[1]-}" \
+    "2 recordings shrunk: ${${file:t}%.edit.txt}-merged.mp4, copied to clipboard"
+  check "and the terminal names it" contains "$out" \
+    $'\n      '"${file%.edit.txt}-merged.mp4"$'\n      copied to the clipboard'
   check "alone" test "$(grep -c "^      $work/" <<< "$out")" = 1
 }
 
@@ -385,9 +447,9 @@ test_run_merge_says_when_the_join_fails() {
   check "says the join failed" contains "$out" \
     $'\n'"      failed    join of 2 parts (the reason is in $box/.logs/optimizer.log)"$'\n'
   check "sends the terminal to the log for why" contains "$out" \
-    "      failed    merge: could not move 1 a-merged.mp4 into $work (the reason is in $box/.logs/optimizer.log)"
+    "      failed    merge: could not move ${${file:t}%.edit.txt}-merged.mp4 into $work (the reason is in $box/.logs/optimizer.log)"
   check "while the log keeps its own words" logged "$box" \
-    "could not move 1 a-merged.mp4 into .* (the reason is on the line above)"
+    "could not move ${${file:t}%.edit.txt}-merged.mp4 into .* (the reason is on the line above)"
   check "and does not blame ffmpeg for a move" logged "$box" "FAILED join of 2 parts (the reason is above)$"
   check "sums it up" contains "$out" $'\n\nNothing was joined.'
   merged=("$work"/*merged*(N))

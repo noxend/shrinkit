@@ -45,7 +45,7 @@ test_run_merge_on_a_terminal_says_the_join_and_the_result_in_colour() {
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
   file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
-  out="$work/1 a-merged.mp4"
+  out="${file%.edit.txt}-merged.mp4"
 
   in_terminal "$tools" env -u NO_COLOR PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO= \
     zsh "$OPTIMIZER" run "$file"
@@ -53,10 +53,10 @@ test_run_merge_on_a_terminal_says_the_join_and_the_result_in_colour() {
 
   check "the join headed in bold" contains "$screen" $'\n'"${ESC}[1m[join]${ESC}[0m 2 parts"$'\n'
   check "and joined in magenta" contains "$screen" \
-    "      ${ESC}[35mjoined   ${ESC}[0m 2 clips into 1 a-merged.mp4 (streams copied)"
+    "      ${ESC}[35mjoined   ${ESC}[0m 2 clips into ${out:t} (streams copied)"
   check "Done in bold green, the size in bold, how long it plays dim" contains "$screen" \
     $'\n'"${ESC}[32m${ESC}[1mDone${ESC}[0m  ${ESC}[1m$(du -h "$out" | cut -f1 | tr -d ' ')${ESC}[0m  ${ESC}[2m$(printf '%.1fs' "$(duration "$out")")${ESC}[0m"$'\n'
-  check "then the file, its folder dim" contains "$screen" $'\n'"      ${ESC}[2m$work/${ESC}[0m1 a-merged.mp4"$'\n'
+  check "then the file, its folder dim" contains "$screen" $'\n'"      ${ESC}[2m$work/${ESC}[0m${out:t}"$'\n'
   check "and what else happened dim" contains "$screen" $'\n'"      ${ESC}[2mcopied to the clipboard${ESC}[0m"
 }
 
@@ -173,12 +173,12 @@ test_run_merge_on_a_terminal_draws_the_join_as_a_bar() {
     percents+=("${${rest##[[:space:]]#}%%\%*}")
   done
 
-  check "joins by re-encoding" logged "$box" 'merged 2 clips into 1 a-merged.mp4 (re-encoded)'
+  check "joins by re-encoding" logged "$box" "merged 2 clips into ${${file:t}%.edit.txt}-merged.mp4 (re-encoded)"
   check "drawn as a bar under joining, in magenta" contains "${(F)frames}" "      ${ESC}[35mjoining  ${ESC}[0m ${ESC}[35m"
   check "of 30 cells and the percent" test "${#percents}" -ge 1 -a "${#percents}" = "${#frames}"
   check "against how long the parts last together" test "${#${(@M)percents:#([1-9]|[1-9][0-9]|100)}}" -ge 1
   check "then the join in its place" contains "$screen" \
-    $'\r'"${ESC}[K${ESC}[?25h      ${ESC}[35mjoined   ${ESC}[0m 2 clips into 1 a-merged.mp4 (re-encoded)"
+    $'\r'"${ESC}[K${ESC}[?25h      ${ESC}[35mjoined   ${ESC}[0m 2 clips into ${${file:t}%.edit.txt}-merged.mp4 (re-encoded)"
 }
 
 # A stream with no container around it states no length, so there is nothing to measure a bar
