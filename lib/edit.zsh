@@ -341,7 +341,7 @@ edit_run_apart() {
   edit_say_problems
   for ((i = 1; i <= n; i++)); do
     refused="$(edit_block_refused $i "$file")" && {
-      edit_say ⚠️ "[$i/$n] $refused"
+      edit_say 🟡 "[$i/$n] $refused"
       EDIT_FAILED+=("${EDIT_NAMES[i]}")
       continue
     }
@@ -357,7 +357,7 @@ edit_run_apart() {
   done
   # One block has nothing to be joined to, so it is shrunk the way merge = false would.
   [[ "$EDIT_MERGE" == true ]] && ((${#EDIT_MADE})) \
-    && edit_say ⚠️ "merge = true needs two recordings; ${EDIT_NAMES[1]} was shrunk on its own"
+    && edit_say 🟡 "merge = true needs two recordings; ${EDIT_NAMES[1]} was shrunk on its own"
   ((${#EDIT_FAILED} == 0))
 }
 
@@ -378,7 +378,7 @@ edit_run_merged() {
   ((${#refusals})) || edit_merge_format "$file"
   edit_say_problems
   if ((${#refusals})); then
-    for refused in "${refusals[@]}"; do edit_say ⚠️ "$refused"; done
+    for refused in "${refusals[@]}"; do edit_say 🟡 "$refused"; done
     edit_say ❌ "$nothing"
     return 1
   fi

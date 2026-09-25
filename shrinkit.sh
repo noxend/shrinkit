@@ -207,7 +207,7 @@ log() {
     encode\ *) mark="⏳" ;;
     done\ * | merged\ *) mark="✅" ;;
     FAILED\ *) mark="❌" ;;
-    *) mark="⚠️" ;;
+    *) mark="🟡" ;;
   esac
   line="${*//ffmpeg output is above/ffmpeg output is in $LOG}"
   print -r -u "$SCREEN_FD" -- "  $mark ${line//the reason is (on the line |)above/the reason is in $LOG}"

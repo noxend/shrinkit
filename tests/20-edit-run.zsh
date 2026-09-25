@@ -154,7 +154,7 @@ test_run_names_the_block_a_bad_range_came_from() {
   out="$(run_file "$box" "$tools" "$work/clip.edit.txt")"
 
   check "in the log" logged "$box" "ignoring cut '3x-4' in the block for clip.mov (want start-end, end after start)"
-  check "and on the terminal" contains "$out" "  ⚠️ ignoring cut '3x-4' in the block for clip.mov"
+  check "and on the terminal" contains "$out" "  🟡 ignoring cut '3x-4' in the block for clip.mov"
 }
 
 # On the terminal a line starts with a mark for what it says; the log keeps the words alone, for
@@ -175,15 +175,15 @@ test_run_marks_the_terminal_and_keeps_the_log_plain() {
 
   out="$(run_file "$box" "$tools" "$work/1 a.edit.txt" 2> /dev/null)"
 
-  check "a line that cannot be used" contains "$out" $'\n  ⚠️ line '
-  check "a block that cannot" contains "$out" $'\n⚠️ [3/3] 3 gone.mov: not found beside'
-  check "a range that is skipped" contains "$out" $'\n  ⚠️ ignoring cut \'3x-4\''
+  check "a line that cannot be used" contains "$out" $'\n  🟡 line '
+  check "a block that cannot" contains "$out" $'\n🟡 [3/3] 3 gone.mov: not found beside'
+  check "a range that is skipped" contains "$out" $'\n  🟡 ignoring cut \'3x-4\''
   check "a block's header" contains "$out" $'\n🎬 [1/3] 1 a.mov'
   check "an encode starting" contains "$out" $'\n  ⏳ encode 1 a.mov'
   check "a result made" contains "$out" $'\n  ✅ done   1 a.mp4'
   check "a failure" contains "$out" $'\n  ❌ FAILED '
   check "and the run's" contains "$out" $'\n❌ Not every recording was shrunk.\n'
-  for mark in 🎬 ⚠ ⏳ ✅ 🔗 ❌; do
+  for mark in 🎬 🟡 ⏳ ✅ 🔗 ❌; do
     check "the log has no $mark" not_logged "$box" "$mark"
   done
   check "and has the words" logged "$box" '  line [0-9]*: .sped. is not a setting$'
@@ -229,7 +229,7 @@ test_run_says_a_bad_value_in_settings_conf_once() {
   out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
 
   check "says it before the first recording" contains "${out%%\[1/2\]*}" \
-    "  ⚠️ ignoring crf='90' (want 0-51), using '28'"$'\n'
+    "  🟡 ignoring crf='90' (want 0-51), using '28'"$'\n'
   check "once on the terminal" test "$(grep -c "ignoring crf=" <<< "$out")" = 1
   check "and once in the log" test "$(log_count "$box" "ignoring crf=")" = 1
   check "and encodes both at the default" test "$(log_count "$box" 'encode .* crf28)')" = 2
@@ -252,9 +252,9 @@ test_run_says_a_line_of_settings_conf_it_cannot_read() {
   before="${out%%\[1/1\]*}"
 
   check "says a line with no '=' before the first recording" contains "$before" \
-    "  ⚠️ ignoring settings.conf line 3: 'crf 30' has no '='"$'\n'
+    "  🟡 ignoring settings.conf line 3: 'crf 30' has no '='"$'\n'
   check "and a key that is not a setting" contains "$before" \
-    "  ⚠️ ignoring 'sped' in settings.conf line 4: not a setting"$'\n'
+    "  🟡 ignoring 'sped' in settings.conf line 4: not a setting"$'\n'
   check "once each on the terminal" test "$(grep -c 'settings.conf line' <<< "$out")" = 2
   check "and once each in the log" test "$(log_count "$box" 'settings.conf line')" = 2
   check "with a blank line before the first recording" contains "$out" $'not a setting\n\n🎬 [1/1] clip.mov'
@@ -327,7 +327,7 @@ test_run_skips_a_bad_line_and_says_which() {
     "line $(line_of "$file" 'notify = true'): notify applies to the whole run; set it in settings.conf" \
     "line $(line_of "$file" 'preset = shrp'): no preset called 'shrp' (looked in $box/presets)" \
     "line $(line_of "$file" 'merge = true'): merge goes above the first recording"; do
-    check "says $want" contains "$before" "  ⚠️ $want"$'\n'
+    check "says $want" contains "$before" "  🟡 $want"$'\n'
     check "and logs it" logged "$box" "$want"
   done
   n="$(line_of "$file" 'speed = 4')"
@@ -370,7 +370,7 @@ test_run_leaves_out_a_recording_with_both_cut_and_keep() {
   out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")" || code=$?
 
   check "says why" contains "$out" \
-    $'\n'"⚠️ [1/2] 1 a.mov: cut and keep are the same edit from opposite sides; this recording is left out"
+    $'\n'"🟡 [1/2] 1 a.mov: cut and keep are the same edit from opposite sides; this recording is left out"
   check "and logs it" logged "$box" "1 a.mov: cut and keep are the same edit from opposite sides"
   check "shrinks nothing for it" missing "$work/1 a.mp4"
   check "runs the next one" exists "$work/2 b.mp4"
@@ -394,8 +394,8 @@ test_run_leaves_out_a_block_that_names_no_recording() {
 
   out="$(run_file "$box" "$tools" "$work/1 a.edit.txt" 2>&1)" || code=$?
 
-  check "names the one that is gone" contains "$out" $'\n'"⚠️ [2/3] 2 gone.mov: not found beside 1 a.edit.txt"
-  check "and the one that is no video" contains "$out" $'\n'"⚠️ [3/3] notes.txt is not a video (.mov, .mp4 or .m4v)"
+  check "names the one that is gone" contains "$out" $'\n'"🟡 [2/3] 2 gone.mov: not found beside 1 a.edit.txt"
+  check "and the one that is no video" contains "$out" $'\n'"🟡 [3/3] notes.txt is not a video (.mov, .mp4 or .m4v)"
   check "logs both" logged "$box" "2 gone.mov: not found beside 1 a.edit.txt"
   check "runs the one that is there" exists "$work/1 a.mp4"
   check "and nothing else" test "$(print -l "$work"/*.mp4(N) | wc -l | tr -d ' ')" = 1
@@ -544,7 +544,7 @@ test_run_posts_one_banner_at_the_end() {
   check "saying what came out and what did not" contains "${banners[1]-}" \
     "2 of 3 shrunk: 1 a.mp4, 2 b.mp4. Not shrunk: 3 c.mov"
   check "with the sound settings.conf names" test "${${banners[1]-}##* | }" = Ping
-  check "a leftover .cuts is still said on the terminal" contains "$out" "  ⚠️ 2 b.mov.cuts is no longer read"
+  check "a leftover .cuts is still said on the terminal" contains "$out" "  🟡 2 b.mov.cuts is no longer read"
 
   print -r -- 'notify = false' >> "$box/settings.conf"
   : > "$tools/osascript.log"

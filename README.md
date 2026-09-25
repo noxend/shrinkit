@@ -103,7 +103,7 @@ recording out. Open a recording in QuickTime to read the times off it.
 Save the file, then right-click it in Finder (which may show it as `1 intro.edit`) and pick
 `shrinkit: run`. A Terminal window opens and runs the blocks in order, with the log in that window.
 Before it encodes anything, shrinkit names each line it cannot use, and skips it. Each line in the
-window starts with a mark: 🎬 a recording, ⏳ an encode, ✅ a result, 🔗 the join, ⚠️ something
+window starts with a mark: 🎬 a recording, ⏳ an encode, ✅ a result, 🔗 the join, 🟡 something
 left out or skipped, ❌ a failure. When everything went through, the window closes itself 3 seconds
 later; otherwise it stays open with the log. Pick `shrinkit: run` on several edit files to get a
 window for each.
