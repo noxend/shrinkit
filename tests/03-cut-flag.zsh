@@ -1,6 +1,6 @@
 # Sourced by tests/run-tests.sh: the --cut flag.
 
-test_cut_flag_cuts_without_any_sidecar() {
+test_cut_flag_cuts_the_range_it_was_given() {
   local box work out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
@@ -11,12 +11,9 @@ test_cut_flag_cuts_without_any_sidecar() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 "$work/clip.mov"
 
   check "cuts the range it was given" duration_near "$out" 11
-  check "with no sidecar written anywhere" missing "$work/clip.mov.cuts"
   check "and says a cut was applied" logged "$box" ', cut applied'
 }
 
-# The flag path has its own copy of the sort-and-merge pipeline, so it needs its own coverage of
-# ranges arriving out of order and overlapping; the sidecar's copy being correct says nothing here.
 test_cut_flag_sorts_and_merges_its_ranges() {
   local box work out
   box="$(sandbox)"
@@ -45,23 +42,6 @@ test_cut_flag_reaches_the_real_end() {
   check "'end' means the real length here too" duration_near "$out" 9
 }
 
-# Every other flag beats the file it has an equivalent in, so --cut beats the sidecar rather than
-# adding to it. Silently applying both would be the surprise worth avoiding.
-test_cut_flag_replaces_the_sidecar() {
-  local box work out
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  work="$(scratch)"
-  cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  print -r -- '0-6' > "$work/clip.mov.cuts" # would leave 6s; the flag below leaves 11s
-  out="$work/clip.mp4"
-
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 "$work/clip.mov"
-
-  check "applies the flag's range, not the sidecar's" duration_near "$out" 11
-  check "and says the sidecar was ignored" logged "$box" 'using --cut, ignoring clip.mov.cuts'
-}
-
 test_cut_flag_rejects_a_bad_range_and_names_where_it_came_from() {
   local box work out
   box="$(sandbox)"
@@ -73,26 +53,24 @@ test_cut_flag_rejects_a_bad_range_and_names_where_it_came_from() {
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 20-25 "$work/clip.mov"
 
   check "cuts nothing, the range is past the end" duration_near "$out" 12
-  check "blames the flag, not a sidecar" logged "$box" "ignoring cut '20-25' from --cut"
+  check "blames the flag it came from" logged "$box" "ignoring cut '20-25' from --cut"
   check "does not claim a cut happened" logged "$box" 'cut requested but none applied'
 }
 
 # --cut with the filename forgotten used to fall through to folder-watch mode, cutting the same
-# seconds out of every queued recording, ignoring any sidecar they carried, and with
-# keep_original = false deleting each source and sidecar it had just overridden.
+# seconds out of every queued recording, and with keep_original = false deleting each source it had
+# just cut.
 test_cut_flag_with_no_file_is_refused() {
   local box code
   box="$(sandbox)"
   settings "$box" 'speed = 1' 'keep_original = false'
   cp "$FIXTURES/colored.mov" "$box/input/queued.mov"
-  print -r -- '0-6' > "$box/input/queued.mov.cuts"
 
   code=0
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --cut 3-4 > /dev/null 2>&1 || code=$?
 
   check "stops with a usage error" test "$code" = 2
   check "leaves the queued recording alone" exists "$box/input/queued.mov"
-  check "and its sidecar with it" exists "$box/input/queued.mov.cuts"
   check "writes nothing" empty_dir "$box/output"
 }
 
@@ -106,25 +84,22 @@ test_cut_flag_with_no_range_is_refused() {
   check "stops with a usage error" test "$code" = 2
 
   # An empty value is the same mistake one level up, a wrapper expanding a variable it never set.
-  # Letting it through would count as "cuts were asked for" and suppress the recording's own
-  # sidecar while adding no range to replace it.
+  # Letting it through would shrink the recording without the range that was meant.
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  print -r -- '3-4' > "$work/clip.mov.cuts"
   code=0
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" --cut '' "$work/clip.mov" > /dev/null 2>&1 || code=$?
 
   check "an empty range is refused too" test "$code" = 2
-  check "without touching the sidecar it would have suppressed" exists "$work/clip.mov.cuts"
   check "and without writing an output" missing "$work/clip.mp4"
 }
 
 # zsh expands a whole `local` line before any of its names becomes local, so a second assignment
 # on that line that reads the first gets the CALLER's variable of that name, silently, or aborts
 # the function under set -u when the caller has none. Proved, not reasoned:
-#   zsh -c 'set -u; src=/OUTER; f() { local src="$1" cf="${src}.cuts"; print $cf }; f /ARG'
-# prints /OUTER.cuts. The three places this file had all worked only because every caller happened
+#   zsh -c 'set -u; src=/OUTER; f() { local src="$1" out="${src}.mp4"; print $out }; f /ARG'
+# prints /OUTER.mp4. The three places this file had all worked only because every caller happened
 # to have the same variable set to the same value, which the next caller has no reason to.
 test_no_local_line_reads_a_name_it_declares() {
   local -a lines names

@@ -13,6 +13,19 @@ test_doctor_counts_what_is_waiting_and_ignores_what_finder_leaves() {
     test "$(doctor_line "$out" input)" = "ok    input          1 waiting: clip.mov"
 }
 
+# Not read since 4.0, a .cuts file beside a waiting recording is a leftover, not part of it.
+test_doctor_lists_a_leftover_cuts_file_as_never_picked_up() {
+  local box out
+  box="$(installed_box)"
+  cp "$FIXTURES/silent.mov" "$box/work/input/clip.mov"
+  print -r -- '0-0:02' > "$box/work/input/clip.mov.cuts"
+
+  out="$(run_doctor "$box" 2>&1)"
+
+  check "lists it with what the watcher never picks up" \
+    test "$(doctor_line "$out" input)" = "warn  input          never picked up: clip.mov.cuts"
+}
+
 test_doctor_warns_about_what_the_watcher_never_picks_up() {
   local box out code=0
   box="$(installed_box)"

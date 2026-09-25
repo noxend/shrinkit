@@ -1,29 +1,4 @@
-# Sourced by tests/run-tests.sh: sidecars that are wrong, and cuts on odd footage.
-
-test_cuts_rich_text_sidecar_is_logged_and_skipped() {
-  local box
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- '{\rtf1\ansi 3-4}' > "$box/input/clip.mov.cuts"
-
-  optimize "$box"
-  # no dedicated check for this: the markup shows up verbatim in the ignoring-cut line, which says
-  # plainly enough that the file was saved as Rich Text rather than plain text
-  check "logs the markup it could not parse" logged "$box" 'ignoring cut .{.rtf1'
-  check "keeps the full length" duration_near "$box/output/clip.mp4" 12
-}
-
-test_cuts_smart_dash_is_named_specifically() {
-  local box
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  cp "$FIXTURES/colored.mov" "$box/input/clip.mov"
-  print -r -- $'3–4' > "$box/input/clip.mov.cuts" # en dash, not a hyphen
-
-  optimize "$box"
-  check "names the smart dash rather than a generic parse error" logged "$box" 'looks like a smart dash'
-}
+# Sourced by tests/run-tests.sh: ranges at the edges, and cuts on odd footage.
 
 test_cuts_trims_whitespace_around_the_dash() {
   local box work out
