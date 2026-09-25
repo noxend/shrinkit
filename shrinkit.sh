@@ -1359,10 +1359,11 @@ in \$VISUAL or \$EDITOR, or vi when neither is set. Under a recording's name go
 its own preset, cut, keep and settings, and merge = true at the top joins the
 results in the order of the blocks. The file runs when the editor closes; delete
 every block to cancel. The right-click 'shrinkit: edit' entry writes the same
-file, opens it in TextEdit and runs it from a Terminal window.
+file and opens it in TextEdit; 'shrinkit: run' on the saved file runs it in a
+Terminal window, which closes itself when everything went through.
 
-run runs an edit file again. The file stays beside the first recording as
-<first>.edit.txt.
+run runs an edit file again, here in the terminal. The file stays beside the
+first recording as <first>.edit.txt.
 
 merge joins several recordings into one, in the order they were recorded, or by
 a number at the start of the file name (1 intro.mov, 2 bug.mov) for any that

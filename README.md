@@ -45,7 +45,8 @@ or `shrinkit: tiny`. The result lands beside it as `clip-2x.mp4`, `clip-sharp.mp
 `clip-tiny.mp4`, and the recording stays where it was. Select several to do them together.
 
 **Right-click several recordings** and pick `shrinkit: edit` to give each its own preset and cuts in
-one text file, and join them if you want. See [Editing several recordings](#editing-several-recordings).
+one text file, and join them if you want. Then right-click that file and pick `shrinkit: run`. See
+[Editing several recordings](#editing-several-recordings).
 
 **From the terminal**, name the file. Any setting works as a one-off flag:
 
@@ -78,9 +79,8 @@ Flags beat a preset, and a preset beats `settings.conf`.
 
 ## Editing several recordings
 
-Select the recordings in Finder, right-click, and pick `shrinkit: edit`. Each recording opens in its
-player, so you can read times off it. A Terminal window opens too, and TextEdit shows one file with
-a block per recording:
+Select the recordings in Finder, right-click, and pick `shrinkit: edit`. TextEdit opens one file
+with a block per recording:
 
 ```
 merge = false
@@ -98,9 +98,15 @@ keep = 0:10-0:40
 
 Under a recording's name goes one setting per line: `preset`, `cut`, `keep`, or `speed`, `fps`,
 `crf`, `codec`, `remove_audio` and `max_height` as in `settings.conf`. Delete a block to leave that
-recording out. Save the file, then press Enter in the Terminal window: the blocks run in order, and
-the log scrolls in that window. Before it encodes anything, shrinkit names each line it cannot use,
-and skips it.
+recording out. Open a recording in QuickTime to read the times off it.
+
+Save the file, then right-click it in Finder (which may show it as `1 intro.edit`) and pick
+`shrinkit: run`. A Terminal window opens and runs the blocks in order, with the log in that window.
+Before it encodes anything, shrinkit names each line it cannot use, and skips it. Each line in the
+window starts with a mark: 🎬 a recording, ⏳ an encode, ✅ a result, 🔗 the join, ⚠️ something
+left out or skipped, ❌ a failure. When everything went through, the window closes itself 3 seconds
+later; otherwise it stays open with the log. Pick `shrinkit: run` on several edit files to get a
+window for each.
 
 With `merge = false`, each result lands beside its recording, named after its preset the way a
 right-click names it (`clip-sharp.mp4`), or `clip.mp4` without one. With `merge = true`, the results
@@ -108,9 +114,9 @@ are joined into `<first>-merged.mp4` beside the first recording, in the order of
 first block's `codec`, `fps` and `max_height` apply to all of them.
 
 The file stays beside the first recording as `<first>.edit.txt`, so the same edit runs again with
-`shrinkit run '1 intro.edit.txt'`. From a terminal, `shrinkit edit '1 intro.mov' '2 bug.mov'`
-writes the same file, opens it in `$EDITOR`, and runs it when the editor closes. Delete every block
-to cancel.
+`shrinkit: run`, or with `shrinkit run '1 intro.edit.txt'` in a terminal. The terminal has
+`shrinkit edit '1 intro.mov' '2 bug.mov'` too: it writes the same file, opens it in `$EDITOR`, and
+runs it when the editor closes. Delete every block to cancel.
 
 ## Cutting a stretch out
 
