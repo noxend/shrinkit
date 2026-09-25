@@ -134,6 +134,7 @@ test_run_shows_the_log_on_the_terminal_but_not_the_graph() {
   check "and what is in it" test "${${(@f)out}[2]}" = "1 recording, merge = false"
   check "heads the block with its settings" contains "$out" $'\n[1/1] clip.mov\n      cut 3-4, speed 2\n'
   check "shows the encode under it" contains "$out" $'\n      encoding  clip.mov (360p, 2x, '
+  check "on a line of its own, not a bar, since this is not a terminal" lacks "$out" $'\r'
   check "and what came of it" contains "$out" $'\n      done      clip.mp4 ('
   check "without the dates the log has" lacks "$out" "$(date +%Y-)"
   check "and without the filter graph" lacks "$out" "graph"
