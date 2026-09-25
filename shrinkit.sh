@@ -160,6 +160,10 @@ LOCK_DIR="$BASE_DIR/.optimizer.lock"
 CONFIG="$BASE_DIR/settings.conf"
 # named variations on the config, one file each
 PRESET_DIR="$BASE_DIR/presets"
+# Presets taken out of the right-click menu with 'preset remove', one name per line. setup builds
+# an entry for every other preset; without the list it built these again on every run, which brew
+# does on every upgrade.
+MENU_OFF="$PRESET_DIR/.not-in-menu"
 
 OUT_DIR="$BASE_DIR/output"
 
@@ -1149,7 +1153,7 @@ config_folder() {
   if [[ "$new" != "$BASE_DIR" && -f "$CONFIG" && ! -f "$new/settings.conf" ]]; then
     mkdir -p "$new/presets"
     cp "$CONFIG" "$new/settings.conf"
-    cp "$PRESET_DIR"/*.conf(N) "$new/presets/" 2> /dev/null
+    cp "$PRESET_DIR"/*.conf(N) "$PRESET_DIR"/.not-in-menu(N) "$new/presets/" 2> /dev/null
     print -r -- "    Brought your settings and presets along."
   fi
   [[ "$new" != "$BASE_DIR" && -d "$BASE_DIR" ]] \
@@ -1239,8 +1243,25 @@ install_preset_action() {
 
 remove_preset_action() {
   rm -rf "$SERVICES_DIR/shrinkit: $1.workflow"
+  in_menu "$1" && print -r -- "$1" >> "$MENU_OFF"
   /System/Library/CoreServices/pbs -update 2> /dev/null || true
   print -r -- "removed the Quick Action for '$1'"
+}
+
+in_menu() {
+  ! grep -qxF -- "$1" "$MENU_OFF" 2> /dev/null
+}
+
+back_in_menu() {
+  local -a off
+  [[ -f "$MENU_OFF" ]] || return 0
+  off=("${(@f)$(< "$MENU_OFF")}")
+  off=("${(@)off:#${(b)1}}")
+  if ((${#off})); then
+    print -rl -- "${off[@]}" > "$MENU_OFF"
+  else
+    rm -f "$MENU_OFF"
+  fi
 }
 
 preset_command() {
@@ -1251,7 +1272,7 @@ preset_command() {
         print -u2 -r -- "usage: preset install <name>"
         return 2
       }
-      install_preset_action "$2" || return 2
+      install_preset_action "$2" && back_in_menu "$2" || return 2
       ;;
     remove)
       [[ -n "${2-}" ]] || {

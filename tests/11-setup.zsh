@@ -63,6 +63,40 @@ test_setup_does_not_say_done_when_launchd_refuses_the_agent() {
   check "and lets brew finish" test "$brew_code" = 0
 }
 
+test_a_preset_taken_out_of_the_menu_stays_out_after_setup() {
+  local box services
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset remove 2x > /dev/null 2>&1
+
+  # What every brew upgrade runs.
+  run_setup "$box" > /dev/null 2>&1
+
+  check "setup does not build it again" missing "$services/shrinkit: 2x.workflow"
+  check "and builds the others" test -d "$services/shrinkit: sharp.workflow"
+  check "and the preset itself stays" exists "$box/work/presets/2x.conf"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset install 2x > /dev/null 2>&1
+  run_setup "$box" > /dev/null 2>&1
+  check "preset install puts it back for good" test -d "$services/shrinkit: 2x.workflow"
+}
+
+test_a_preset_taken_out_of_the_menu_stays_out_in_a_new_folder() {
+  local box
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset remove 2x > /dev/null 2>&1
+
+  HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
+    zsh "$OPTIMIZER" config folder "$box/elsewhere" > /dev/null 2>&1
+
+  check "the entry does not come back" missing "$box/home/Library/Services/shrinkit: 2x.workflow"
+  check "while the preset moved along" exists "$box/elsewhere/presets/2x.conf"
+}
+
 test_setup_registers_the_script_that_is_running() {
   local box plist
   box="$(scratch)"

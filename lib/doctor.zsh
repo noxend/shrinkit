@@ -239,7 +239,9 @@ doctor_check_right_click() {
   local entry preset name program
   local -a present expected
   local -aU programs
-  for preset in "$PRESET_DIR"/*.conf(N.); do expected+=("${preset:t:r}"); done
+  for preset in "$PRESET_DIR"/*.conf(N.); do
+    in_menu "${preset:t:r}" && expected+=("${preset:t:r}")
+  done
   expected+=("mark cuts" merge)
   for entry in ${(f)"$(our_entries)"}; do
     read_entry "$entry" || continue
@@ -265,9 +267,7 @@ doctor_check_right_click() {
       doctor_found warn "no right-click entry for $name" "Build it again with:" "  $DOCTOR_SELF setup"
     else
       doctor_found warn "no right-click entry for the preset $name" "Add it with:" \
-        "  $DOCTOR_SELF preset install ${(qq)name}" \
-        "If you took it out with 'preset remove', the next setup or brew upgrade puts it back;" \
-        "to keep it out, move the preset file out of presets/."
+        "  $DOCTOR_SELF preset install ${(qq)name}"
     fi
   done
   DOCTOR_OK="${#present} entries (whether each is switched on, doctor cannot see)"

@@ -125,6 +125,7 @@ setup_actions() {
   for stale in "$SERVICES_DIR"/shrinkit:*.workflow(N); do rm -rf "$stale"; done
   for preset in "$PRESET_DIR"/*.conf(N.); do
     name="${preset:t:r}"
+    in_menu "$name" || continue
     install_preset_action "$name" > /dev/null && installed+=("$name")
   done
   install_cuts_action > /dev/null
