@@ -147,6 +147,8 @@ read_edit_file() {
     if ((block == 0)); then
       if [[ "$key" != merge ]]; then
         EDIT_PROBLEMS+=("line $n: only merge goes above the first recording")
+      elif [[ -z "$value" ]]; then
+        EDIT_PROBLEMS+=("line $n: 'merge' has no value")
       elif [[ "$value" == (true|false) ]]; then
         EDIT_MERGE="$value"
       else
@@ -183,7 +185,7 @@ edit_block_summary() {
   print -r -- "${(j:, :)parts}"
 }
 
-# settings.conf as the run read it, kept to start every block from.
+# settings.conf as the run read and checked it, kept to start every block from.
 typeset -A EDIT_BASE
 
 # The settings for block i, in the order a command line has them: settings.conf, the block's preset,
@@ -258,7 +260,6 @@ run_edit_file() {
   local -a made failed
   mkdir -p "$LOG_DIR"
   read_config
-  EDIT_BASE=("${(@kv)CFG}")
   [[ -x "$FFMPEG" ]] || {
     log "ffmpeg is not on PATH or in the Homebrew folders"
     print -u2 -r -- "ffmpeg is not on PATH or in the Homebrew folders"
@@ -279,8 +280,11 @@ run_edit_file() {
   print
 
   exec {SCREEN_FD}>&1
+  # Checked once for the whole run: a value in settings.conf that does not fit is said here, once.
+  validate_config
+  EDIT_BASE=("${(@kv)CFG}")
   for problem in "${EDIT_PROBLEMS[@]}"; do log "$problem"; done
-  ((${#EDIT_PROBLEMS})) && print
+  ((${#EDIT_PROBLEMS} + ${#IGNORED})) && print
   for ((i = 1; i <= n; i++)); do
     refused="$(edit_block_refused $i "$file")" && {
       edit_say "[$i/$n] $refused"
@@ -315,7 +319,6 @@ edit_announce() {
   local n="$1" failed="$2" extra=""
   shift 2
   CFG=("${(@kv)EDIT_BASE}")
-  validate_config
   if [[ "${CFG[copy_to_clipboard]}" == true ]] && (($#)); then
     copy_to_clipboard "$@"
     print -r -- "Copied to the clipboard."

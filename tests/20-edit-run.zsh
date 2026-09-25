@@ -174,6 +174,33 @@ test_run_goes_on_past_a_recording_it_cannot_shrink() {
   check "shrinks the one after it" exists "$work/2 fine.mp4"
   check "names the one it could not shrink" contains "$out" $'\nNot shrunk: 1 broken.mov'
   check "and exits 1" test "$code" = 1
+  check "sends the terminal to the log for what ffmpeg said" contains "$out" \
+    "  FAILED $work/1 broken.mov (one-shot, ffmpeg output is in $box/.logs/optimizer.log)"
+  check "while the log keeps its own words" logged "$box" \
+    "FAILED $work/1 broken.mov (one-shot, ffmpeg output is above)"
+}
+
+# settings.conf is read once for a run, so a value in it that does not fit is said once, with the
+# lines of the edit file, not again for every block.
+test_run_says_a_bad_value_in_settings_conf_once() {
+  local box tools work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'crf = 90'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
+  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+
+  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
+
+  check "says it before the first recording" contains "${out%%\[1/2\]*}" \
+    "  ignoring crf='90' (want 0-51), using '28'"$'\n'
+  check "once on the terminal" test "$(grep -c "ignoring crf=" <<< "$out")" = 1
+  check "and once in the log" test "$(log_count "$box" "ignoring crf=")" = 1
+  check "and encodes both at the default" test "$(log_count "$box" 'encode .* crf28)')" = 2
 }
 
 test_edit_runs_the_file_once_the_editor_closes() {
@@ -222,7 +249,7 @@ test_run_skips_a_bad_line_and_says_which() {
   print -r -- 'crf = 18' > "$box/presets/sharp.conf"
   tools="$(scratch)"
   stub_tools "$tools"
-  stub_editor "$tools" editor 'top "speed = 3" "merge = yes"' \
+  stub_editor "$tools" editor 'top "speed = 3" "merge =" "merge = yes"' \
     'add clip.mov "preset sharp" "sped = 3" "crf =" "crf = 90" "notify = true" "preset = shrp" "merge = true" "speed = 4"'
   work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
@@ -234,6 +261,7 @@ test_run_skips_a_bad_line_and_says_which() {
 
   for want in \
     "line $(line_of "$file" 'speed = 3'): only merge goes above the first recording" \
+    "line $(line_of "$file" 'merge ='): 'merge' has no value" \
     "line $(line_of "$file" 'merge = yes'): merge = yes (want true or false)" \
     "line $(line_of "$file" 'preset sharp'): 'preset sharp' has no '='" \
     "line $(line_of "$file" 'sped = 3'): 'sped' is not a setting" \
