@@ -26,12 +26,12 @@ test_keep_flag_sorts_and_merges_its_ranges() {
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
   out="$work/clip.mp4"
 
-  # out of order, and the last two overlap into one 3-5 stretch
+  # out of order, and the last one inside the one before it
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
-    zsh "$OPTIMIZER" --keep 8-9 --keep 3-4.5 --keep 4-5 "$work/clip.mov"
+    zsh "$OPTIMIZER" --keep 8-9 --keep 3-6 --keep 4-5 "$work/clip.mov"
 
-  check "keeps the merged stretch and the separate one" duration_near "$out" 3
-  check "with the green second joined on as the tail" color_at_is 2.5 "$out" 018001
+  check "keeps the merged stretch and the separate one" duration_near "$out" 4
+  check "with the green second joined on as the tail" color_at_is 3.5 "$out" 018001
 }
 
 test_keep_flag_reaching_the_end_keeps_the_tail() {

@@ -93,6 +93,8 @@ test_the_window_runs_nothing_when_enter_never_comes() {
   cp "$FIXTURES/take-red.mov" "$work/clip.mov"
   make_edit "$box" "$tools" "$work/clip.mov"
   file="$work/clip.edit.txt"
+  # Nothing before Enter logs, so the log is made here for the last check to read.
+  : > "$box/.logs/optimizer.log"
 
   out="$(run_window "$box" "$tools" --wait "$file" < /dev/null)" || code=$?
 
