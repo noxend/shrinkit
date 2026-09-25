@@ -1571,11 +1571,10 @@ main() {
 # Set at the top level: in zsh, a trap set inside a function fires when that function returns.
 # INT and TERM end the run there and then, with the half-written file removed, rather than
 # releasing the lock and going on to the next recording. The exit runs the EXIT trap, which removes
-# a merged edit run's parts.
+# a merged edit run's parts and releases the lock.
 stop_run() {
   [[ -n "$CURRENT_CHILD" ]] && kill "$CURRENT_CHILD" 2> /dev/null && wait "$CURRENT_CHILD" 2> /dev/null
   [[ -n "$CURRENT_PART" ]] && rm -f "$CURRENT_PART"
-  release_lock
   exit "$1"
 }
 trap 'remove_parts; release_lock' EXIT
