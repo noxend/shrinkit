@@ -211,11 +211,19 @@ remove_parts() {
 
 # zsh runs a trap only once a foreground child exits, and launchd kills the agent five seconds after
 # asking it to stop, so ffmpeg runs in the background and is waited for: the trap then runs at once
-# and can stop it.
+# and can stop it. run_ffmpeg <word> <seconds> <ffmpeg args>: on an edit run's terminal the wait
+# draws the step under the word, measured against the seconds the result will last, from the
+# progress ffmpeg writes to a file; the seconds are empty when they are not known.
 run_ffmpeg() {
-  local rc
-  "$FFMPEG" "$@" &
+  local word="$1" length="$2" rc progress=""
+  local -a report
+  shift 2
+  if screen_draws && progress="$(mktemp "$(temp_folder)/shrinkit.$$.progress.XXXXXX")"; then
+    report=(-progress "$progress")
+  fi
+  "$FFMPEG" "${report[@]}" "$@" &
   CURRENT_CHILD=$!
+  [[ -n "$progress" ]] && screen_progress "$word" "$length" "$progress"
   wait "$CURRENT_CHILD"
   rc=$?
   CURRENT_CHILD=""
@@ -799,6 +807,23 @@ atempo_chain() {
   }'
 }
 
+# How many seconds encoding src with cuts gives: the stretches the cuts keep, over the speed.
+# Nothing when the recording does not say how long it is.
+encode_length() {
+  local dur start end
+  local -F kept=0
+  dur="$(clip_duration "$1")"
+  [[ -n "$dur" ]] || return 0
+  if [[ -n "$2" ]]; then
+    while IFS=' ' read -r start end; do
+      [[ -n "$start" ]] && kept=$((kept + end - start))
+    done <<< "$(complement_ranges "$dur" <<< "$2")"
+  else
+    kept=$dur
+  fi
+  print -r -- $((kept / CFG[speed]))
+}
+
 # Non-zero means ffmpeg failed and nothing was written to $out. cuts is read_cuts()'s output,
 # passed in rather than read here so a caller can also use it to decide what to tell the user.
 encode() {
@@ -863,12 +888,13 @@ encode() {
   fi
 
   # Written to a temp file first, so two runs on one name can never collide mid-write.
-  local part
+  local part length=""
   part="$(temp_part "${out:h}" "${out:t:r}" mp4)"
   CURRENT_PART="$part"
+  screen_draws && length="$(encode_length "$src" "$cuts")"
 
   log "encode ${src:t} ($label)"
-  run_ffmpeg -nostdin -y -i "$src" "${silence[@]}" "${filter_args[@]}" \
+  run_ffmpeg encoding "$length" -nostdin -y -i "$src" "${silence[@]}" "${filter_args[@]}" \
     "${audio[@]}" "${codec[@]}" -pix_fmt yuv420p -movflags +faststart \
     "$part" >> "$LOG" 2>&1 || {
     rm -f "$part"
@@ -1564,14 +1590,14 @@ main() {
 
 # Set at the top level: in zsh, a trap set inside a function fires when that function returns.
 # INT and TERM end the run there and then, with the half-written file removed, rather than
-# releasing the lock and going on to the next recording. The exit runs the EXIT trap, which removes
-# a merged edit run's parts and releases the lock.
+# releasing the lock and going on to the next recording. The exit runs the EXIT trap, which shows
+# the cursor again after a bar, removes a merged edit run's parts and releases the lock.
 stop_run() {
   [[ -n "$CURRENT_CHILD" ]] && kill "$CURRENT_CHILD" 2> /dev/null && wait "$CURRENT_CHILD" 2> /dev/null
   [[ -n "$CURRENT_PART" ]] && rm -f "$CURRENT_PART"
   exit "$1"
 }
-trap 'remove_parts; release_lock' EXIT
+trap 'screen_stop; remove_parts; release_lock' EXIT
 trap 'stop_run 130' INT
 trap 'stop_run 143' TERM
 main "$@"

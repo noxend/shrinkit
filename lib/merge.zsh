@@ -106,17 +106,18 @@ write_concat_list() {
   done
 }
 
-# Joins the clips without touching their streams: fast, and the result is exactly the clips' own
-# quality. Only safe once merge_signatures_match() says they agree.
+# merge_copy <out> <seconds> <clip>...: joins the clips without touching their streams: fast, and
+# the result is exactly the clips' own quality. Only safe once merge_signatures_match() says they
+# agree. The seconds are how long the clips last together, or empty when that is not known.
 merge_copy() {
-  local out="$1" list rc
-  shift
+  local out="$1" length="$2" list rc
+  shift 2
   list="$(mktemp)"
   write_concat_list "$list" "$@"
   # -map, because ffmpeg's default selection keeps one stream per kind: a screen recording carrying
   # both system sound and a microphone would lose the microphone without a word. The ? makes the
   # audio side optional, so a set of silent takes still copies.
-  run_ffmpeg -nostdin -y -f concat -safe 0 -i "$list" -map 0:v -map '0:a?' -c copy \
+  run_ffmpeg joining "$length" -nostdin -y -f concat -safe 0 -i "$list" -map 0:v -map '0:a?' -c copy \
     -movflags +faststart "$out" >> "$LOG" 2>&1
   rc=$?
   rm -f "$list"
@@ -138,10 +139,11 @@ merge_duration_ok() {
 # keep its own shape, and given a silent track when something else in the set has sound, since
 # concat wants the same streams from every segment. crf 18 stays close to the sources on purpose:
 # this is the merge step, and shrinking is a separate one that should not be paid for twice. h264,
-# or in a merged edit run the codec its parts were encoded in.
+# or in a merged edit run the codec its parts were encoded in. merge_encode <out> <seconds>
+# <clip>..., the seconds as merge_copy's.
 merge_encode() {
-  local out="$1"
-  shift
+  local out="$1" length="$2"
+  shift 2
   local -a clips=("$@") inputs chains audio_args video_args=(-c:v libx264)
   local src dur width height maxw=0 maxh=0 audio=false labels="" i
 
@@ -191,7 +193,7 @@ merge_encode() {
     audio_args=(-an)
   fi
 
-  run_ffmpeg -nostdin -y "${inputs[@]}" -filter_complex "$graph" "${maps[@]}" \
+  run_ffmpeg joining "$length" -nostdin -y "${inputs[@]}" -filter_complex "$graph" "${maps[@]}" \
     "${audio_args[@]}" "${video_args[@]}" -crf 18 -preset veryfast -pix_fmt yuv420p \
     -movflags +faststart "$out" >> "$LOG" 2>&1
 }
@@ -212,7 +214,7 @@ merge_files() {
 
   if ! merge_signatures_match "${clips[@]}"; then
     log "merge  the clips differ in size, codec, encoder settings or sound, so they are re-encoded to match"
-  elif ! merge_copy "$part" "${clips[@]}"; then
+  elif ! merge_copy "$part" "$total" "${clips[@]}"; then
     rm -f "$part"
     log "merge  joining the streams as they are failed, re-encoding instead (ffmpeg output is above)"
   elif [[ -z "$total" ]]; then
@@ -230,7 +232,7 @@ merge_files() {
   if [[ -z "$mode" ]]; then
     part="$(temp_part "${name:h}" "${name:t:r}-merged" mp4)"
     CURRENT_PART="$part"
-    merge_encode "$part" "${clips[@]}" || {
+    merge_encode "$part" "$total" "${clips[@]}" || {
       rm -f "$part"
       return 1
     }

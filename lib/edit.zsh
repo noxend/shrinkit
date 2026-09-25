@@ -288,7 +288,11 @@ screen_log() {
   local line="$1" word=note
   case "$line" in
     graph\ *) return 0 ;;
-    encode\ *) word=encoding ;;
+    # On a terminal run_ffmpeg draws the encode as it goes instead.
+    encode\ *)
+      screen_draws && return 0
+      word=encoding
+      ;;
     done\ *) word=done ;;
     merged\ *) word=joined ;;
     FAILED\ *) word=failed ;;
@@ -297,6 +301,89 @@ screen_log() {
   [[ "$word" == note ]] || line="${${line#* }##[[:space:]]#}"
   line="${line//ffmpeg output is above/ffmpeg output is in $LOG}"
   screen_line "$word" "${line//the reason is (on the line |)above/the reason is in $LOG}"
+}
+
+# Whether the screen shows a step while ffmpeg works on it: during a run, on a terminal, in colour.
+screen_draws() {
+  [[ -n "$SCREEN_FD" && -n "${PAINT[reset]}" ]]
+}
+
+# The progress file of the step being drawn, until it ends.
+SCREEN_PROGRESS=""
+
+# screen_progress <word> <seconds> <progress file>: while ffmpeg (CURRENT_CHILD) runs, its step
+# redrawn in place 10 times a second, with the cursor hidden: a bar of 30 cells for ffmpeg's
+# out_time against the seconds the result lasts, then the percent and, past 3%, the time left; a
+# spinner instead when the seconds are not known. The line is cleared at the end, for the step's
+# result to take its place.
+screen_progress() {
+  local word="$1" length="$2" fd line partial="" us=0 k=0 started
+  zmodload zsh/datetime zsh/zselect
+  started=$EPOCHREALTIME
+  [[ -n "$length" ]] && ((length > 0)) || length=""
+  SCREEN_PROGRESS="$3"
+  exec {fd}< "$3"
+  print -rn -u "$SCREEN_FD" -- $'\e[?25l'
+  while kill -0 "$CURRENT_CHILD" 2> /dev/null; do
+    # ffmpeg adds a block of key=value lines at a time; a line not yet written whole waits for
+    # the rest of it.
+    while IFS= read -r -u "$fd" line; do
+      line="$partial$line"
+      partial=""
+      [[ "$line" =~ ^out_time_us=([0-9]+)$ ]] && us="${match[1]}"
+    done
+    partial="$partial$line"
+    if [[ -n "$length" ]]; then
+      screen_bar "$word" "$us" "$length" "$started"
+    else
+      screen_spinner "$word" $((k++))
+    fi
+    zselect -t 10
+  done
+  exec {fd}<&-
+  screen_stop
+}
+
+# screen_bar <word> <microseconds done> <seconds in all> <when it started>
+screen_bar() {
+  local word="$1" colour="${PAINT[${WORD_COLOUR[$1]}]}" filled="" rest="" left="" line i
+  local -F part elapsed
+  local -i pct cells secs
+  part=$(($2 / ($3 * 1000000.0)))
+  ((part > 1)) && part=1
+  pct=$((part * 100))
+  cells=$((part * 30))
+  # One cell at a time, so the bar is the same whatever the locale says a character is.
+  for ((i = 0; i < 30; i++)); do
+    ((i < cells)) && filled="$filled━" || rest="$rest━"
+  done
+  if ((pct > 3)); then
+    elapsed=$((EPOCHREALTIME - $4))
+    secs=$((elapsed * (1 - part) / part))
+    ((secs < 60)) && left="${secs}s left" || left="$(minutes $secs) left"
+  fi
+  line="      $colour${(r:9:)word}${PAINT[reset]} $colour$filled${PAINT[dim]}$rest${PAINT[reset]}"
+  line="$line ${(l:3:)pct}%${left:+  ${PAINT[dim]}$left${PAINT[reset]}}"
+  print -rn -u "$SCREEN_FD" -- $'\r'"$line"$'\e[K'
+}
+
+# The frames of the spinner a step of unknown length shows: braille, which is text, not emoji.
+SPINNER=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+
+# screen_spinner <word> <frame>
+screen_spinner() {
+  local colour="${PAINT[${WORD_COLOUR[$1]}]}" line
+  line="      $colour${(r:9:)1}${PAINT[reset]} $colour${SPINNER[$2 % 10 + 1]}${PAINT[reset]}"
+  print -rn -u "$SCREEN_FD" -- $'\r'"$line"$'\e[K'
+}
+
+# The step's line cleared, the cursor shown again and the progress file removed: when the step
+# ends, and from the EXIT trap when a signal ends the run during one.
+screen_stop() {
+  [[ -n "$SCREEN_PROGRESS" ]] || return 0
+  print -rn -u "$SCREEN_FD" -- $'\r\e[K\e[?25h'
+  rm -f "$SCREEN_PROGRESS"
+  SCREEN_PROGRESS=""
 }
 
 # --------------------------------------------------------------------- running it
