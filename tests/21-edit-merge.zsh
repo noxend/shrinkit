@@ -189,9 +189,11 @@ test_run_merge_uses_the_first_blocks_codec_fps_and_height() {
     "[2/2] 2 large.mov: codec hevc is not used; merge = true encodes every recording in the first one's h264" \
     "[2/2] 2 large.mov: fps 60 is not used; merge = true encodes every recording at the first one's 24 fps" \
     "[2/2] 2 large.mov: max_height 360 is not used; merge = true fits every recording into 320x180"; do
-    check "says $want" contains "${text%%$'\n'🎬 \[1/2\]*}" "  🟡 $want"$'\n'
+    check "says $want" contains "${text%%$'\n'\[1/2\]*}" "      skipped   $want"$'\n'
     check "and logs it" grep -qF -- "$want" "$box/.logs/optimizer.log"
   done
+  check "says the set's format before the first recording" \
+    test "${${(@f)text}[2]}" = "2 recordings, merge = true, every part 320x180 at 24 fps"
   check "encodes the set in the first block's codec" test "$(video_codec "$out")" = h264
   check "at its fps" test "$(rate_of "$out")" = 24/1
   check "in the frame its max_height gives the largest recording" test "$(frame_of "$out")" = 320x180
@@ -215,15 +217,15 @@ test_run_merge_joins_nothing_when_a_block_fails() {
 
   out="$(TMPDIR="$tmp" run_file "$box" "$tools" "$file" 2> /dev/null)" || code=$?
 
-  check "names the block it could not shrink" contains "$out" "  ❌ FAILED $work/2 broken.mov"
+  check "names the block it could not shrink" contains "$out" "      failed    $work/2 broken.mov"
   check "says nothing is joined, and why" \
-    contains "$out" $'\n❌ [join] nothing joined: merge = true joins every recording or none\n'
+    contains "$out" $'\n      failed    [join] nothing joined: merge = true joins every recording or none\n'
   check "and logs it" logged "$box" 'nothing joined: merge = true joins every recording or none'
   check "goes no further" not_logged "$box" 'encode 3 c.mov'
   check "leaves no part in the temporary folder" empty_dir "$tmp"
   left=("$work"/*(N))
   check "and nothing beside the recordings but the edit file" test "${#left}" = 4
-  check "sums it up" contains "$out" $'\n❌ Nothing was joined.\nNot shrunk: 2 broken.mov'
+  check "sums it up" contains "$out" $'\nNothing was joined.\n      Not shrunk: 2 broken.mov'
   check "and exits 1" test "$code" = 1
 }
 
@@ -245,8 +247,10 @@ test_run_merge_encodes_nothing_when_a_block_is_left_out() {
 
   out="$(run_file "$box" "$tools" "$file" 2> /dev/null)" || code=$?
 
-  check "names the block and why" contains "$out" $'\n🟡 [2/3] 2 gone.mov: not found beside '"${file:t}"$'\n'
-  check "says nothing is joined" contains "$out" $'\n❌ [join] nothing joined: merge = true joins every recording or none\n'
+  check "says no format for a set that will not be joined" \
+    test "${${(@f)out}[2]}" = "3 recordings, merge = true"
+  check "names the block and why" contains "$out" $'\n      skipped   [2/3] 2 gone.mov: not found beside '"${file:t}"$'\n'
+  check "says nothing is joined" contains "$out" $'\n      failed    [join] nothing joined: merge = true joins every recording or none\n'
   check "encodes nothing" not_logged "$box" ' encode '
   check "and exits 1" test "$code" = 1
 }
@@ -268,7 +272,7 @@ test_run_merge_with_one_recording_left_shrinks_it_alone() {
   check "shrinks it beside itself" duration_near "$work/clip.mp4" 1
   merged=("$work"/*merged*(N))
   check "joins nothing" test "${#merged}" = 0
-  check "says why" contains "$out" $'\n🟡 merge = true needs two recordings; clip.mov was shrunk on its own\n'
+  check "says why" contains "$out" $'\n      note      merge = true needs two recordings; clip.mov was shrunk on its own\n'
   check "and logs it" logged "$box" 'merge = true needs two recordings; clip.mov was shrunk on its own'
   check "exits 0" test "$code" = 0
 }
@@ -308,7 +312,7 @@ test_an_interrupted_edit_merge_leaves_nothing_behind() {
   check "and nothing beside the recordings but the edit file" test "$(ls "$work" | wc -l | tr -d ' ')" = 3
 }
 
-test_run_merge_marks_the_join_on_the_terminal() {
+test_run_merge_heads_the_join_on_the_terminal() {
   local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 2'
@@ -322,9 +326,9 @@ test_run_merge_marks_the_join_on_the_terminal() {
 
   out="$(run_file "$box" "$tools" "$file")"
 
-  check "heads the join" contains "$out" $'\n🔗 [join] 2 parts\n'
-  check "marks what it made as a result" \
-    contains "$out" $'\n  ✅ merged 2 clips into 1 a-merged.mp4 (streams copied)\n'
+  check "heads the join" contains "$out" $'\n\n[join] 2 parts\n'
+  check "and says it under joined" \
+    contains "$out" $'\n      joined    2 clips into 1 a-merged.mp4 (streams copied)\n'
   check "while the log keeps the words alone" logged "$box" '  merged 2 clips into 1 a-merged.mp4'
 }
 
@@ -349,8 +353,8 @@ test_run_merge_puts_the_merged_file_on_the_clipboard_and_in_the_banner() {
   check "holding the merged file alone" test "${copies[1]-}" = "clipboard $work/1 a-merged.mp4"
   check "one banner" test "${#banners}" = 1
   check "naming the merged file" contains "${banners[1]-}" "2 recordings shrunk: 1 a-merged.mp4, copied to clipboard"
-  check "and the terminal names it" contains "$out" $'\n✅ Done.\n  '"$work/1 a-merged.mp4  ("
-  check "alone" test "$(grep -c "^  $work/" <<< "$out")" = 1
+  check "and the terminal names it" contains "$out" $'\n      '"$work/1 a-merged.mp4"$'\n      copied to the clipboard'
+  check "alone" test "$(grep -c "^      $work/" <<< "$out")" = 1
 }
 
 test_run_merge_says_when_the_join_fails() {
@@ -374,13 +378,13 @@ test_run_merge_says_when_the_join_fails() {
   banners=(${(f)"$(grep '^banner ' "$tools/osascript.log")"})
 
   check "says the join failed" contains "$out" \
-    $'\n'"  ❌ FAILED join of 2 parts (the reason is in $box/.logs/optimizer.log)"$'\n'
+    $'\n'"      failed    join of 2 parts (the reason is in $box/.logs/optimizer.log)"$'\n'
   check "sends the terminal to the log for why" contains "$out" \
-    "  ❌ FAILED merge: could not move 1 a-merged.mp4 into $work (the reason is in $box/.logs/optimizer.log)"
+    "      failed    merge: could not move 1 a-merged.mp4 into $work (the reason is in $box/.logs/optimizer.log)"
   check "while the log keeps its own words" logged "$box" \
     "could not move 1 a-merged.mp4 into .* (the reason is on the line above)"
   check "and does not blame ffmpeg for a move" logged "$box" "FAILED join of 2 parts (the reason is above)$"
-  check "sums it up" contains "$out" $'\n\n❌ Nothing was joined.'
+  check "sums it up" contains "$out" $'\n\nNothing was joined.'
   merged=("$work"/*merged*(N))
   check "leaves no merged file" test "${#merged}" = 0
   check "and no part in the temporary folder" empty_dir "$tmp"

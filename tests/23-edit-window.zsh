@@ -26,8 +26,7 @@ test_the_window_runs_its_file_at_once_on_a_clean_screen() {
 
   check "clears the screen and what scrolled off it before anything else" \
     test "${out[1,${#CLEAN_SCREEN}]}" = "$CLEAN_SCREEN"
-  check "then runs the file" \
-    test "${${(f)out}[1]}" = "${CLEAN_SCREEN}Running ${file:t}: 1 recording, merge = false"
+  check "then runs the file" test "${${(f)out}[1]}" = "${CLEAN_SCREEN}shrinkit run  ${file:t}"
   check "with no Enter pressed" exists "$work/clip.mp4"
   check "saying nothing about a file never saved" lacks "$out" "has not been saved"
   check "opening nothing in TextEdit" lacks "$(< "$tools/open.log")" "-e | "
@@ -49,7 +48,7 @@ test_the_window_reveals_the_result_and_says_how_to_run_it_again() {
 
   out="$(run_window "$box" "$tools" --next < /dev/null)"
 
-  check "runs the file" contains "$out" "Running ${file:t}: 2 recordings, merge = false"$'\n'
+  check "runs the file" contains "$out" "shrinkit run  ${file:t}"$'\n2 recordings, merge = false\n'
   check "says how to run it again" test "${${(f)out}[-1]}" = "To run it again: shrinkit run ${(qq)file}"
   check "and shows what came out in Finder" \
     test "$(tail -1 "$tools/open.log")" = "-R | $work/1 a.mp4 | $work/2 b.mp4"
@@ -86,9 +85,9 @@ test_each_window_takes_one_request() {
   third="$(HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null)" || code=$?
 
   check "the first window takes the oldest request whose file is there" \
-    test "${${(f)first}[1]}" = "${CLEAN_SCREEN}Running ${a:t}: 1 recording, merge = false"
+    test "${${(f)first}[1]}" = "${CLEAN_SCREEN}shrinkit run  ${a:t}"
   check "the second takes the next" \
-    test "${${(f)second}[1]}" = "${CLEAN_SCREEN}Running ${b:t}: 1 recording, merge = false"
+    test "${${(f)second}[1]}" = "${CLEAN_SCREEN}shrinkit run  ${b:t}"
   check "each running its own file" \
     test "$(< "$tools/open.log")" = "-R | $work/a.mp4"$'\n'"-R | $work/b.mp4"
   check "a third finds none waiting" test "$third" = \
@@ -392,8 +391,10 @@ test_a_window_whose_run_went_through_closes_itself() {
   waited=$((EPOCHREALTIME - ended))
 
   check "runs the file" exists "$work/clip.mp4"
-  check "then says it closes in 3 seconds" \
-    test "$(tr -d '\r' < "$tools/screen" | tail -1)" = "This window closes in 3 seconds."
+  check "then says it closes in 3 seconds, under what came out" \
+    test "$(screen_text "$tools" | tail -1)" = "      this window closes in 3 seconds"
+  check "and not how to run it again, which there is no time to read" \
+    lacks "$(< "$tools/screen")" "To run it again"
   check "and asks Terminal to close the window on its terminal" \
     test "$(< "$tools/osascript.log")" = "close $(< "$tools/tty")"
   # A lower bound alone: a loaded machine starts the stub late, never early.
@@ -419,6 +420,7 @@ test_a_window_whose_run_failed_stays_open() {
 
   check "runs the file, which fails" contains "$(tr -d '\r' < "$tools/screen")" "Not shrunk: clip.mov"
   check "says nothing about closing" lacks "$(< "$tools/screen")" "closes in"
+  check "says how to run it again" contains "$(screen_text "$tools")" "To run it again: shrinkit run "
   check "and never asks Terminal to close it" never_asked_to_close "$tools"
 }
 

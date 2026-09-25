@@ -150,6 +150,12 @@ in_terminal() {
     < /dev/null > "$tools/screen" 2>&1
 }
 
+# What <tools>/screen reads as, one line per line: in_terminal's screen without its carriage returns
+# or its escape codes.
+screen_text() {
+  tr -d '\r' < "$1/screen" | sed -E $'s/\e\\[[0-9;?]*[A-Za-z]//g'
+}
+
 # The block headers of an edit file, one per line, in the order they are written.
 headers_of() {
   grep '^\[' "$1"

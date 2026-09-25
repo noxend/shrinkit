@@ -186,32 +186,15 @@ FFPROBE="$(find_tool ffprobe)"
 # The terminal an edit run shows its log on, as a file descriptor: a copy of its stdout taken before
 # any $(...) capture, so a line logged inside one still reaches the screen. Empty outside a run.
 SCREEN_FD=""
-# How many lines log() has put on that screen, so the run knows whether anything was said before
-# its first recording. A line logged inside a $(...) capture is not counted; none is said that way
-# before the first recording.
-SCREEN_LINES=0
 
 # The one format every part of a merged edit run is encoded to, so the parts join by copying their
 # streams: codec, width, height, rate and sound (true or false). Empty outside such a run.
 typeset -A PART_FORMAT
 
+# During an edit run every line also goes on its screen (screen_log, lib/edit.zsh).
 log() {
-  local line mark
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
-  # The filter graph is for reading a cut back in the log, not for reading along. ffmpeg's own
-  # output and mv's reason go to the log alone, so on the terminal they are in the log, not above.
-  [[ -n "$SCREEN_FD" && "$*" != graph\ * ]] || return 0
-  # On the terminal a line is marked by what it says: an encode starting, a result made, a failure.
-  # Anything else an edit run logs is a line, a block or a range that is not used as written.
-  case "$*" in
-    encode\ *) mark="⏳" ;;
-    done\ * | merged\ *) mark="✅" ;;
-    FAILED\ *) mark="❌" ;;
-    *) mark="🟡" ;;
-  esac
-  line="${*//ffmpeg output is above/ffmpeg output is in $LOG}"
-  print -r -u "$SCREEN_FD" -- "  $mark ${line//the reason is (on the line |)above/the reason is in $LOG}"
-  ((++SCREEN_LINES))
+  [[ -n "$SCREEN_FD" ]] && screen_log "$*"
   return 0
 }
 

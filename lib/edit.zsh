@@ -243,19 +243,81 @@ edit_source() {
   [[ "$1" == /* ]] && print -r -- "$1" || print -r -- "$2/$1"
 }
 
+# --------------------------------------------------------------------- the screen of a run
+
+# The escape codes a run's screen is drawn with: bold, dim and the 8 basic colours, which follow
+# the terminal's theme. Every one is empty unless stdout is a terminal and NO_COLOR is not set
+# (no-color.org), and the words are the same either way. Decided once, as the file is sourced: a
+# run writes to the stdout the process started with.
+typeset -A PAINT
+paint_screen() {
+  PAINT=(bold '' dim '' reset '' red '' green '' yellow '' magenta '' cyan '')
+  [[ -t 1 && -z "${NO_COLOR-}" ]] || return 0
+  PAINT=(bold $'\e[1m' dim $'\e[2m' reset $'\e[0m' red $'\e[31m' green $'\e[32m' yellow $'\e[33m'
+    magenta $'\e[35m' cyan $'\e[36m')
+}
+paint_screen
+
+# The colour of each word a step goes under.
+typeset -A WORD_COLOUR
+WORD_COLOUR=(encoding cyan joining magenta done green joined magenta failed red skipped yellow
+  note yellow)
+
+# How many steps a run has said, so it knows whether anything was said before its first
+# recording. While SCREEN_HOLD is 1 they wait in SCREEN_HELD for the lines that head the run.
+SCREEN_LINES=0
+SCREEN_HOLD=0
+typeset -a SCREEN_HELD
+
+# screen_line <word> <text>: one step on the screen, its word in a column of 9 after 6 spaces, so
+# the text of every step lines up.
+screen_line() {
+  local line="      ${PAINT[${WORD_COLOUR[$1]}]}${(r:9:)1}${PAINT[reset]} $2"
+  ((++SCREEN_LINES))
+  if ((SCREEN_HOLD)); then
+    SCREEN_HELD+=("$line")
+  else
+    print -r -u "${SCREEN_FD:-1}" -- "$line"
+  fi
+}
+
+# A line log() writes during a run, on the screen under the word for what it says, anything else
+# as a note. The filter graph is for reading a cut back in the log; ffmpeg's own output and mv's
+# reason are only in the log, so the screen names the log for them.
+screen_log() {
+  local line="$1" word=note
+  case "$line" in
+    graph\ *) return 0 ;;
+    encode\ *) word=encoding ;;
+    done\ *) word=done ;;
+    merged\ *) word=joined ;;
+    FAILED\ *) word=failed ;;
+    ignoring\ * | skip\ *) word=skipped ;;
+  esac
+  [[ "$word" == note ]] || line="${${line#* }##[[:space:]]#}"
+  line="${line//ffmpeg output is above/ffmpeg output is in $LOG}"
+  screen_line "$word" "${line//the reason is (on the line |)above/the reason is in $LOG}"
+}
+
 # --------------------------------------------------------------------- running it
 
 # What a run made, and the blocks it could not shrink, for its summary and its one banner.
 typeset -a EDIT_MADE EDIT_FAILED
 
-# edit_say <mark> <line>: the line on the terminal after the mark for what it says, and the same
-# words alone in the log.
+# edit_say <word> <text>: a step of the run on the screen under the word, and the text alone in the
+# log.
 edit_say() {
   local fd="$SCREEN_FD"
-  print -r -- "$1 $2"
+  screen_line "$1" "$2"
   SCREEN_FD=""
   log "$2"
   SCREEN_FD="$fd"
+}
+
+# A run that ends before its first recording: why, in red, and in the log.
+edit_ends() {
+  print -r -- "${PAINT[red]}${PAINT[bold]}$1${PAINT[reset]}"
+  log "$1"
 }
 
 # Why block i of file cannot run at all, the way its line on the terminal says it, or nothing.
@@ -278,16 +340,17 @@ edit_block_refused() {
 # said, settings.conf's own lines among them.
 edit_say_problems() {
   local problem
-  for problem in "${EDIT_PROBLEMS[@]}"; do log "$problem"; done
+  for problem in "${EDIT_PROBLEMS[@]}"; do edit_say skipped "$problem"; done
   ((SCREEN_LINES)) && print
   return 0
 }
 
-# The line that heads block i: its name, then its settings as written.
+# The lines that head block i: its number and name, then its settings as written.
 edit_block_header() {
   local i="$1" summary
   summary="$(edit_block_summary $i)"
-  print -r -- "🎬 [$i/${#EDIT_NAMES}] ${EDIT_NAMES[i]}${summary:+   $summary}"
+  print -r -- "${PAINT[bold]}[$i/${#EDIT_NAMES}]${PAINT[reset]} ${EDIT_NAMES[i]}"
+  print -r -- "      ${PAINT[dim]}${summary:-settings.conf as it is}${PAINT[reset]}"
 }
 
 # What block i's settings come to, one line per key asked for, with nothing said on the terminal
@@ -359,7 +422,7 @@ edit_run_apart() {
   edit_say_problems
   for ((i = 1; i <= n; i++)); do
     refused="$(edit_block_refused $i "$file")" && {
-      edit_say 🟡 "[$i/$n] $refused"
+      edit_say skipped "[$i/$n] $refused"
       EDIT_FAILED+=("${EDIT_NAMES[i]}")
       continue
     }
@@ -375,7 +438,7 @@ edit_run_apart() {
   done
   # One block has nothing to be joined to, so it is shrunk the way merge = false would.
   [[ "$EDIT_MERGE" == true ]] && ((${#EDIT_MADE})) \
-    && edit_say 🟡 "merge = true needs two recordings; ${EDIT_NAMES[1]} was shrunk on its own"
+    && edit_say note "merge = true needs two recordings; ${EDIT_NAMES[1]} was shrunk on its own"
   ((${#EDIT_FAILED} == 0))
 }
 
@@ -383,7 +446,8 @@ edit_run_apart() {
 # the temporary folder, then the parts joined by copying their streams into
 # <first recording>-merged.mp4 beside the first recording. A block that cannot be shrunk would
 # leave a hole in the video, so the run joins nothing then: a block that cannot run at all is found
-# before the first encode, and one whose encode fails stops the run there.
+# before the first encode, and one whose encode fails stops the run there. The set's format is in
+# PART_FORMAT already when every block can run (run_edit_file).
 edit_run_merged() {
   local file="$1" n=${#EDIT_NAMES} i src out refused
   local -a parts refusals
@@ -393,15 +457,14 @@ edit_run_merged() {
     refusals+=("[$i/$n] $refused")
     EDIT_FAILED+=("${EDIT_NAMES[i]}")
   done
-  ((${#refusals})) || edit_merge_format "$file"
   edit_say_problems
   if ((${#refusals})); then
-    for refused in "${refusals[@]}"; do edit_say 🟡 "$refused"; done
-    edit_say ❌ "$nothing"
+    for refused in "${refusals[@]}"; do edit_say skipped "$refused"; done
+    edit_say failed "$nothing"
     return 1
   fi
   PARTS_DIR="$(mktemp -d "$(temp_folder)/shrinkit.$$.edit.XXXXXX")" || {
-    edit_say ❌ "cannot make a folder for the parts in $(temp_folder)"
+    edit_say failed "cannot make a folder for the parts in $(temp_folder)"
     return 1
   }
   for ((i = 1; i <= n; i++)); do
@@ -413,12 +476,13 @@ edit_run_merged() {
     mkdir "${out:h}" && shrink "$src" "$out" false || {
       EDIT_FAILED+=("${EDIT_NAMES[i]}")
       remove_parts
-      edit_say ❌ "$nothing"
+      edit_say failed "$nothing"
       return 1
     }
     parts+=("$out")
   done
-  print -r -- "🔗 [join] $n parts"
+  print
+  print -r -- "${PAINT[bold]}[join]${PAINT[reset]} $n parts"
   # Called directly, not in $(...): the traps find the part it writes in CURRENT_PART.
   merge_files "$(edit_source "${EDIT_NAMES[1]}" "${file:h}")" "${parts[@]}" || {
     log "FAILED join of $n parts (the reason is above)"
@@ -431,12 +495,22 @@ edit_run_merged() {
   EDIT_MADE+=("$MERGED_OUT")
 }
 
+# Whether every block of file can run at all.
+edit_blocks_can_run() {
+  local i
+  for ((i = 1; i <= ${#EDIT_NAMES}; i++)); do
+    edit_block_refused $i "$1" > /dev/null && return 1
+  done
+  return 0
+}
+
 # Every block in order, each through the one-shot path with its own settings, the log on the
 # terminal as it goes; with merge = true and two blocks or more, joined into one video. Every line
 # that cannot be used is said before the first encode, while there is still time for Ctrl-C. 0 when
-# every recording was shrunk, and joined when asked to be.
+# every recording was shrunk, and joined when asked to be. The note, if one is given, is said under
+# the results when the run went through.
 run_edit_file() {
-  local file="${1:a}" n merged=false rc out
+  local file="${1:a}" note="${2-}" n merged=false rc about line
   mkdir -p "$LOG_DIR"
   [[ -x "$FFMPEG" ]] || {
     log "ffmpeg is not on PATH or in the Homebrew folders"
@@ -445,26 +519,37 @@ run_edit_file() {
   }
   read_edit_file "$file"
   ((EDIT_RTF)) && {
-    edit_say ❌ "${file:t} was saved as rich text: in TextEdit, Format > Make Plain Text, save, and run it again"
+    edit_ends "${file:t} was saved as rich text: in TextEdit, Format > Make Plain Text, save, and run it again"
     return 1
   }
   n=${#EDIT_NAMES}
   ((n > 0)) || {
-    edit_say ❌ "No recording in ${file:t}, nothing to run."
+    edit_ends "No recording in ${file:t}, nothing to run."
     return 1
   }
   [[ "$EDIT_MERGE" == true ]] && ((n > 1)) && merged=true
   log "run    $file"
-  print -r -- "Running ${file:t}: $(recordings $n), merge = $EDIT_MERGE"
-  print
+  print -r -- "${PAINT[bold]}shrinkit run${PAINT[reset]}  ${file:t}"
 
   EDIT_MADE=() EDIT_FAILED=()
   exec {SCREEN_FD}>&1
-  # Read and checked once for the whole run, with the screen open: a line of settings.conf that
-  # cannot be read, or a value that does not fit, is said here, once.
+  # settings.conf is read and checked once for the whole run, and what it has to say waits under
+  # the line the set's format goes in, which needs it.
+  SCREEN_HOLD=1
   read_config
   validate_config
   EDIT_BASE=("${(@kv)CFG}")
+  about="$(recordings $n), merge = $EDIT_MERGE"
+  if [[ "$merged" == true ]] && edit_blocks_can_run "$file"; then
+    edit_merge_format "$file"
+    about="$about, every part ${PART_FORMAT[width]}x${PART_FORMAT[height]} at ${PART_FORMAT[rate]} fps"
+  fi
+  SCREEN_HOLD=0
+  print -r -- "${PAINT[dim]}$about${PAINT[reset]}"
+  print
+  for line in "${SCREEN_HELD[@]}"; do print -r -- "$line"; done
+  SCREEN_HELD=()
+
   if [[ "$merged" == true ]]; then
     edit_run_merged "$file"
   else
@@ -475,30 +560,61 @@ run_edit_file() {
   exec {SCREEN_FD}>&-
   SCREEN_FD=""
 
-  print
-  if ((rc == 0)); then
-    print -r -- "✅ Done."
-  elif [[ "$merged" == true ]]; then
-    print -r -- "❌ Nothing was joined."
-  else
-    print -r -- "❌ Not every recording was shrunk."
-  fi
-  for out in "${EDIT_MADE[@]}"; do print -r -- "  $out  ($(human_size "$out"))"; done
-  ((${#EDIT_FAILED})) && print -r -- "Not shrunk: ${(j:, :)EDIT_FAILED}"
-  edit_announce "$n" "${(j:, :)EDIT_FAILED}" "${EDIT_MADE[@]}"
+  edit_summary "$rc" "$merged" "$n" "$note"
   return $rc
 }
 
+# How long a result plays, as 13.0s, or nothing when it does not say.
+edit_length() {
+  local dur
+  dur="$(clip_duration "$1")"
+  [[ -n "$dur" ]] && printf '%.1fs' "$dur"
+}
+
+# A result's path with its folder dimmed, so the name stands out.
+edit_path() {
+  print -r -- "${PAINT[dim]}${1:h}/${PAINT[reset]}${1:t}"
+}
+
+# The end of a run: what came out, with its size and how long it plays, what did not, and what else
+# happened; then its one banner and its one copy.
+edit_summary() {
+  local rc="$1" merged="$2" n="$3" note="$4" out
+  local -a notes
+  print
+  if ((rc == 0 && ${#EDIT_MADE} == 1)); then
+    out="${EDIT_MADE[1]}"
+    print -r -- "${PAINT[green]}${PAINT[bold]}Done${PAINT[reset]}  ${PAINT[bold]}$(human_size "$out")${PAINT[reset]}  ${PAINT[dim]}$(edit_length "$out")${PAINT[reset]}"
+    print -r -- "      $(edit_path "$out")"
+  else
+    if ((rc == 0)); then
+      print -r -- "${PAINT[green]}${PAINT[bold]}Done${PAINT[reset]}"
+    elif [[ "$merged" == true ]]; then
+      print -r -- "${PAINT[red]}${PAINT[bold]}Nothing was joined.${PAINT[reset]}"
+    else
+      print -r -- "${PAINT[red]}${PAINT[bold]}Not every recording was shrunk.${PAINT[reset]}"
+    fi
+    for out in "${EDIT_MADE[@]}"; do
+      print -r -- "      $(edit_path "$out")  ${PAINT[bold]}$(human_size "$out")${PAINT[reset]}  ${PAINT[dim]}$(edit_length "$out")${PAINT[reset]}"
+    done
+  fi
+  ((${#EDIT_FAILED})) && print -r -- "      Not shrunk: ${(j:, :)EDIT_FAILED}"
+  edit_announce "$n" "${(j:, :)EDIT_FAILED}" "${EDIT_MADE[@]}" && notes+=("copied to the clipboard")
+  ((rc == 0)) && [[ -n "$note" ]] && notes+=("$note")
+  ((${#notes})) && print -r -- "      ${PAINT[dim]}${(j:; :)notes}${PAINT[reset]}"
+  return 0
+}
+
 # The one banner and the one copy of a run, both as settings.conf has them: what came out, and
-# what did not.
+# what did not. 0 when the results went on the clipboard.
 edit_announce() {
-  local n="$1" failed="$2" extra=""
+  local n="$1" failed="$2" extra="" copied=1
   shift 2
   CFG=("${(@kv)EDIT_BASE}")
   if [[ "${CFG[copy_to_clipboard]}" == true ]] && (($#)); then
     copy_to_clipboard "$@"
-    print -r -- "Copied to the clipboard."
     extra=", copied to clipboard"
+    copied=0
   fi
   if (($# == 0)); then
     # Nothing came out while no block failed only when a merged run's join did.
@@ -512,6 +628,7 @@ edit_announce() {
   else
     notify "$# of $n shrunk: ${(j:, :)@:t}$extra. Not shrunk: $failed" "shrinkit edit"
   fi
+  return $copied
 }
 
 # shrinkit run <file>: an edit file written before, run again. The right-click entry runs it as run
@@ -598,28 +715,30 @@ take_edit_request() {
   return 1
 }
 
-# The window: the file run at once, then how to run it again, what came out shown in Finder, and
-# the window closed when the run went through.
+# The window: the file run at once, what came out shown in Finder, and the window closed when the
+# run went through; when it stays open, how to run the file again. It closes only when it knows its
+# terminal, the one this reads from.
 edit_window() {
-  local file="${1:a}" rc
-  run_edit_file "$file"
+  local file="${1:a}" rc tty
+  tty="$(tty)" || tty=""
+  run_edit_file "$file" "${tty:+this window closes in 3 seconds}"
   rc=$?
-  print
-  print -r -- "To run it again: shrinkit run ${(qq)file}"
+  if ((rc != 0)) || [[ -z "$tty" ]]; then
+    print
+    print -r -- "To run it again: shrinkit run ${(qq)file}"
+  fi
   ((${#EDIT_MADE})) && open -R "${EDIT_MADE[@]}"
-  ((rc == 0)) && close_window_later
+  ((rc == 0)) && [[ -n "$tty" ]] && close_window_later "$tty"
   return $rc
 }
 
 # Terminal keeps a window open once its shell has ended, so the window asks Terminal to close it:
 # from a step that outlives this process, 3 seconds on, when the shell around it has ended, the
-# window whose selected tab is on the terminal this reads from. Asked that way, Terminal closes it
-# without a prompt (measured 2026-09-25). Only a window holding that one tab: closing a window
-# closes every tab in it, and Terminal may have opened this one as a tab beside the user's own.
+# window whose selected tab is on the terminal tty. Asked that way, Terminal closes it without a
+# prompt (measured 2026-09-25). Only a window holding that one tab: closing a window closes every
+# tab in it, and Terminal may have opened this one as a tab beside the user's own.
 close_window_later() {
-  local tty
-  tty="$(tty)" || return 0
-  print -r -- "This window closes in 3 seconds."
+  local tty="$1"
   (
     sleep 3
     osascript -l AppleScript - "$tty" << 'CLOSE'
