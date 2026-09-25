@@ -239,3 +239,24 @@ test_a_part_that_cannot_be_read_stops_the_run_and_says_so() {
   check "stops rather than running without it" test "$code" = 1
   check "and names the file it could not read" contains "$out" "merge.zsh"
 }
+
+# A preset whose every line is a comment changes nothing, which a right-click run would show only as a
+# result no different from settings.conf's.
+test_a_preset_that_sets_nothing_says_so() {
+  local box tools out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2' 'notify = true'
+  mkdir -p "$box/presets"
+  print -rl -- '# a preset' '# max_height = 320' '' > "$box/presets/320p.conf"
+  cp "$FIXTURES/silent.mov" "$box/clip.mov"
+  tools="$(scratch)"
+  stub_tools "$tools"
+
+  out="$(PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" --preset 320p "$box/clip.mov" 2>&1)"
+
+  check "says so on the terminal" contains "$out" "the preset '320p' sets nothing: take the # off the lines"
+  check "and in the log" grep -qF "the preset '320p' sets nothing" "$box/.logs/optimizer.log"
+  check "and in a banner" grep -qF "banner shrinkit | The preset '320p' sets nothing" "$tools/osascript.log"
+  check "and still runs with settings.conf" exists "$box/clip-320p.mp4"
+}
