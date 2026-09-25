@@ -407,6 +407,68 @@ test_run_keeps_the_presets_value_when_a_line_is_refused() {
   check "under the preset's name" exists "$work/clip-sharp.mp4"
 }
 
+test_run_refuses_a_preset_name_that_leaves_the_presets_folder() {
+  local box tools work file out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  mkdir -p "$box/presets"
+  print -r -- 'speed = 4' > "$box/outside.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'add clip.mov "preset = ../outside"'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
+
+  out="$(run_file "$box" "$tools" "$file")"
+
+  check "skips the line" contains "$out" "no preset called '../outside'"
+  check "runs the block at settings.conf's speed" duration_near "$work/clip.mp4" 6
+}
+
+# A header with a note after it was read as a line with no '=', so the settings under it went to
+# the recording above and its own recording never ran.
+test_run_leaves_out_the_lines_under_a_header_that_is_not_one() {
+  local box tools work file out
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'add b.mov "speed = 4"' \
+    'sed -i "" "s/^\[b.mov\]\$/[b.mov] # second take/" "$file"'
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/a.mov"
+  cp "$FIXTURES/silent.mov" "$work/b.mov"
+  file="$(make_edit "$box" "$tools" "$work/a.mov" "$work/b.mov")"
+
+  out="$(run_file "$box" "$tools" "$file")"
+
+  check "says the header is not one" contains "$out" "'[b.mov] # second take' is not a header"
+  check "the recording above keeps its own speed" duration_near "$work/a.mp4" 6
+}
+
+# Every line of an edit file can reach the screen, and an escape in one sets the terminal's title.
+test_run_keeps_control_characters_off_the_screen() {
+  local box tools work file out n
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor "add a.mov \$'crf = 20\\e[31m'" \
+    "print -rl -- \$'[b\\e]0;PWNED\\a.mov]' 'speed = 4' >> \"\$file\""
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/a.mov"
+  file="$(make_edit "$box" "$tools" "$work/a.mov")"
+
+  out="$(run_file "$box" "$tools" "$file")"
+
+  for n in "$(grep -n 'crf = 20' "$file" | cut -d: -f1)" "$(grep -n PWNED "$file" | cut -d: -f1)"; do
+    check "says line $n" contains "$out" "line $n holds a control character"
+  done
+  check "prints no escape" lacks "$out" $'\e'
+  check "and leaves the lines under the broken header out" duration_near "$work/a.mp4" 6
+}
+
 # zsh truncates a digit string past 19 places to a negative number: a max_height compared that way
 # was no cap at all, and zsh said so on the screen.
 test_run_refuses_a_max_height_too_long_for_arithmetic() {

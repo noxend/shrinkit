@@ -105,6 +105,26 @@ test_edit_opens_the_file_of_the_same_recordings_as_it_was_left() {
   check "and writes no other" test "${#files}" = 1
 }
 
+# A link where the edit file goes that points nowhere passes for no file, and writing the file
+# through it creates whatever file it names.
+test_edit_writes_nothing_through_a_link_that_points_nowhere() {
+  local box tools work target code=0
+  box="$(sandbox)"
+  settings "$box"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/a.mov"
+  target="$(scratch)/planted"
+  ln -s "$target" "$work/$(name_for "$work/a.mov")"
+
+  run_edit "$box" "$tools" "$work/a.mov" 2> /dev/null || code=$?
+
+  check "stops" test "$code" = 1
+  check "and creates nothing where the link points" missing "$target"
+}
+
 # A folder reached through a symlink is the same set of recordings as its real path, and names the
 # same file: /tmp is /private/tmp, and Finder hands over the real path.
 test_edit_names_the_file_the_same_through_a_symlinked_folder() {

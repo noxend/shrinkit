@@ -279,3 +279,22 @@ test_a_preset_that_cannot_be_read_stops_the_run() {
   check "without calling it empty" lacks "$out" "sets nothing"
   check "and encodes nothing" missing "$box/clip-locked.mp4"
 }
+
+# A preset name is joined into a path and into the output's name, so one reaching out of presets/
+# read any .conf on the disk as settings.
+test_a_preset_name_that_leaves_the_presets_folder_is_refused() {
+  local box work out code=0
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  mkdir -p "$box/presets"
+  print -r -- 'speed = 4' > "$box/outside.conf"
+  work="$(scratch)"
+  cp "$FIXTURES/silent.mov" "$work/clip.mov"
+
+  out="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
+    zsh "$OPTIMIZER" --preset ../outside "$work/clip.mov" 2>&1)" || code=$?
+
+  check "exits 2" test "$code" = 2
+  check "says there is no such preset" contains "$out" "no preset called '../outside'"
+  check "and encodes nothing" test -z "$(ls "$work" | grep -v '^clip.mov$')"
+}

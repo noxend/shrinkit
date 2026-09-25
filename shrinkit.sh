@@ -357,13 +357,19 @@ preset_file() {
   print -r -- "$PRESET_DIR/$1.conf"
 }
 
+# A preset name is a file name in presets/, never a path out of it: it is read as settings and
+# written into the output's name.
+preset_name_safe() {
+  [[ -n "$1" && "$1" != */* && "$1" != .* ]]
+}
+
 # Whether the preset last read sets nothing, for the banner main posts about one.
 PRESET_EMPTY=0
 read_preset() {
   local file
   file="$(preset_file "$1")"
   PRESET_EMPTY=0
-  [[ -f "$file" ]] || {
+  preset_name_safe "$1" && [[ -f "$file" ]] || {
     log "no preset called '$1' in $PRESET_DIR"
     print -u2 -r -- "no preset called '$1' (looked in $PRESET_DIR)"
     return 1
@@ -1400,7 +1406,7 @@ our_entry() {
 }
 
 preset_name_ok() {
-  if [[ -z "$1" || "$1" == */* || "$1" == .* ]]; then
+  if ! preset_name_safe "$1"; then
     print -u2 -r -- "a preset name cannot be empty, hold a /, or start with a dot"
     return 1
   fi
