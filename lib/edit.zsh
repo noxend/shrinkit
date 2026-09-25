@@ -531,9 +531,9 @@ run_command() {
 
 # --------------------------------------------------------------------- the Terminal window
 
-# shrinkit: edit opens its Terminal window on this launcher, which setup writes once, beside the
-# folder file: Terminal refuses a .command that carries a quarantine flag, and whether one a Quick
-# Action writes does is not known. Each right-click leaves the path of its edit file in the queue
+# shrinkit: edit opens its Terminal window on this launcher, which setup writes once beside the
+# folder file, as it writes the plist and the folder file themselves, so no file written at click
+# time is ever handed to Terminal. Each right-click leaves the path of its edit file in the queue
 # beside it, one request per file, and each window takes the oldest.
 EDIT_LAUNCHER="${FOLDER_FILE:h}/shrinkit edit.command"
 EDIT_QUEUE="${FOLDER_FILE:h}/edit-queue"

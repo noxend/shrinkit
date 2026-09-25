@@ -222,6 +222,7 @@ test_an_interrupted_run_stops_and_cleans_up() {
   check "within a couple of seconds" test "$took" -le 2
   check "does not go on to the next file" exists "$box/input/b.mov"
   check "and leaves nothing half-made behind" test -z "$(ls -A "$tmp")"
+  check "nor its lock" missing "$box/.optimizer.lock"
 }
 
 test_an_interrupted_merge_leaves_nothing_behind() {
