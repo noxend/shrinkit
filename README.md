@@ -107,7 +107,8 @@ under a word in colour: `encoding` with a bar that fills as ffmpeg works and the
 `done`, `joined` or `failed` in its place, and `skipped` for a line, a range or a recording left
 out. With `NO_COLOR` set, the words come without colour or bar. When everything went through, the
 window closes itself 3 seconds later; otherwise it stays open with the log and the command that runs
-the file again. Pick `shrinkit: run` on several edit files to get a window for each.
+the file again. Pick `shrinkit: run` on several edit files and one window runs them one after
+another, so only one recording is encoded at a time.
 
 With `merge = false`, each result lands beside its recording, named after its preset the way a
 right-click names it (`clip-sharp.mp4`), or `clip.mp4` without one. With `merge = true`, the results

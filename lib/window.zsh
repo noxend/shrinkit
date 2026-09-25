@@ -5,24 +5,26 @@
 # --------------------------------------------------------------------- the Terminal window
 
 # The Terminal window a right-click entry shows a run in: the launcher it opens on, the queue that
-# hands each window its file, and the step that closes it afterwards.
+# hands each window its files, and the step that closes it afterwards.
 
-# shrinkit: run opens a Terminal window on this launcher for each edit file it is handed. setup
+# shrinkit: run opens a Terminal window on this launcher for the edit files it is handed. setup
 # writes it once beside the folder file, as it writes the plist and the folder file themselves, so
-# no file written at click time is ever handed to Terminal. Each edit file leaves its path in the
-# queue beside it, one request per file, and each window takes the oldest.
+# no file written at click time is ever handed to Terminal. Each click leaves the files' paths in
+# the queue beside it, one request per click, and each window takes the oldest.
 EDIT_LAUNCHER="${FOLDER_FILE:h}/shrinkit edit.command"
 EDIT_QUEUE="${FOLDER_FILE:h}/edit-queue"
 
-# The request for file left in the queue, then a Terminal window opened on the launcher to take it.
-# When no window opens the request goes too, or the next window, which takes the oldest, would run
-# this file instead of its own.
+# One request for the edit files left in the queue, then one Terminal window opened on the launcher
+# to take it and run them in turn, so a selection of several encodes one recording at a time. When
+# no window opens the request goes too, or the next window, which takes the oldest, would run these
+# files instead of its own.
 start_edit_window() {
-  local file="$1" request queued
+  local request queued
   mkdir -p "$EDIT_QUEUE" && request="$(mktemp "$EDIT_QUEUE/.new.XXXXXX")" || return 1
   queued="$EDIT_QUEUE/${${request:t}#.new.}"
-  # Written under a hidden name and renamed once whole, so no window takes a request half written.
-  print -r -- "$file" > "$request" && mv "$request" "$queued" || return 1
+  # Each path ends in a NUL, which no path holds. Written under a hidden name and renamed once
+  # whole, so no window takes a request half written.
+  print -rN -- "$@" > "$request" && mv "$request" "$queued" || return 1
   open -a Terminal "$EDIT_LAUNCHER" && return 0
   rm -f "$queued"
   return 1
@@ -37,21 +39,25 @@ write_edit_launcher() {
 }
 
 # The oldest request in the queue, taken so that no other window takes it too: mv is a rename, and
-# of two windows renaming one request only one succeeds. A request whose file is gone is dropped,
-# and so is one left 2 minutes ago or more: a window reaches this within seconds of its click, so
-# the window that request was for never came (closed while its shell started, or Terminal quit),
-# and taken now it would run in a window opened for a later click. The hidden ones go at 2 minutes
-# too: a request is written or taken under a hidden name for a moment, and one still there was left
-# by a process that ended in between. Prints the edit file's path, and fails when none is waiting.
+# of two windows renaming one request only one succeeds. A request whose files are all gone is
+# dropped, and so is one left 2 minutes ago or more: a window reaches this within seconds of its
+# click, so the window that request was for never came (closed while its shell started, or Terminal
+# quit), and taken now it would run in a window opened for a later click. The hidden ones go at 2
+# minutes too: a request is written or taken under a hidden name for a moment, and one still there
+# was left by a process that ended in between. Prints the paths of the request's edit files that
+# are there, each ending in a NUL, and fails when none is waiting.
 take_edit_request() {
   local request mine="$EDIT_QUEUE/.taken.$$" file
+  local -a files
   rm -f "$EDIT_QUEUE"/*(DN.mm+1)
   for request in "$EDIT_QUEUE"/*(N.mm-2Om); do
     mv "$request" "$mine" 2> /dev/null || continue
-    file="$(< "$mine")"
+    for file in ${(0)"$(< "$mine")"}; do
+      [[ -f "$file" ]] && files+=("$file")
+    done
     rm -f "$mine"
-    [[ -f "$file" ]] || continue
-    print -r -- "$file"
+    ((${#files})) || continue
+    print -rN -- "${files[@]}"
     return 0
   done
   return 1

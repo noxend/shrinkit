@@ -479,6 +479,7 @@ edit_blocks_can_run() {
 # the results when the run went through.
 run_edit_file() {
   local file="${1:a}" note="${2-}" n merged=false rc about line
+  EDIT_MADE=() EDIT_FAILED=() SCREEN_LINES=0
   mkdir -p "$LOG_DIR"
   [[ -x "$FFMPEG" ]] || {
     log "ffmpeg is not on PATH or in the Homebrew folders"
@@ -504,7 +505,6 @@ run_edit_file() {
   log "run    $file"
   print -r -- "${PAINT[bold]}shrinkit run${PAINT[reset]}  ${file:t}"
 
-  EDIT_MADE=() EDIT_FAILED=()
   exec {SCREEN_FD}>&1
   # settings.conf is read and checked once for the whole run, and what it has to say waits under
   # the line the set's format goes in, which needs it.
@@ -605,10 +605,10 @@ edit_announce() {
 }
 
 # shrinkit run <file>: an edit file written before, run again. The right-click entry runs it as run
-# --finder <file>..., and the Terminal window it opens takes the file with run --next; neither is in
-# the usage text.
+# --finder <file>..., and the Terminal window it opens takes the files with run --next; neither is
+# in the usage text.
 run_command() {
-  local window=false file
+  local -a files
   case "${1-}" in
     --finder)
       shift
@@ -616,14 +616,15 @@ run_command() {
       return
       ;;
     --next)
-      window=true
       # Terminal's Last login line and the launcher's path go with the screen and what scrolled off it.
       print -rn -- $'\e[H\e[2J\e[3J'
-      file="$(take_edit_request)" || {
+      files=(${(0)"$(take_edit_request)"})
+      ((${#files})) || {
         print -r -- "No edit file is waiting. Select one in Finder and pick shrinkit: run."
         return 1
       }
-      set -- "$file"
+      edit_window "${files[@]}"
+      return
       ;;
   esac
   (($# == 1)) || {
@@ -634,28 +635,38 @@ run_command() {
     print -u2 -r -- "cannot read $1"
     return 2
   }
-  if [[ "$window" == true ]]; then
-    edit_window "$1"
-  else
-    run_edit_file "$1"
-  fi
+  run_edit_file "$1"
 }
 
 # --------------------------------------------------------------------- the Terminal window
 
-# The window: the file run at once, what came out shown in Finder, and the window closed when the
-# run went through; when it stays open, how to run the file again. It closes only when Terminal
-# names the window of its terminal, the one this reads from.
+# The window: the edit files run right away, one after another, what came out shown in Finder, and
+# the window closed when every run went through. Under each run that did not, or under every run
+# when the window stays open anyway, how to run that file again. It closes only when Terminal names
+# the window of its terminal, the one this reads from.
 edit_window() {
-  local file="${1:a}" rc tty window=""
+  local tty window="" file note rc=0 one i=0
+  local -a made
   tty="$(tty)" && window="$(terminal_window "$tty")"
-  run_edit_file "$file" "${window:+this window closes in 3 seconds}"
-  rc=$?
-  if ((rc != 0)) || [[ -z "$window" ]]; then
-    print
-    print -r -- "To run it again: shrinkit run ${(qq)file}"
-  fi
-  ((${#EDIT_MADE})) && open -R "${EDIT_MADE[@]}"
+  for file in "${@:a}"; do
+    ((++i > 1)) && print
+    note=""
+    ((i == $# && rc == 0)) && [[ -n "$window" ]] && note="this window closes in 3 seconds"
+    if [[ -r "$file" ]]; then
+      run_edit_file "$file" "$note"
+      one=$?
+      made+=("${EDIT_MADE[@]}")
+    else
+      print -u2 -r -- "cannot read $file"
+      one=2
+    fi
+    ((one == 0)) || rc=$one
+    if ((one != 0)) || [[ -z "$window" ]]; then
+      print
+      print -r -- "To run it again: shrinkit run ${(qq)file}"
+    fi
+  done
+  ((${#made})) && open -R "${made[@]}"
   ((rc == 0)) && [[ -n "$window" ]] && close_window_later "$window" "$tty"
   return $rc
 }
@@ -778,10 +789,10 @@ install_run_action() {
     "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} run --finder \"\$@\"" public.plain-text
 }
 
-# What the entry runs: for each edit file among the files it is handed, a request in the queue and
-# a Terminal window to take it.
+# What the entry runs: the edit files among the files it is handed, as one request in the queue, and
+# one Terminal window to take it.
 run_finder() {
-  local src
+  local src what="the file"
   local -a files
   mkdir -p "$LOG_DIR"
   read_config
@@ -797,10 +808,9 @@ run_finder() {
     finder_says "shrinkit: run takes an edit file (shrinkit-<code>.edit.txt)"
     return 2
   }
-  for src in "${files[@]}"; do
-    start_edit_window "$src" || {
-      finder_says "shrinkit: run could not open a Terminal window. To run the file: shrinkit run ${(qq)src}"
-      return 1
-    }
-  done
+  ((${#files} > 1)) && what="them"
+  start_edit_window "${files[@]}" || {
+    finder_says "shrinkit: run could not open a Terminal window. To run $what: ${(j:; :)${(@)${(@qq)files}/#/shrinkit run }}"
+    return 1
+  }
 }

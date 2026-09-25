@@ -1,8 +1,8 @@
 # Sourced by tests/run-tests.sh: the two right-click entries and the Terminal window. shrinkit: edit
-# writes the edit file and opens it in TextEdit; shrinkit: run leaves a request for each edit file it
-# is handed and opens a window on the launcher setup writes; the window takes one request, runs its
-# file, and closes itself when the run went through. open and osascript only write down what they
-# were asked.
+# writes the edit file and opens it in TextEdit; shrinkit: run leaves one request for the edit files
+# it is handed and opens a window on the launcher setup writes; the window takes one request, runs
+# its files in turn, and closes itself when every run went through. open and osascript only write
+# down what they were asked.
 
 # The one sequence a window prints before anything else: the cursor home, the screen cleared, and
 # what scrolled off it cleared too.
@@ -59,9 +59,9 @@ seconds_ago() {
   date -v-"$1"S '+%Y%m%d%H%M.%S'
 }
 
-# One request per edit file (SPEC.md, How the window is started), and one window per request: each
-# takes the oldest one there is. The launcher itself is run here, as Terminal runs it, with open
-# stubbed.
+# One request per click (SPEC.md, Several edit files at once), each path in it ending in a NUL, and
+# one window per request: each takes the oldest one there is. The launcher itself is run here, as
+# Terminal runs it, with open stubbed.
 test_each_window_takes_one_request() {
   local box tools work a b support launcher queue first second third code=0
   box="$(installed_box)"
@@ -78,9 +78,9 @@ test_each_window_takes_one_request() {
   launcher="$support/shrinkit edit.command"
   queue="$support/edit-queue"
   mkdir -p "$queue"
-  print -r -- "$work/gone.edit.txt" > "$queue/one"
-  print -r -- "$a" > "$queue/two"
-  print -r -- "$b" > "$queue/three"
+  print -rN -- "$work/gone.edit.txt" > "$queue/one"
+  print -rN -- "$work/gone too.edit.txt" "$a" > "$queue/two"
+  print -rN -- "$b" > "$queue/three"
   touch -t "$(seconds_ago 30)" "$queue/one"
   touch -t "$(seconds_ago 20)" "$queue/two"
   touch -t "$(seconds_ago 10)" "$queue/three"
@@ -89,8 +89,9 @@ test_each_window_takes_one_request() {
   second="$(HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null)"
   third="$(HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null)" || code=$?
 
-  check "the first window takes the oldest request whose file is there" \
+  check "the first window takes the oldest request with a file that is there" \
     test "${${(f)first}[1]}" = "${CLEAN_SCREEN}shrinkit run  ${a:t}"
+  check "running that file alone" test "$(grep -c 'shrinkit run  ' <<< "$first")" = 1
   check "the second takes the next" \
     test "${${(f)second}[1]}" = "${CLEAN_SCREEN}shrinkit run  ${b:t}"
   check "each running its own file" \
@@ -119,8 +120,8 @@ test_a_window_takes_no_request_left_2_minutes_ago() {
   launcher="$support/shrinkit edit.command"
   queue="$support/edit-queue"
   mkdir -p "$queue"
-  print -r -- "$old" > "$queue/old"
-  print -r -- "$new" > "$queue/new"
+  print -rN -- "$old" > "$queue/old"
+  print -rN -- "$new" > "$queue/new"
   touch -t "$(seconds_ago 150)" "$queue/old"
   touch -t "$(seconds_ago 90)" "$queue/new"
 
@@ -295,8 +296,11 @@ test_the_edit_entry_opens_nothing_where_it_cannot_write() {
 
 # --------------------------------------------------------------------- shrinkit: run
 
-test_the_run_entry_opens_a_window_for_each_edit_file() {
+# SPEC.md, Several edit files at once: every recording is encoded one at a time, since each encode
+# of a 4K recording takes 1.6 GB.
+test_the_run_entry_opens_one_window_for_every_edit_file() {
   local box tools work a b support launcher
+  local -a requests
   box="$(installed_box)"
   print -r -- 'notify = false' >> "$box/work/settings.conf"
   tools="$(scratch)"
@@ -312,19 +316,20 @@ test_the_run_entry_opens_a_window_for_each_edit_file() {
   launcher="$support/shrinkit edit.command"
 
   run_entry "$box" "$tools" run "$a" "$work/notes.txt" "$work/a.mov" "$b"
+  requests=("$support/edit-queue"/*(N.))
 
-  check "opens one Terminal window on the launcher for each edit file" \
-    test "$(< "$tools/open.log")" = "-a | Terminal | $launcher"$'\n'"-a | Terminal | $launcher"
-  check "leaving each window one of them to take" \
-    test "$(cat "$support/edit-queue"/*(N.) | sort)" = "$(print -rl -- "$a" "$b" | sort)"
+  check "opens one Terminal window on the launcher" \
+    test "$(< "$tools/open.log")" = "-a | Terminal | $launcher"
+  check "leaving it one request" test "${#requests}" = 1
+  check "which names both edit files, in the order selected" \
+    test "$(tr '\0' '\n' < "${requests[1]-/dev/null}")" = "$a"$'\n'"$b"
 
   : > "$tools/open.log"
   (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null > /dev/null)
-  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null > /dev/null)
 
-  check "which run one file each" \
-    test "$(sort "$tools/open.log")" = "-R | $work/a.mp4"$'\n'"-R | $work/b.mp4"
-  check "and take their requests, so no other window does" empty_dir "$support/edit-queue"
+  check "and that window runs both" \
+    test "$(< "$tools/open.log")" = "-R | $work/a.mp4 | $work/b.mp4"
+  check "taking the request, so no other window does" empty_dir "$support/edit-queue"
 }
 
 test_the_run_entry_without_an_edit_file_says_so() {
@@ -366,6 +371,30 @@ test_the_run_entry_says_when_its_terminal_window_does_not_open() {
   check "says so in a banner, with the command that runs the file by hand" \
     test "$(< "$tools/osascript.log")" = "banner shrinkit | $said | Glass"
   check "and in the log" test "$(grep -c -F -- "$said" "$box/work/.logs/optimizer.log")" = 1
+  check "and exits 1" test "$code" = 1
+}
+
+# Pasted into a terminal, the command in the banner runs them in turn, as the window would have.
+test_the_run_entry_names_every_file_when_its_window_does_not_open() {
+  local box tools work a b said code=0
+  box="$(installed_box)"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/it's.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/b.mov"
+  a="$(make_edit "$box/work" "$tools" "$work/it's.mov")"
+  b="$(make_edit "$box/work" "$tools" "$work/b.mov")"
+  print -rl -- '#!/bin/zsh' "print -r -- \"\${(j: | :)@}\" >> ${(qq)tools}/open.log" \
+    '[[ "$1" != -a ]]' > "$tools/open"
+  said="shrinkit: run could not open a Terminal window. To run them: shrinkit run ${(qq)a}; shrinkit run ${(qq)b}"
+
+  run_entry "$box" "$tools" run "$a" "$b" 2> /dev/null || code=$?
+
+  check "says so in one banner, with a command that runs each file by hand" \
+    test "$(< "$tools/osascript.log")" = "banner shrinkit | $said | Glass"
+  check "tried to open one window" test "$(grep -c -- '^-a | Terminal' "$tools/open.log")" = 1
   check "and exits 1" test "$code" = 1
 }
 
@@ -518,6 +547,110 @@ test_a_window_whose_run_failed_stays_open() {
   check "runs the file, which fails" contains "$(tr -d '\r' < "$tools/screen")" "Not shrunk: clip.mov"
   check "says nothing about closing" lacks "$(< "$tools/screen")" "closes in"
   check "says how to run it again" contains "$(screen_text "$tools")" "To run it again: shrinkit run "
+  check "and never asks Terminal to close it" never_asked_to_close "$tools"
+}
+
+# Whether the first line of <file> holding <first> comes before the first holding <second>, both
+# being there.
+comes_before() {
+  local first second
+  first="$(grep -nF -- "$2" "$1" | head -1 | cut -d: -f1)"
+  second="$(grep -nF -- "$3" "$1" | head -1 | cut -d: -f1)"
+  [[ -n "$first" && -n "$second" ]] && ((first < second))
+}
+
+# A selection of several edit files is one window running them in turn (SPEC.md, Several edit files
+# at once), and it closes once, after the last.
+test_a_window_runs_its_files_in_turn_and_closes_after_the_last() {
+  local box tools work a b launcher text _
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/b.mov"
+  a="$(make_edit "$box/work" "$tools" "$work/a.mov")"
+  b="$(make_edit "$box/work" "$tools" "$work/b.mov")"
+  run_entry "$box" "$tools" run "$a" "$b"
+  launcher="$box/home/Library/Application Support/shrinkit/shrinkit edit.command"
+
+  in_terminal "$tools" env HOME="$box/home" PATH="$tools:$PATH" "$launcher"
+  for _ in {1..200}; do
+    grep -q '^close ' "$tools/osascript.log" 2> /dev/null && break
+    sleep 0.05
+  done
+  text="$(screen_text "$tools")"
+  print -r -- "$text" > "$tools/text"
+
+  check "runs the first file, then the second" \
+    comes_before "$tools/text" "shrinkit run  ${a:t}" "shrinkit run  ${b:t}"
+  check "once the first is done" comes_before "$tools/text" "$work/a.mp4" "shrinkit run  ${b:t}"
+  check "the second with a screen of its own, as the first had" \
+    test "$(grep -A2 -xF '1 recording, merge = false' "$tools/text")" = \
+    $'1 recording, merge = false\n\n[1/1] a.mov\n--\n1 recording, merge = false\n\n[1/1] b.mov'
+  check "says once, at the end, that it closes" \
+    test "$(grep -c 'closes in 3 seconds' <<< "$text"):$(tail -1 <<< "$text")" = \
+    "1:      this window closes in 3 seconds"
+  check "and not how to run either again" lacks "$text" "To run it again"
+  check "shows both results in Finder together" \
+    test "$(< "$tools/open.log")" = "-a | Terminal | $launcher"$'\n'"-R | $work/a.mp4 | $work/b.mp4"
+  check "and asks Terminal to close the window once" \
+    test "$(< "$tools/osascript.log")" = "window $(< "$tools/tty")"$'\n'"close 4242 | $(< "$tools/tty")"
+}
+
+# A run that ends before it starts, here on a file saved as rich text, makes nothing of its own.
+test_a_window_shows_each_result_once() {
+  local box tools work a b launcher
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/b.mov"
+  a="$(make_edit "$box/work" "$tools" "$work/a.mov")"
+  b="$(make_edit "$box/work" "$tools" "$work/b.mov")"
+  print -rl -- '{\rtf1\ansi\ansicpg1252\cocoartf2822' '[b.mov]}' > "$b"
+  run_entry "$box" "$tools" run "$a" "$b"
+  launcher="$box/home/Library/Application Support/shrinkit/shrinkit edit.command"
+  : > "$tools/open.log"
+
+  (cd "$box" && HOME="$box/home" PATH="$tools:$PATH" "$launcher" < /dev/null > /dev/null)
+
+  check "shows the first file's result in Finder, once" \
+    test "$(< "$tools/open.log")" = "-R | $work/a.mp4"
+}
+
+# One file that fails does not stop the others: they are separate edits, picked together.
+test_a_window_whose_first_run_failed_runs_the_next_and_stays_open() {
+  local box tools work a b launcher text
+  box="$(installed_box)"
+  print -r -- 'notify = false' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/b.mov"
+  a="$(make_edit "$box/work" "$tools" "$work/a.mov")"
+  b="$(make_edit "$box/work" "$tools" "$work/b.mov")"
+  rm "$work/a.mov"
+  run_entry "$box" "$tools" run "$a" "$b"
+  launcher="$box/home/Library/Application Support/shrinkit/shrinkit edit.command"
+
+  in_terminal "$tools" env HOME="$box/home" PATH="$tools:$PATH" "$launcher"
+  sleep 4.5 # past the 3 seconds a window whose runs went through waits
+  text="$(screen_text "$tools")"
+
+  check "runs the first file, which fails" contains "$text" "Not shrunk: a.mov"
+  check "says how to run it again" contains "$text" "To run it again: shrinkit run ${(qq)a}"
+  check "then runs the second" exists "$work/b.mp4"
+  check "and says nothing of running that one again" lacks "$text" "shrinkit run ${(qq)b}"
+  check "says nothing about closing" lacks "$text" "closes in"
+  check "shows what came out in Finder" test "$(tail -1 "$tools/open.log")" = "-R | $work/b.mp4"
   check "and never asks Terminal to close it" never_asked_to_close "$tools"
 }
 
