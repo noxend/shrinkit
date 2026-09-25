@@ -90,6 +90,14 @@ sandboxed() {
 # The helpers first, then the tests: one file per area, sourced and run in file-name order.
 for _file in "$TESTS_DIR"/lib/*.zsh; do source "$_file"; done
 TEST_FILES=("$TESTS_DIR"/[0-9][0-9]-*.zsh)
+# A file that does not parse would load only the tests above the error and drop the rest without a
+# word, so each is parsed before any is loaded.
+for _file in "$TESTS_DIR"/lib/*.zsh "${TEST_FILES[@]}"; do
+  zsh -n "$_file" || {
+    print -r -- "tests/${_file#$TESTS_DIR/} does not parse; nothing was run"
+    exit 1
+  }
+done
 for _file in "${TEST_FILES[@]}"; do source "$_file"; done
 unset _file
 
@@ -116,11 +124,16 @@ build_fixtures
 print ""
 
 CURRENT_TEST=""
-typeset -i RAN=0
+typeset -i RAN=0 _checks _status
 for CURRENT_TEST in "${TESTS[@]}"; do
   [[ -n "$FILTER" && "$CURRENT_TEST" != *"$FILTER"* ]] && continue
   print "${CURRENT_TEST#test_}"
+  _checks=$((PASSED + FAILED))
   "$CURRENT_TEST"
+  _status=$?
+  # A test that ran a command that does not exist, or checked nothing, proves nothing.
+  ((_status == 127)) && fail "a command it runs was not found"
+  ((PASSED + FAILED == _checks)) && fail "it made no check"
   [[ -s "$TMPROOT/refused" ]] && {
     fail "reached $(head -1 "$TMPROOT/refused") without a stub"
     : > "$TMPROOT/refused"
