@@ -129,6 +129,8 @@ setup_actions() {
     install_preset_action "$name" > /dev/null && installed+=("$name")
   done
   install_merge_action > /dev/null
+  write_edit_launcher \
+    || print -u2 -r -- "!! Could not write $EDIT_LAUNCHER, which shrinkit: edit opens its window with."
   print -r -- "==> Finder entries, one per preset, plus 'shrinkit: merge': ${installed[*]}"
 }
 
@@ -369,6 +371,11 @@ teardown_command() {
   done
   ((entries)) && removed+=("$entries Finder entries")
   "$PBS" -update 2> /dev/null || true
+  # Written by setup for shrinkit: edit's window, with the requests the entry left for it. The
+  # folder file beside them stays, so an upgrade keeps the working folder.
+  [[ -e "$EDIT_LAUNCHER" || -e "$EDIT_QUEUE" ]] && {
+    rm -rf "$EDIT_LAUNCHER" "$EDIT_QUEUE" && removed+=("the edit window's launcher") || failed+=("$EDIT_LAUNCHER")
+  }
 
   if ((${#removed})); then
     print -r -- "Removed: ${(j:, :)removed}."

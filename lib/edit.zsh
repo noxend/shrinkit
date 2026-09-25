@@ -495,8 +495,25 @@ edit_announce() {
   fi
 }
 
-# shrinkit run <file>: an edit file written before, run again.
+# shrinkit run <file>: an edit file written before, run again. The Terminal window runs it as run
+# --wait <file>, or takes the one a right-click left for it with run --next; neither is in the usage
+# text.
 run_command() {
+  local window=false file
+  if [[ "${1-}" == (--next|--wait) ]]; then
+    window=true
+    # Terminal's Last login line and the launcher's path go with the screen and what scrolled off it.
+    print -rn -- $'\e[H\e[2J\e[3J'
+    if [[ "$1" == --next ]]; then
+      file="$(take_edit_request)" || {
+        print -r -- "No edit file is waiting. Select recordings in Finder and pick shrinkit: edit."
+        return 1
+      }
+      set -- "$file"
+    else
+      shift
+    fi
+  fi
   (($# == 1)) || {
     print -u2 -r -- "run needs one edit file: shrinkit run <file>"
     return 2
@@ -505,7 +522,77 @@ run_command() {
     print -u2 -r -- "cannot read $1"
     return 2
   }
-  run_edit_file "$1"
+  if [[ "$window" == true ]]; then
+    edit_window "$1"
+  else
+    run_edit_file "$1"
+  fi
+}
+
+# --------------------------------------------------------------------- the Terminal window
+
+# shrinkit: edit opens its Terminal window on this launcher, which setup writes once, beside the
+# folder file: Terminal refuses a .command that carries a quarantine flag, and whether one a Quick
+# Action writes does is not known. Each right-click leaves the path of its edit file in the queue
+# beside it, one request per file, and each window takes the oldest.
+EDIT_LAUNCHER="${FOLDER_FILE:h}/shrinkit edit.command"
+EDIT_QUEUE="${FOLDER_FILE:h}/edit-queue"
+
+# The launcher runs the folder and the program every right-click entry runs.
+write_edit_launcher() {
+  mkdir -p "${EDIT_LAUNCHER:h}" \
+    && print -rl -- '#!/bin/zsh' "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} run --next" \
+      > "$EDIT_LAUNCHER" \
+    && chmod +x "$EDIT_LAUNCHER"
+}
+
+# The oldest request in the queue, taken so that no other window takes it too: mv is a rename, and
+# of two windows renaming one request only one succeeds. A request whose file is gone is dropped.
+# Prints the edit file's path, and fails when none is waiting.
+take_edit_request() {
+  local request mine="$EDIT_QUEUE/.taken.$$" file
+  for request in "$EDIT_QUEUE"/*(N.Om); do
+    mv "$request" "$mine" 2> /dev/null || continue
+    file="$(< "$mine")"
+    rm -f "$mine"
+    [[ -f "$file" ]] || continue
+    print -r -- "$file"
+    return 0
+  done
+  return 1
+}
+
+# The window: the file in TextEdit, then one Enter runs it. TextEdit is opened from here rather
+# than by the Finder entry, so it comes up after the window and stays in front, and the file in it
+# is always the one this window runs.
+edit_window() {
+  local file="${1:a}" made rc
+  print -r -- "$file"
+  print
+  print -r -- "Edit the file in TextEdit, save it (Cmd-S), then press Enter here to run it."
+  print -r -- "Ctrl-C cancels; the file stays, and 'shrinkit run <file>' runs it later."
+  made="$(stat -f %Fm "$file")"
+  open -e "$file"
+  edit_window_enter || return 1
+  # TextEdit may save a document on its own when another app comes to the front, so this catches a
+  # file nobody touched, not every edit left unsaved.
+  if [[ "$(stat -f %Fm "$file" 2> /dev/null)" == "$made" ]]; then
+    print -r -- "${file:t} has not been saved since it was made. Save it and press Enter, or press Enter to run it as it is."
+    edit_window_enter || return 1
+  fi
+  run_edit_file "$file"
+  rc=$?
+  print
+  print -r -- "To run it again: shrinkit run ${(qq)file}"
+  ((${#EDIT_MADE})) && open -R "${EDIT_MADE[@]}"
+  return $rc
+}
+
+# Enter, or the end of the input, after which nothing is run.
+edit_window_enter() {
+  read -r && return 0
+  print -r -- "Nothing was run."
+  return 1
 }
 
 # --------------------------------------------------------------------- shrinkit edit
