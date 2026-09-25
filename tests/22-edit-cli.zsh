@@ -13,39 +13,96 @@ test_edit_writes_one_block_per_recording_in_merge_order() {
   recorded_copy "$FIXTURES/take-green.mov" "$work/2 bug.mov" 2026-01-01T11:00:00
   recorded_copy "$FIXTURES/take-green.mov" "$work/1 intro.mov" 2026-01-01T12:00:00
 
-  make_edit "$box" "$tools" "$work/a-second.mov" "$work/2 bug.mov" "$work/z-first.mov" "$work/1 intro.mov"
+  make_edit "$box" "$tools" "$work/a-second.mov" "$work/2 bug.mov" "$work/z-first.mov" "$work/1 intro.mov" \
+    > /dev/null
 
   check "one block per recording, numbered takes first, then in the order they were shot" \
     test "$(headers_of "$tools/given")" = $'[1 intro.mov]\n[2 bug.mov]\n[z-first.mov]\n[a-second.mov]'
   check "merge = false above the first block" \
     test "$(grep -v -e '^#' -e '^$' "$tools/given" | head -1)" = 'merge = false'
-  check "the file is named after the first recording" exists "$work/1 intro.edit.txt"
-  check "and is what the editor was handed" test "$(< "$tools/editor.log")" = "editor $work/1 intro.edit.txt"
 }
 
-test_edit_writes_the_file_beside_the_first_recording_and_never_over_another() {
-  local box tools work first
-  local -a second
+# The name comes from the set of recordings (SPEC.md, The edit file's name). They are recorded c, a,
+# b, so the order they join in is neither the order they are given in nor the order name_for sorts
+# their paths in.
+test_edit_names_the_file_for_the_set_of_recordings_in_any_order() {
+  local box tools work three
   box="$(sandbox)"
   settings "$box"
   tools="$(scratch)"
   stub_tools "$tools"
-  stub_editor "$tools" editor 'add clip.mov "speed = 3"'
+  stub_editor "$tools" editor 'exit 1'
   work="$(scratch)"
-  cp "$FIXTURES/take-red.mov" "$work/clip.mov"
-  first="$work/clip.edit.txt"
+  recorded_copy "$FIXTURES/take-green.mov" "$work/c.mov" 2026-01-01T10:00:00
+  recorded_copy "$FIXTURES/take-red.mov" "$work/a.mov" 2026-01-01T10:05:00
+  recorded_copy "$FIXTURES/take-blue.mov" "$work/b.mov" 2026-01-01T10:10:00
+  three="$work/$(name_for "$work/a.mov" "$work/b.mov" "$work/c.mov")"
 
-  run_edit "$box" "$tools" "$work/clip.mov" > /dev/null
-  check "writes clip.edit.txt beside the recording" exists "$first"
-  check "which keeps what was typed into it" grep -qx 'speed = 3' "$first"
-  # Typed into it later, to run it again another day.
-  print -r -- 'crf = 20' >> "$first"
+  run_edit "$box" "$tools" "$work/b.mov" "$work/a.mov" "$work/c.mov" 2> /dev/null
+  check "names the file for the three recordings" test "$(edited "$tools")" = "$three"
+  check "and writes it" exists "$three"
 
-  run_edit "$box" "$tools" "$work/clip.mov" > /dev/null
-  second=("$work"/clip-<->.edit.txt(N))
-  check "a second edit writes a new file beside the first" test "${#second}" = 1
-  check "hands that one to the editor" test "$(tail -1 "$tools/editor.log")" = "editor ${second[1]-}"
-  check "and leaves the first as it was" test "$(tail -1 "$first")" = 'crf = 20'
+  rm -f "$three"
+  run_edit "$box" "$tools" "$work/c.mov" "$work/b.mov" "$work/a.mov" 2> /dev/null
+  check "the same name whatever order they are given in" test "$(edited "$tools")" = "$three"
+
+  run_edit "$box" "$tools" "$work/a.mov" "$work/b.mov" 2> /dev/null
+  check "another set, another name" \
+    test "$(edited "$tools")" = "$work/$(name_for "$work/a.mov" "$work/b.mov")"
+  check "not the three's" test "$(edited "$tools")" != "$three"
+}
+
+# A Terminal window sets a locale and a Quick Action need not, and the two can sort paths
+# differently: B.mov before a.mov byte by byte, after it in uk_UA.
+test_edit_names_the_file_the_same_in_every_locale() {
+  local box tools work want
+  box="$(sandbox)"
+  settings "$box"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'exit 1'
+  work="$(scratch)"
+  recorded_copy "$FIXTURES/take-red.mov" "$work/a.mov" 2026-01-01T10:00:00
+  recorded_copy "$FIXTURES/take-blue.mov" "$work/B.mov" 2026-01-01T10:05:00
+  want="$work/$(name_for "$work/a.mov" "$work/B.mov")"
+
+  check "uk_UA really sorts a.mov first" test "$(print -rl B.mov a.mov | LC_ALL=uk_UA.UTF-8 sort | head -1)" = a.mov
+  LC_ALL=uk_UA.UTF-8 run_edit "$box" "$tools" "$work/a.mov" "$work/B.mov" 2> /dev/null
+  check "in uk_UA" test "$(edited "$tools")" = "$want"
+  rm -f "$want"
+  LC_ALL=C run_edit "$box" "$tools" "$work/a.mov" "$work/B.mov" 2> /dev/null
+  check "and in C" test "$(edited "$tools")" = "$want"
+}
+
+# The same set of recordings reopens its file: whatever was typed into it stays, and nothing is
+# written over it.
+test_edit_opens_the_file_of_the_same_recordings_as_it_was_left() {
+  local box tools work file before saved
+  local -a files
+  box="$(sandbox)"
+  settings "$box"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor 'add a.mov "speed = 3"'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/a.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/b.mov"
+  file="$(make_edit "$box" "$tools" "$work/a.mov" "$work/b.mov")"
+  # Typed into it later, to run it again another day, and saved a while ago.
+  print -r -- 'crf = 20' >> "$file"
+  touch -t 202601011000 "$file"
+  before="$(< "$file")"
+  saved="$(stat -f %m "$file")"
+
+  stub_editor "$tools" editor 'exit 1'
+  run_edit "$box" "$tools" "$work/b.mov" "$work/a.mov" 2> /dev/null
+
+  check "hands the editor the same file" test "$(edited "$tools")" = "$file"
+  check "as it was left" test "$(< "$tools/given")" = "$before"
+  check "keeping what it holds" test "$(< "$file")" = "$before"
+  check "and when it was saved" test "$(stat -f %m "$file")" = "$saved"
+  files=("$work"/*.edit.txt(N))
+  check "and writes no other" test "${#files}" = 1
 }
 
 test_edit_names_each_recordings_length_and_the_presets_there_are() {
@@ -98,7 +155,8 @@ test_edit_names_a_recording_in_another_folder_by_its_path() {
 
   run_edit "$box" "$tools" "$there/second.mov" "$here/first.mov" 2> /dev/null
 
-  check "writes the file beside the first recording" exists "$here/first.edit.txt"
+  check "writes the file beside the first recording" \
+    exists "$here/$(name_for "$here/first.mov" "$there/second.mov")"
   check "names the one beside it by its name, the other by its path" \
     test "$(headers_of "$tools/given")" = "[first.mov]"$'\n'"[$there/second.mov]"
 }
@@ -127,7 +185,7 @@ test_edit_without_a_video_is_refused() {
 }
 
 test_edit_stops_when_the_editor_fails() {
-  local box tools work out code=0
+  local box tools work file out code=0
   local -a made
   box="$(sandbox)"
   settings "$box" 'speed = 2'
@@ -139,12 +197,13 @@ test_edit_stops_when_the_editor_fails() {
   cp "$FIXTURES/take-red.mov" "$work/clip.mov"
 
   out="$(run_edit "$box" "$tools" "$work/clip.mov" 2>&1)" || code=$?
+  file="$(edited "$tools")"
 
   check "exits 1" test "$code" = 1
   made=("$work"/*.mp4(N))
   check "runs nothing" test "${#made}" = 0
-  check "keeps the file" grep -qx 'speed = 3' "$work/clip.edit.txt"
-  check "and says where it is" contains "$out" "$work/clip.edit.txt"
+  check "keeps the file" grep -qx 'speed = 3' "$file"
+  check "and says where it is" contains "$out" "The file stays: $file"
 }
 
 test_edit_opens_visual_then_editor_then_vi() {
@@ -159,7 +218,8 @@ test_edit_opens_visual_then_editor_then_vi() {
 
   VISUAL="$tools/visual" EDITOR="$tools/editor" PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" edit "$work/clip.mov" 2> /dev/null
-  check "VISUAL first" test "$(tail -1 "$tools/editor.log")" = "visual $work/clip.edit.txt"
+  check "VISUAL first" \
+    test "$(tail -1 "$tools/editor.log")" = "visual $work/$(name_for "$work/clip.mov")"
 
   run_edit "$box" "$tools" "$work/clip.mov" 2> /dev/null
   check "then EDITOR" grep -q '^editor ' <<< "$(tail -1 "$tools/editor.log")"

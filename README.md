@@ -100,7 +100,7 @@ Under a recording's name goes one setting per line: `preset`, `cut`, `keep`, or 
 `crf`, `codec`, `remove_audio` and `max_height` as in `settings.conf`. Delete a block to leave that
 recording out. Open a recording in QuickTime to read the times off it.
 
-Save the file, then right-click it in Finder (which may show it as `1 intro.edit`) and pick
+Save the file, then right-click it in Finder (which may show it as `shrinkit-3f9a2c.edit`) and pick
 `shrinkit: run`. A Terminal window opens and runs the blocks in order, with the log in that window.
 Before it encodes anything, shrinkit names each line it cannot use, and skips it. Each line in the
 window starts with a mark: 🎬 a recording, ⏳ an encode, ✅ a result, 🔗 the join, 🟡 something
@@ -113,10 +113,12 @@ right-click names it (`clip-sharp.mp4`), or `clip.mp4` without one. With `merge 
 are joined into `<first>-merged.mp4` beside the first recording, in the order of the blocks, and the
 first block's `codec`, `fps` and `max_height` apply to all of them.
 
-The file stays beside the first recording as `<first>.edit.txt`, so the same edit runs again with
-`shrinkit: run`, or with `shrinkit run '1 intro.edit.txt'` in a terminal. The terminal has
-`shrinkit edit '1 intro.mov' '2 bug.mov'` too: it writes the same file, opens it in `$EDITOR`, and
-runs it when the editor closes. Delete every block to cancel.
+The file stays beside the first recording as `shrinkit-<code>.edit.txt`, the code made from the
+paths of the recordings. Pick `shrinkit: edit` on the same recordings again and it opens that file
+as you left it; delete the file to start over. To run the same edit again, pick `shrinkit: run` on
+it, or type `shrinkit run shrinkit-3f9a2c.edit.txt` in a terminal. The terminal has
+`shrinkit edit '1 intro.mov' '2 bug.mov'` too: it writes the same file, or opens it when it is
+there, in `$EDITOR`, and runs it when the editor closes. Delete every block to cancel.
 
 ## Cutting a stretch out
 

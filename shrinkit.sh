@@ -267,22 +267,19 @@ temp_part() {
 }
 
 # A name nothing holds yet: the one asked for, else with the time added, else with the time and
-# the pid. Wherever a second file of the same name must not replace the first. The time goes in
-# front of the extension, or of the one named (edit.txt), so a name keeps what it ends in.
+# the pid. Wherever a second file of the same name must not replace the first.
 free_name() {
-  local want="$1" ext stem stamp
-  ext="${2:-${want:e}}"
-  stem="${want%.$ext}"
+  local want="$1" stamp
   [[ -e "$want" ]] || {
     print -r -- "$want"
     return
   }
   stamp="$(date +%s)"
-  [[ -e "$stem-$stamp.$ext" ]] || {
-    print -r -- "$stem-$stamp.$ext"
+  [[ -e "${want:r}-$stamp.${want:e}" ]] || {
+    print -r -- "${want:r}-$stamp.${want:e}"
     return
   }
-  print -r -- "$stem-$stamp-$$.$ext"
+  print -r -- "${want:r}-$stamp-$$.${want:e}"
 }
 
 # --------------------------------------------------------------------- settings
@@ -1363,7 +1360,9 @@ file and opens it in TextEdit; 'shrinkit: run' on the saved file runs it in a
 Terminal window, which closes itself when everything went through.
 
 run runs an edit file again, here in the terminal. The file stays beside the
-first recording as <first>.edit.txt.
+first recording as shrinkit-<code>.edit.txt, the code made from the recordings'
+paths, so an edit of the same recordings opens it again as it was left. Delete
+it to start over.
 
 merge joins several recordings into one, in the order they were recorded, or by
 a number at the start of the file name (1 intro.mov, 2 bug.mov) for any that

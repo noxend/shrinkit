@@ -19,7 +19,7 @@ frames_of() {
 }
 
 test_run_merge_joins_the_recordings_in_the_order_of_the_blocks() {
-  local box tools work tmp out code=0
+  local box tools work file tmp out code=0
   local -a left
   box="$(sandbox)"
   settings "$box" 'speed = 1'
@@ -33,10 +33,10 @@ test_run_merge_joins_the_recordings_in_the_order_of_the_blocks() {
   recorded_copy "$FIXTURES/take-red.mov" "$work/red.mov" 2026-01-01T10:00:00
   recorded_copy "$FIXTURES/take-blue.mov" "$work/blue.mov" 2026-01-01T10:05:00
   recorded_copy "$FIXTURES/take-green.mov" "$work/green.mov" 2026-01-01T10:10:00
-  make_edit "$box" "$tools" "$work/red.mov" "$work/blue.mov" "$work/green.mov"
+  file="$(make_edit "$box" "$tools" "$work/red.mov" "$work/blue.mov" "$work/green.mov")"
   out="$work/green-merged.mp4"
 
-  TMPDIR="$tmp" run_file "$box" "$tools" "$work/red.edit.txt" > /dev/null || code=$?
+  TMPDIR="$tmp" run_file "$box" "$tools" "$file" > /dev/null || code=$?
 
   check "writes one file beside the first block's recording" exists "$out"
   check "in the order of the blocks" takes_are "$out" green red blue
@@ -52,7 +52,7 @@ test_run_merge_joins_the_recordings_in_the_order_of_the_blocks() {
 # values and two cuts: what a set of takes for one clip looks like. The first block is neither the
 # largest nor the one with sound, so the set's frame and sound come from the others.
 test_run_merge_encodes_each_recording_once_and_copies_the_join() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'remove_audio = false'
   mkdir -p "$box/presets"
@@ -66,10 +66,10 @@ test_run_merge_encodes_each_recording_once_and_copies_the_join() {
   cp "$FIXTURES/take-loud.mov" "$work/1 loud.mov"
   cp "$FIXTURES/silent.mov" "$work/2 silent.mov"
   cp "$FIXTURES/colored.mov" "$work/3 colored.mov"
-  make_edit "$box" "$tools" "$work/1 loud.mov" "$work/2 silent.mov" "$work/3 colored.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 loud.mov" "$work/2 silent.mov" "$work/3 colored.mov")"
   out="$work/1 loud-merged.mp4"
 
-  run_file "$box" "$tools" "$work/1 loud.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
 
   check "encodes each recording once" test "$(log_count "$box" ' encode ')" = 3
   check "and joins the parts by copying them" logged "$box" 'merged 3 clips into 1 loud-merged.mp4 (streams copied)'
@@ -79,7 +79,7 @@ test_run_merge_encodes_each_recording_once_and_copies_the_join() {
 }
 
 test_run_merge_gives_every_part_the_same_parameter_sets() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   tools="$(scratch)"
@@ -88,17 +88,17 @@ test_run_merge_gives_every_part_the_same_parameter_sets() {
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
   out="$work/1 a-merged.mp4"
 
-  run_file "$box" "$tools" "$work/1 a.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
 
   check "joins them by copying" logged "$box" 'streams copied'
   check "with one picture parameter set for both crf values" test "$(pps_values "$out" | wc -l | tr -d ' ')" = 1
 }
 
 test_run_merge_copies_a_join_of_hevc_parts() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   tools="$(scratch)"
@@ -108,10 +108,10 @@ test_run_merge_copies_a_join_of_hevc_parts() {
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
   out="$work/1 a-merged.mp4"
 
-  run_file "$box" "$tools" "$work/1 a.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
 
   check "encodes both in the first block's hevc" test "$(video_codec "$out")" = hevc
   check "and joins them by copying" logged "$box" 'streams copied'
@@ -121,7 +121,7 @@ test_run_merge_copies_a_join_of_hevc_parts() {
 # The parts agree by construction, so the join re-encodes only when copying them fails: here, an
 # ffmpeg that cannot join by copying and does everything else as the real one.
 test_run_merge_that_has_to_re_encode_the_join_keeps_the_sets_codec() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   tools="$(scratch)"
@@ -133,10 +133,10 @@ test_run_merge_that_has_to_re_encode_the_join_keeps_the_sets_codec() {
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
   out="$work/1 a-merged.mp4"
 
-  run_file "$box" "$tools" "$work/1 a.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
 
   check "re-encodes the join" logged "$box" 'merged 2 clips into 1 a-merged.mp4 (re-encoded)'
   check "in the set's hevc" test "$(video_codec "$out")" = hevc
@@ -145,7 +145,7 @@ test_run_merge_that_has_to_re_encode_the_join_keeps_the_sets_codec() {
 }
 
 test_run_merge_fps_zero_keeps_the_first_recordings_rate() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 4'
   tools="$(scratch)"
@@ -154,10 +154,10 @@ test_run_merge_fps_zero_keeps_the_first_recordings_rate() {
   work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-red.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
   out="$work/1 a-merged.mp4"
 
-  run_file "$box" "$tools" "$work/1 a.edit.txt" > /dev/null
+  run_file "$box" "$tools" "$file" > /dev/null
 
   check "the first recording is 60 fps" test "$(rate_of "$work/1 a.mov")" = 60/1
   check "and so is the merged file" test "$(rate_of "$out")" = 60/1
@@ -168,7 +168,7 @@ test_run_merge_fps_zero_keeps_the_first_recordings_rate() {
 
 # A later block's codec, fps and max_height, from its preset and from its own lines.
 test_run_merge_uses_the_first_blocks_codec_fps_and_height() {
-  local box tools work out text want
+  local box tools work file out text want
   box="$(sandbox)"
   settings "$box" 'speed = 1'
   mkdir -p "$box/presets"
@@ -180,10 +180,10 @@ test_run_merge_uses_the_first_blocks_codec_fps_and_height() {
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 small.mov"
   cp "$FIXTURES/take-loud.mov" "$work/2 large.mov"
-  make_edit "$box" "$tools" "$work/1 small.mov" "$work/2 large.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 small.mov" "$work/2 large.mov")"
   out="$work/1 small-merged.mp4"
 
-  text="$(run_file "$box" "$tools" "$work/1 small.edit.txt")"
+  text="$(run_file "$box" "$tools" "$file")"
 
   for want in \
     "[2/2] 2 large.mov: codec hevc is not used; merge = true encodes every recording in the first one's h264" \
@@ -199,7 +199,7 @@ test_run_merge_uses_the_first_blocks_codec_fps_and_height() {
 }
 
 test_run_merge_joins_nothing_when_a_block_fails() {
-  local box tools work tmp out code=0
+  local box tools work file tmp out code=0
   local -a left
   box="$(sandbox)"
   settings "$box" 'speed = 2'
@@ -211,9 +211,9 @@ test_run_merge_joins_nothing_when_a_block_fails() {
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   print -r -- 'not a movie' > "$work/2 broken.mov"
   cp "$FIXTURES/take-blue.mov" "$work/3 c.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 broken.mov" "$work/3 c.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 broken.mov" "$work/3 c.mov")"
 
-  out="$(TMPDIR="$tmp" run_file "$box" "$tools" "$work/1 a.edit.txt" 2> /dev/null)" || code=$?
+  out="$(TMPDIR="$tmp" run_file "$box" "$tools" "$file" 2> /dev/null)" || code=$?
 
   check "names the block it could not shrink" contains "$out" "  ❌ FAILED $work/2 broken.mov"
   check "says nothing is joined, and why" \
@@ -230,7 +230,7 @@ test_run_merge_joins_nothing_when_a_block_fails() {
 # A block that cannot run is known before the first encode, so nothing is encoded for a set that
 # will not be joined.
 test_run_merge_encodes_nothing_when_a_block_is_left_out() {
-  local box tools work out code=0
+  local box tools work file out code=0
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -240,19 +240,19 @@ test_run_merge_encodes_nothing_when_a_block_is_left_out() {
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 gone.mov"
   cp "$FIXTURES/take-green.mov" "$work/3 c.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 gone.mov" "$work/3 c.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 gone.mov" "$work/3 c.mov")"
   rm "$work/2 gone.mov"
 
-  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt" 2> /dev/null)" || code=$?
+  out="$(run_file "$box" "$tools" "$file" 2> /dev/null)" || code=$?
 
-  check "names the block and why" contains "$out" $'\n🟡 [2/3] 2 gone.mov: not found beside 1 a.edit.txt\n'
+  check "names the block and why" contains "$out" $'\n🟡 [2/3] 2 gone.mov: not found beside '"${file:t}"$'\n'
   check "says nothing is joined" contains "$out" $'\n❌ [join] nothing joined: merge = true joins every recording or none\n'
   check "encodes nothing" not_logged "$box" ' encode '
   check "and exits 1" test "$code" = 1
 }
 
 test_run_merge_with_one_recording_left_shrinks_it_alone() {
-  local box tools work out code=0
+  local box tools work file out code=0
   local -a merged
   box="$(sandbox)"
   settings "$box" 'speed = 2'
@@ -261,9 +261,9 @@ test_run_merge_with_one_recording_left_shrinks_it_alone() {
   stub_editor "$tools" editor 'set_merge true'
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/clip.mov"
-  make_edit "$box" "$tools" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/clip.edit.txt")" || code=$?
+  out="$(run_file "$box" "$tools" "$file")" || code=$?
 
   check "shrinks it beside itself" duration_near "$work/clip.mp4" 1
   merged=("$work"/*merged*(N))
@@ -275,7 +275,7 @@ test_run_merge_with_one_recording_left_shrinks_it_alone() {
 
 # As an interrupted merge (tests/07): TERM while the second part is being written.
 test_an_interrupted_edit_merge_leaves_nothing_behind() {
-  local box tools work tmp pid code=0 asked took _
+  local box tools work file tmp pid code=0 asked took _
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -285,10 +285,10 @@ test_an_interrupted_edit_merge_leaves_nothing_behind() {
   tmp="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 short.mov"
   cp "$FIXTURES/big.mov" "$work/2 long.mov"
-  make_edit "$box" "$tools" "$work/1 short.mov" "$work/2 long.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 short.mov" "$work/2 long.mov")"
 
   TMPDIR="$tmp" PATH="$tools:$PATH" SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
-    zsh "$OPTIMIZER" run "$work/1 short.edit.txt" > /dev/null 2>&1 &
+    zsh "$OPTIMIZER" run "$file" > /dev/null 2>&1 &
   pid=$!
   for _ in {1..400}; do
     grep -q 'done   1 short' "$box/.logs/optimizer.log" 2> /dev/null && break
@@ -309,7 +309,7 @@ test_an_interrupted_edit_merge_leaves_nothing_behind() {
 }
 
 test_run_merge_marks_the_join_on_the_terminal() {
-  local box tools work out
+  local box tools work file out
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tools="$(scratch)"
@@ -318,9 +318,9 @@ test_run_merge_marks_the_join_on_the_terminal() {
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
 
   check "heads the join" contains "$out" $'\n🔗 [join] 2 parts\n'
   check "marks what it made as a result" \
@@ -329,7 +329,7 @@ test_run_merge_marks_the_join_on_the_terminal() {
 }
 
 test_run_merge_puts_the_merged_file_on_the_clipboard_and_in_the_banner() {
-  local box tools work out
+  local box tools work file out
   local -a copies banners
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'notify = true' 'copy_to_clipboard = true'
@@ -339,9 +339,9 @@ test_run_merge_puts_the_merged_file_on_the_clipboard_and_in_the_banner() {
   work="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
 
-  out="$(run_file "$box" "$tools" "$work/1 a.edit.txt")"
+  out="$(run_file "$box" "$tools" "$file")"
   copies=(${(f)"$(grep '^clipboard ' "$tools/osascript.log")"})
   banners=(${(f)"$(grep '^banner ' "$tools/osascript.log")"})
 
@@ -354,7 +354,7 @@ test_run_merge_puts_the_merged_file_on_the_clipboard_and_in_the_banner() {
 }
 
 test_run_merge_says_when_the_join_fails() {
-  local box tools work tmp out code=0
+  local box tools work file tmp out code=0
   local -a merged banners
   box="$(sandbox)"
   settings "$box" 'speed = 2' 'notify = true'
@@ -365,11 +365,11 @@ test_run_merge_says_when_the_join_fails() {
   tmp="$(scratch)"
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
-  make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov"
+  file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov")"
   # The joined file cannot be moved in beside the recordings.
   chmod a-w "$work"
 
-  out="$(TMPDIR="$tmp" run_file "$box" "$tools" "$work/1 a.edit.txt" 2> /dev/null)" || code=$?
+  out="$(TMPDIR="$tmp" run_file "$box" "$tools" "$file" 2> /dev/null)" || code=$?
   chmod u+w "$work"
   banners=(${(f)"$(grep '^banner ' "$tools/osascript.log")"})
 
