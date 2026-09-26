@@ -128,9 +128,12 @@ setup_actions() {
     in_menu "$name" || continue
     install_preset_action "$name" > /dev/null && installed+=("$name")
   done
-  install_cuts_action > /dev/null
+  install_edit_action > /dev/null
+  install_run_action > /dev/null
+  write_edit_launcher \
+    || print -u2 -r -- "!! Could not write $EDIT_LAUNCHER, which shrinkit: run opens its windows with."
   install_merge_action > /dev/null
-  print -r -- "==> Finder entries, one per preset, plus 'shrinkit: mark cuts' and 'shrinkit: merge': ${installed[*]}"
+  print -r -- "==> Finder entries, one per preset, plus 'shrinkit: edit', 'shrinkit: run' and 'shrinkit: merge': ${installed[*]}"
 }
 
 # A checkout registers the script that is running rather than a copy of it, so a git pull is picked
@@ -370,6 +373,11 @@ teardown_command() {
   done
   ((entries)) && removed+=("$entries Finder entries")
   "$PBS" -update 2> /dev/null || true
+  # Written by setup for the windows shrinkit: run opens, with the requests the entry left for them.
+  # The folder file beside them stays, so an upgrade keeps the working folder.
+  [[ -e "$EDIT_LAUNCHER" || -e "$EDIT_QUEUE" ]] && {
+    rm -rf "$EDIT_LAUNCHER" "$EDIT_QUEUE" && removed+=("the edit window's launcher") || failed+=("$EDIT_LAUNCHER")
+  }
 
   if ((${#removed})); then
     print -r -- "Removed: ${(j:, :)removed}."

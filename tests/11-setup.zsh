@@ -81,7 +81,7 @@ test_setup_does_not_say_done_when_launchd_refuses_the_agent() {
   check "and lets brew finish" test "$brew_code" = 0
 }
 
-test_a_preset_taken_out_of_the_menu_stays_out_after_setup() {
+test_a_removed_preset_stays_gone_after_setup() {
   local box services
   box="$(scratch)"
   setup_box "$box"
@@ -92,21 +92,20 @@ test_a_preset_taken_out_of_the_menu_stays_out_after_setup() {
   # What every brew upgrade runs.
   run_setup "$box" > /dev/null 2>&1
 
-  check "setup does not build it again" missing "$services/shrinkit: 2x.workflow"
+  check "setup does not build its entry again" missing "$services/shrinkit: 2x.workflow"
   check "and builds the others" test -d "$services/shrinkit: sharp.workflow"
-  check "and the preset itself stays" exists "$box/work/presets/2x.conf"
-
-  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset install 2x > /dev/null 2>&1
-  run_setup "$box" > /dev/null 2>&1
-  check "preset install puts it back for good" test -d "$services/shrinkit: 2x.workflow"
+  check "the preset is gone from presets/" missing "$box/work/presets/2x.conf"
+  check "into the Trash" exists "$box/home/.Trash/2x.conf"
 }
 
-test_a_preset_taken_out_of_the_menu_stays_out_in_a_new_folder() {
+# 3.x's preset remove kept the file and wrote the name down; such a preset stays out of the menu.
+test_a_preset_3x_took_out_of_the_menu_stays_out_in_a_new_folder() {
   local box
   box="$(scratch)"
   setup_box "$box"
   run_setup "$box" > /dev/null 2>&1
-  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset remove 2x > /dev/null 2>&1
+  rm -rf "$box/home/Library/Services/shrinkit: 2x.workflow"
+  print -r -- 2x > "$box/work/presets/.not-in-menu"
 
   HOME="$box/home" SHRINKIT_LAUNCHCTL="$box/stub/launchctl" \
     zsh "$OPTIMIZER" config folder "$box/elsewhere" > /dev/null 2>&1
@@ -169,11 +168,98 @@ test_setup_builds_one_entry_per_preset_and_sweeps_the_rest() {
 
   run_setup "$box" > /dev/null 2>&1
 
-  # three stock presets, plus mark cuts and merge
-  check "one entry per preset plus the two that are not presets" \
-    test "$(action_count "$services")" = 5
+  # three stock presets, plus edit, run and merge
+  check "one entry per preset plus the ones that are not a preset" \
+    test "$(action_count "$services")" = 6
   check "a preset that no longer exists leaves no entry" missing "$services/shrinkit: gone.workflow"
   check "and the preset entries are there" exists "$services/shrinkit: 2x.workflow/Contents/Info.plist"
+}
+
+# Finder lists an entry for the files its Info.plist names: an edit file is plain text to it, and
+# every other entry takes recordings.
+test_setup_offers_run_for_edit_files_and_the_rest_for_recordings() {
+  local box services name
+  box="$(scratch)"
+  setup_box "$box"
+  services="$box/home/Library/Services"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  check "run is offered for plain text alone" \
+    test "$(entry_types "$services/shrinkit: run.workflow")" = '["public.plain-text"]'
+  for name in 2x sharp tiny edit merge; do
+    check "$name for movies alone" \
+      test "$(entry_types "$services/shrinkit: $name.workflow")" = '["public.movie"]'
+  done
+}
+
+# With no template beside the program, an entry already in the menu is copied instead, and the run
+# entry may be the one there is.
+test_an_entry_copied_from_the_run_entry_is_offered_for_recordings() {
+  local box services entry
+  box="$(installed_box)"
+  services="$box/home/Library/Services"
+  for entry in "$services"/shrinkit:*.workflow; do
+    [[ "$entry" == */"shrinkit: run.workflow" ]] || rm -rf "$entry"
+  done
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" SHRINKIT_REPO="" SHRINKIT_PBS="$box/stub/pbs" \
+    zsh "$OPTIMIZER" preset install 2x > /dev/null 2>&1
+
+  check "the preset's entry is built" exists "$services/shrinkit: 2x.workflow/Contents/Info.plist"
+  check "for movies, not for the text files run takes" \
+    test "$(entry_types "$services/shrinkit: 2x.workflow")" = '["public.movie"]'
+}
+
+# A clone upgraded with git pull and setup, no teardown: the mark cuts entry 3.x built goes with
+# the sweep and is not built again.
+test_setup_run_again_removes_the_mark_cuts_entry_an_older_version_built() {
+  local box services entry
+  box="$(scratch)"
+  setup_box "$box"
+  services="$box/home/Library/Services"
+  entry="$services/shrinkit: mark cuts.workflow"
+  mkdir -p "$services"
+  cp -R "$REPO_DIR/quick-action/shrinkit.workflow" "$entry"
+  plutil -replace actions.0.action.ActionParameters.COMMAND_STRING -string \
+    "SHRINKIT_DIR=${(qq):-$box/work} ${(qq):-$box/home/.local/bin/shrinkit} mark-cuts \"\$@\"" \
+    "$entry/Contents/document.wflow"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  check "leaves no mark cuts entry" missing "$entry"
+  check "and builds merge's" exists "$services/shrinkit: merge.workflow/Contents/Info.plist"
+  check "and edit's, which replaced it" exists "$services/shrinkit: edit.workflow/Contents/Info.plist"
+  check "with run's beside it" exists "$services/shrinkit: run.workflow/Contents/Info.plist"
+}
+
+# The Terminal window shrinkit: run opens runs a launcher setup writes once, beside the folder file.
+test_setup_writes_the_launcher_and_teardown_removes_it() {
+  local box support launcher entry out
+  box="$(scratch)"
+  setup_box "$box"
+  support="$box/home/Library/Application Support/shrinkit"
+  launcher="$support/shrinkit edit.command"
+
+  run_setup "$box" > /dev/null 2>&1
+
+  check "setup writes the launcher beside the folder file" exists "$launcher"
+  check "one Terminal can run" test -x "$launcher"
+  entry="$(action_command "$box/home/Library/Services/shrinkit: merge.workflow")"
+  check "running the next edit with the folder and the program the entries run" \
+    test "$(< "$launcher")" = "#!/bin/zsh"$'\n'"${entry% merge *} run --next"
+
+  # A right-click whose window never came leaves its request behind.
+  mkdir -p "$support/edit-queue"
+  print -r -- "$box/clips/clip.edit.txt" > "$support/edit-queue/left"
+  out="$(run_teardown "$box" "$box/work" 2>&1)"
+
+  check "teardown removes it" missing "$launcher"
+  check "and the queue beside it" missing "$support/edit-queue"
+  check "says so" contains "$out" "the edit window's launcher"
+  check "and leaves the folder file" exists "$support/folder"
+  out="$(run_teardown "$box" "$box/work" 2>&1)"
+  check "claiming it only while it was there" lacks "$out" "launcher"
 }
 
 test_setup_run_again_keeps_the_settings_and_the_presets() {
@@ -432,4 +518,225 @@ test_a_cask_install_leaves_a_different_shrinkit_alone() {
 
   # This runs on every brew install and upgrade, so a file that only shares the name survives it.
   check "keeps a file that is not this script" grep -q "somebody else" "$box/home/.local/bin/shrinkit"
+}
+
+# preset add: the file with the usual settings commented out at the values in effect, its
+# right-click entry, and the file opened in the editor, the way config edit opens settings.conf.
+test_preset_add_makes_the_file_and_its_entry_and_opens_it() {
+  local box tools file out code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  print -r -- 'crf = 31' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  print -rl -- '#!/bin/zsh' "print -r -- \"\$@\" >> ${(qq)tools}/editor.log" > "$tools/editor"
+  chmod +x "$tools/editor"
+  file="$box/work/presets/for review.conf"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR="$tools/editor" \
+    zsh "$OPTIMIZER" preset add 'for review' 2>&1)" || code=$?
+
+  check "exits 0" test "$code" = 0
+  check "writes the preset" exists "$file"
+  check "with an example to write after" grep -qx '#     max_height = 720' "$file"
+  check "naming what it can set" \
+    grep -qx "# It can set speed, fps, crf, codec, remove_audio, max_height. Whatever it does not set comes" "$file"
+  check "and what settings.conf has now" grep -q 'which has now: .*crf 31' "$file"
+  check "and no other setting commented out to take the # off" \
+    test "$(grep -cE '^# *(speed|fps|crf|codec|remove_audio|max_height) = ' "$file")" = 2
+  check "and nothing in effect yet" test -z "$(grep -v '^#' "$file" | grep .)"
+  check "adds its right-click entry" test -d "$box/home/Library/Services/shrinkit: for review.workflow"
+  check "opens it in the editor" test "$(< "$tools/editor.log")" = "$file"
+  check "and says where it is" contains "$out" "created $file"
+}
+
+# add on a preset there is: its file as it is, its entry back if it had none, and the file opened.
+test_preset_add_on_a_preset_there_is_opens_it_as_it_is() {
+  local box tools before code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  rm -rf "$box/home/Library/Services/shrinkit: sharp.workflow"
+  print -r -- sharp > "$box/work/presets/.not-in-menu"
+  before="$(< "$box/work/presets/sharp.conf")"
+  tools="$(scratch)"
+  print -rl -- '#!/bin/zsh' "print -r -- \"\$@\" >> ${(qq)tools}/editor.log" > "$tools/editor"
+  chmod +x "$tools/editor"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR="$tools/editor" \
+    zsh "$OPTIMIZER" preset add sharp > /dev/null 2>&1 || code=$?
+
+  check "exits 0" test "$code" = 0
+  check "keeps the preset as it was" test "$(< "$box/work/presets/sharp.conf")" = "$before"
+  check "gives it back its entry" test -d "$box/home/Library/Services/shrinkit: sharp.workflow"
+  check "for good" missing "$box/work/presets/.not-in-menu"
+  check "and opens it" test "$(< "$tools/editor.log")" = "$box/work/presets/sharp.conf"
+}
+
+# The way a person goes through it: make one, take it away, make it again, change it.
+test_preset_add_remove_add_edit() {
+  local box tools file services out code
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  tools="$(scratch)"
+  print -rl -- '#!/bin/zsh' "print -r -- \"\$@\" >> ${(qq)tools}/editor.log" > "$tools/editor"
+  chmod +x "$tools/editor"
+  file="$box/work/presets/320p.conf"
+  services="$box/home/Library/Services"
+  run_preset() { HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR="$tools/editor" zsh "$OPTIMIZER" preset "$@" 2>&1; }
+
+  run_preset add 320p > /dev/null
+  check "add makes it" exists "$file"
+  print -r -- 'max_height = 320' >> "$file"
+  check "and lists it" contains "$(run_preset)" 320p
+
+  code=0
+  out="$(run_preset remove 320p)" || code=$?
+  check "remove exits 0" test "$code" = 0
+  check "and says it removed the preset" contains "$out" "removed the preset '320p'"
+  check "its entry goes" missing "$services/shrinkit: 320p.workflow"
+  check "its file goes" missing "$file"
+  check "into the Trash" exists "$box/home/.Trash/320p.conf"
+  check "and it is no longer listed" lacks "$(run_preset)" 320p
+
+  code=0
+  out="$(run_preset add 320p)" || code=$?
+  check "add again exits 0" test "$code" = 0
+  check "and makes it anew" contains "$out" "created $file"
+  check "with its entry" test -d "$services/shrinkit: 320p.workflow"
+  check "and nothing of the old one in it" test -z "$(grep -v '^#' "$file" | grep .)"
+
+  code=0
+  run_preset edit 320p > /dev/null || code=$?
+  check "edit exits 0" test "$code" = 0
+  check "and opens it" test "$(tail -1 "$tools/editor.log")" = "$file"
+}
+
+# The name is a file name in presets/ and a menu title, and edit, run and merge are shrinkit's own
+# entries.
+test_preset_names_that_cannot_be_presets_are_refused() {
+  local box services command name out code before
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  before="$(action_command "$services/shrinkit: merge.workflow")"
+  for command in add edit remove; do
+    for name in '' 'a/b' '.hidden' '../settings'; do
+      code=0
+      out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR=false \
+        zsh "$OPTIMIZER" preset $command "$name" 2>&1)" || code=$?
+      check "$command '$name' is refused" test "$code" = 2
+      [[ -n "$name" ]] && check "$command '$name' says why" \
+        contains "$out" "a preset name cannot be empty, hold a /, or start with a dot"
+    done
+    for name in edit run merge; do
+      code=0
+      out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" EDITOR=false \
+        zsh "$OPTIMIZER" preset $command "$name" 2>&1)" || code=$?
+      check "$command $name is refused" test "$code" = 2
+      check "$command $name says it is shrinkit's own entry" contains "$out" "is shrinkit's own right-click entry"
+    done
+  done
+  check "nothing is written in presets/" \
+    test "$(ls -A "$box/work/presets" | sort | tr '\n' ' ')" = "2x.conf sharp.conf tiny.conf "
+  check "settings.conf stays" exists "$box/work/settings.conf"
+  check "and the merge entry is as it was" test "$(action_command "$services/shrinkit: merge.workflow")" = "$before"
+}
+
+# A file named after one of shrinkit's own entries, put into presets/ by hand.
+test_preset_sync_leaves_shrinkits_own_entries_alone() {
+  local box services before out
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  before="$(action_command "$services/shrinkit: edit.workflow")"
+  print -r -- 'speed = 3' > "$box/work/presets/edit.conf"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset sync 2>&1)"
+
+  check "keeps the edit entry as it was" test "$(action_command "$services/shrinkit: edit.workflow")" = "$before"
+  check "says it left the file out" contains "$out" "left out $box/work/presets/edit.conf"
+  check "and adds nothing for it" lacks "$out" "added to the menu: edit"
+}
+
+# Removing presets of one name again and again keeps every one of them in the Trash.
+test_preset_remove_never_writes_over_the_trash() {
+  local box trash preset
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  preset="$(< "$box/work/presets/sharp.conf")"
+  trash="$box/home/.Trash"
+  mkdir -p "$trash"
+  print -r -- first > "$trash/sharp.conf"
+  print -r -- second > "$trash/sharp 2.conf"
+
+  HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset remove sharp > /dev/null 2>&1
+
+  check "the Trash's files stay as they were" test "$(< "$trash/sharp.conf") $(< "$trash/sharp 2.conf")" = "first second"
+  check "and the preset lands beside them" test "$(< "$trash/sharp 3.conf")" = "$preset"
+  check "gone from presets/" missing "$box/work/presets/sharp.conf"
+}
+
+# preset remove on a name that is neither a preset nor an entry.
+test_preset_remove_of_no_preset_says_so_and_lists_them() {
+  local box out code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset remove 320 2>&1)" || code=$?
+
+  check "exits 2" test "$code" = 2
+  check "says there is no such preset" contains "$out" "no preset called '320'"
+  check "names the ones there are" contains "$out" "the presets there are: 2x, sharp, tiny"
+  check "and says nothing was removed" lacks "$out" "removed"
+  check "writing nothing down for it" missing "$box/work/presets/.not-in-menu"
+}
+
+test_preset_install_of_no_preset_lists_them() {
+  local box out code=0
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset install 320 2>&1)" || code=$?
+
+  check "exits 2" test "$code" = 2
+  check "names the ones there are" contains "$out" "the presets there are: 2x, sharp, tiny"
+}
+
+# Presets put into presets/ or deleted there by hand, then preset sync.
+test_preset_sync_makes_the_menu_match_the_presets_folder() {
+  local box services out
+  box="$(scratch)"
+  setup_box "$box"
+  run_setup "$box" > /dev/null 2>&1
+  services="$box/home/Library/Services"
+  print -r -- 'max_height = 320' > "$box/work/presets/320p.conf"
+  print -r -- 'speed = 4' > "$box/work/presets/fast one.conf"
+  rm "$box/work/presets/tiny.conf"
+  # One 3.x's preset remove took out of the menu, keeping its file.
+  rm -rf "$services/shrinkit: 2x.workflow"
+  print -r -- 2x > "$box/work/presets/.not-in-menu"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset sync 2>&1)"
+
+  check "adds an entry for each new file" test -d "$services/shrinkit: 320p.workflow" \
+    -a -d "$services/shrinkit: fast one.workflow"
+  check "takes out the one whose file is gone" missing "$services/shrinkit: tiny.workflow"
+  check "keeps the others" test -d "$services/shrinkit: sharp.workflow"
+  check "and edit, run and merge" test -d "$services/shrinkit: edit.workflow" \
+    -a -d "$services/shrinkit: run.workflow" -a -d "$services/shrinkit: merge.workflow"
+  check "and every preset whose file is there" test -d "$services/shrinkit: 2x.workflow"
+  check "leaving no list of ones kept out" missing "$box/work/presets/.not-in-menu"
+  check "says what it added" contains "$out" "added to the menu: 2x, 320p, fast one"
+  check "and what it took out" contains "$out" "taken out of the menu: tiny"
+  check "and what the menu holds" contains "$out" "in the menu: 2x, 320p, fast one, sharp"
+
+  out="$(HOME="$box/home" SHRINKIT_DIR="$box/work" zsh "$OPTIMIZER" preset sync 2>&1)"
+  check "run again, says there was nothing to do" contains "$out" "the menu already matched presets/"
 }

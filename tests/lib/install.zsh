@@ -99,6 +99,11 @@ brew_cask() {
   ln -sfn "$staged/shrinkit.sh" "$box/brew/bin/shrinkit"
 }
 
+# The file types a menu entry is offered for, as JSON: ["public.movie"].
+entry_types() {
+  plutil -extract NSServices.0.NSSendFileTypes json -o - "$1/Contents/Info.plist" 2> /dev/null
+}
+
 # The command a Quick Action runs: where the script has to write its own path down.
 action_command() {
   plutil -extract actions.0.action.ActionParameters.COMMAND_STRING raw -o - \

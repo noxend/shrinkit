@@ -4,8 +4,8 @@
 
 # --------------------------------------------------------------------- merging
 
-# Not tied to a preset, the way mark cuts is not: this entry joins the recordings it is handed
-# instead of shrinking any of them.
+# Not tied to a preset: this entry joins the recordings it is handed instead of shrinking any of
+# them.
 install_merge_action() {
   install_quick_action merge \
     "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} merge \"\$@\""
@@ -73,10 +73,14 @@ merge_total_duration() {
 
 # What has to match for clips to be joined without re-encoding: the codecs, the frame size, the
 # pixel format and the audio layout, one line per stream, so a clip with no sound never matches
-# one that has some.
+# one that has some; then the video's parameter sets, as a hash. Clips whose sets differ copy into
+# one track that carries the first clip's sets in its header and the others' in the stream, which
+# an avc1 or hvc1 track does not allow.
 merge_signature() {
   "$FFPROBE" -v error \
     -show_entries stream=codec_name,codec_type,width,height,pix_fmt,sample_rate,channels \
+    -of csv=p=0 "$1" 2> /dev/null
+  "$FFPROBE" -v error -select_streams v -show_data_hash MD5 -show_entries stream=extradata_hash \
     -of csv=p=0 "$1" 2> /dev/null
 }
 
@@ -102,17 +106,18 @@ write_concat_list() {
   done
 }
 
-# Joins the clips without touching their streams: fast, and the result is exactly the clips' own
-# quality. Only safe once merge_signatures_match() says they agree.
+# merge_copy <out> <seconds> <clip>...: joins the clips without touching their streams: fast, and
+# the result is exactly the clips' own quality. Only safe once merge_signatures_match() says they
+# agree. The seconds are how long the clips last together, or empty when that is not known.
 merge_copy() {
-  local out="$1" list rc
-  shift
+  local out="$1" length="$2" list rc
+  shift 2
   list="$(mktemp)"
   write_concat_list "$list" "$@"
   # -map, because ffmpeg's default selection keeps one stream per kind: a screen recording carrying
   # both system sound and a microphone would lose the microphone without a word. The ? makes the
   # audio side optional, so a set of silent takes still copies.
-  run_ffmpeg -nostdin -y -f concat -safe 0 -i "$list" -map 0:v -map '0:a?' -c copy \
+  run_ffmpeg joining "$length" -nostdin -y -f concat -safe 0 -i "$list" -map 0:v -map '0:a?' -c copy \
     -movflags +faststart "$out" >> "$LOG" 2>&1
   rc=$?
   rm -f "$list"
@@ -133,11 +138,13 @@ merge_duration_ok() {
 # Joins clips that do not agree: each one scaled into the largest frame in the set and padded to
 # keep its own shape, and given a silent track when something else in the set has sound, since
 # concat wants the same streams from every segment. crf 18 stays close to the sources on purpose:
-# this is the merge step, and shrinking is a separate one that should not be paid for twice.
+# this is the merge step, and shrinking is a separate one that should not be paid for twice. h264,
+# or in a merged edit run the codec its parts were encoded in. merge_encode <out> <seconds>
+# <clip>..., the seconds as merge_copy's.
 merge_encode() {
-  local out="$1"
-  shift
-  local -a clips=("$@") inputs chains audio_args
+  local out="$1" length="$2"
+  shift 2
+  local -a clips=("$@") inputs chains audio_args video_args=(-c:v libx264)
   local src dur width height maxw=0 maxh=0 audio=false labels="" i
 
   for src in "${clips[@]}"; do
@@ -154,7 +161,7 @@ merge_encode() {
   for ((i = 1; i <= ${#clips}; i++)); do
     src="${clips[i]}"
     inputs+=(-i "$src")
-    chains+=("[$((i - 1)):v]scale=${maxw}:${maxh}:force_original_aspect_ratio=decrease,pad=${maxw}:${maxh}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v$i]")
+    chains+=("[$((i - 1)):v]$(fit_frame $maxw $maxh),format=yuv420p[v$i]")
     # concat reads one segment's streams together, so a segment's labels stay next to each other:
     # [v1][a1][v2][a2], not every video first.
     labels="${labels}[v$i]"
@@ -172,6 +179,8 @@ merge_encode() {
     labels="${labels}[a$i]"
   done
 
+  [[ "${PART_FORMAT[codec]-}" == hevc ]] && video_args=(-c:v libx265 -tag:v hvc1)
+
   local graph="${(j:;:)chains};${labels}concat=n=${#clips}:v=1"
   local -a maps
   if [[ "$audio" == true ]]; then
@@ -184,24 +193,28 @@ merge_encode() {
     audio_args=(-an)
   fi
 
-  run_ffmpeg -nostdin -y "${inputs[@]}" -filter_complex "$graph" "${maps[@]}" \
-    "${audio_args[@]}" -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p \
+  run_ffmpeg joining "$length" -nostdin -y "${inputs[@]}" -filter_complex "$graph" "${maps[@]}" \
+    "${audio_args[@]}" "${video_args[@]}" -crf 18 -preset veryfast -pix_fmt yuv420p \
     -movflags +faststart "$out" >> "$LOG" 2>&1
 }
 
-# Joins the clips, in the order given, into one file beside the first of them, and prints the path
-# it wrote. Non-zero means nothing was written and every source is untouched.
+# merge_files <stem> <clip>...: joins the clips, in the order given, into <stem>-merged, with the
+# clips' own extension when their streams are copied, or under a free name beside it when that is
+# taken. MERGED_OUT is the file it wrote and MERGED_MODE how it joined them. Non-zero means nothing
+# was written and every source is untouched.
 merge_files() {
+  local stem="$1"
+  shift
   local -a clips=("$@")
   local first="${clips[1]}" part out total mode=""
 
   total="$(merge_total_duration "${clips[@]}")" || total=""
-  part="$(temp_part "${first:h}" "${first:t:r}-merged" "${first:e}")"
+  part="$(temp_part "${stem:h}" "${stem:t}-merged" "${first:e}")"
   CURRENT_PART="$part"
 
   if ! merge_signatures_match "${clips[@]}"; then
-    log "merge  the clips differ in size, codec or sound, so they are re-encoded to match"
-  elif ! merge_copy "$part" "${clips[@]}"; then
+    log "merge  the clips differ in size, codec, encoder settings or sound, so they are re-encoded to match"
+  elif ! merge_copy "$part" "$total" "${clips[@]}"; then
     rm -f "$part"
     log "merge  joining the streams as they are failed, re-encoding instead (ffmpeg output is above)"
   elif [[ -z "$total" ]]; then
@@ -217,16 +230,16 @@ merge_files() {
   fi
 
   if [[ -z "$mode" ]]; then
-    part="$(temp_part "${first:h}" "${first:t:r}-merged" mp4)"
+    part="$(temp_part "${stem:h}" "${stem:t}-merged" mp4)"
     CURRENT_PART="$part"
-    merge_encode "$part" "${clips[@]}" || {
+    merge_encode "$part" "$total" "${clips[@]}" || {
       rm -f "$part"
       return 1
     }
     mode="re-encoded"
   fi
 
-  out="${first:h}/${first:t:r}-merged.${part:e}"
+  out="${stem:h}/${stem:t}-merged.${part:e}"
   [[ -e "$out" ]] && out="${out:r}-$(date +%s).${part:e}"
   # Two merges of the same takes inside one second would otherwise land on that same name, and the
   # mv below overwrites. No other run can hold this pid while this one is still using it.
@@ -239,6 +252,7 @@ merge_files() {
   CURRENT_PART=""
   log "merged ${#clips} clips into ${out:t} ($mode)"
   MERGED_OUT="$out"
+  MERGED_MODE="$mode"
 }
 
 # The size line, clipboard copy and banner for a merge. Kept apart from announce(), which speaks in
@@ -291,15 +305,22 @@ merge_command() {
     notify "merge needs at least two videos"
     return 2
   }
+  ((${#clips} <= MAX_RECORDINGS)) || {
+    local said="shrinkit: merge takes up to $MAX_RECORDINGS recordings at a time; ${#clips} were selected"
+    print -u2 -r -- "$said"
+    log "$said"
+    notify "$said"
+    return 2
+  }
 
   for i in ${(f)"$(merge_order "${clips[@]}")"}; do ordered+=("${clips[i]}"); done
   log "merge  ${(j:, :)${(@)ordered:t}}"
   notify_start "${#ordered} clips" "Merging…"
 
   # Called directly, not in $(...): the part it writes is recorded in CURRENT_PART, and a subshell's
-  # copy of that is out of reach of the INT and TERM trap.
-  merge_files "${ordered[@]}" || {
-    log "FAILED merge of ${#ordered} clips (ffmpeg output is above)"
+  # copy of that is out of reach of the signal traps.
+  merge_files "${ordered[1]:r}" "${ordered[@]}" || {
+    log "FAILED merge of ${#ordered} clips (the reason is above)"
     notify "${ordered[1]:t}" "Could not merge"
     return 1
   }

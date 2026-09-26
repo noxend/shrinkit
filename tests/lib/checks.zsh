@@ -47,6 +47,10 @@ log_count() {
 duration() {
   "$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$1" 2> /dev/null
 }
+# A file's size as du -h gives it, which is how shrinkit says one.
+size_of() {
+  du -h "$1" | cut -f1 | tr -d ' '
+}
 video_codec() {
   "$FFPROBE" -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$1" 2> /dev/null
 }
@@ -61,6 +65,13 @@ no_audio() {
 }
 playable() {
   "$FFPROBE" -v error "$1" > /dev/null 2>&1
+}
+
+# Every pic_init_qp_minus26 the file's video carries, in its header and in its stream, one distinct
+# value per line: the picture parameter sets a copy join has to keep the same.
+pps_values() {
+  "$FFMPEG" -nostdin -i "$1" -map 0:v -c copy -bsf:v trace_headers -f null - 2>&1 \
+    | awk '/pic_init_qp_minus26/ { print $NF }' | sort -u
 }
 
 # color_at <seconds> <file>, a corner untouched by colored.mov's moving overlay

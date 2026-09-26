@@ -217,22 +217,24 @@ our_entries() {
   done
 }
 
-# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name>, mark-cuts or merge.
-# The command is split into words the way zsh splits it, so the quoting of an older setup reads the
-# same as today's. Sets ENTRY_NAME, ENTRY_FOLDER, ENTRY_PROGRAM and ENTRY_PRESET.
+# What one entry runs: SHRINKIT_DIR=<folder> <program>, then --preset <name>, edit, run, merge, or
+# what an older setup built. The command is split into words the way zsh splits it, so the quoting
+# of an older setup reads the same as today's. Sets ENTRY_NAME, ENTRY_FOLDER, ENTRY_PROGRAM,
+# ENTRY_COMMAND and ENTRY_PRESET.
 read_entry() {
   local -a words
   words=(${(Q)${(z)"$(plutil -extract actions.0.action.ActionParameters.COMMAND_STRING raw -o - \
     "$1/Contents/document.wflow" 2> /dev/null)"}})
   ENTRY_NAME="${${1:t:r}#shrinkit: }"
   [[ "${words[1]-}" == SHRINKIT_DIR=* ]] || return 1
-  ENTRY_FOLDER="${words[1]#SHRINKIT_DIR=}" ENTRY_PROGRAM="${words[2]-}" ENTRY_PRESET=""
-  if [[ "${words[3]-}" == --preset ]]; then
+  ENTRY_FOLDER="${words[1]#SHRINKIT_DIR=}" ENTRY_PROGRAM="${words[2]-}" ENTRY_COMMAND="${words[3]-}"
+  ENTRY_PRESET=""
+  if [[ "$ENTRY_COMMAND" == --preset ]]; then
     ENTRY_PRESET="${words[4]-}"
   fi
 }
 
-# One entry per preset in the working folder, plus mark cuts and merge, each running a program and,
+# One entry per preset in the working folder, plus edit, run and merge, each running a program and,
 # for a preset's entry, a preset that is there. Whether an entry is switched on in System Settings
 # is kept where no command reads it.
 doctor_check_right_click() {
@@ -242,9 +244,16 @@ doctor_check_right_click() {
   for preset in "$PRESET_DIR"/*.conf(N.); do
     in_menu "${preset:t:r}" && expected+=("${preset:t:r}")
   done
-  expected+=("mark cuts" merge)
+  expected+=(edit run merge)
   for entry in ${(f)"$(our_entries)"}; do
     read_entry "$entry" || continue
+    # Anything else was built by an older shrinkit, such as 3.x's mark cuts; setup sweeps it away.
+    [[ "$ENTRY_COMMAND" == (--preset|edit|run|merge) ]] || {
+      doctor_found warn "right-click $ENTRY_NAME is left from an older shrinkit" \
+        "Build the entries again with:" \
+        "  $DOCTOR_SELF setup"
+      continue
+    }
     present+=("$ENTRY_NAME")
     programs+=("$ENTRY_PROGRAM")
     [[ -z "$ENTRY_PRESET" || -f "$ENTRY_FOLDER/presets/$ENTRY_PRESET.conf" ]] \
@@ -261,13 +270,21 @@ doctor_check_right_click() {
         "  chmod +x ${(qq)program}"
     fi
   done
+  # The run entry opens its Terminal windows on the launcher setup writes beside the folder file.
+  if [[ ! -f "$EDIT_LAUNCHER" ]]; then
+    doctor_found FAIL "right-click run cannot open its window: there is no $EDIT_LAUNCHER" \
+      "Write it again with:" "  $DOCTOR_SELF setup"
+  elif [[ ! -x "$EDIT_LAUNCHER" ]]; then
+    doctor_found FAIL "right-click run cannot open its window: $EDIT_LAUNCHER is not executable" \
+      "Write it again with:" "  $DOCTOR_SELF setup"
+  fi
   for name in "${expected[@]}"; do
     ((${present[(Ie)$name]})) && continue
-    if [[ "$name" == "mark cuts" || "$name" == merge ]]; then
+    if [[ "$name" == (edit|run|merge) ]]; then
       doctor_found warn "no right-click entry for $name" "Build it again with:" "  $DOCTOR_SELF setup"
     else
       doctor_found warn "no right-click entry for the preset $name" "Add it with:" \
-        "  $DOCTOR_SELF preset install ${(qq)name}"
+        "  $DOCTOR_SELF preset add ${(qq)name}"
     fi
   done
   DOCTOR_OK="${#present} entries (whether each is switched on, doctor cannot see)"
@@ -328,7 +345,7 @@ doctor_check_input() {
   fi
   for item in "$IN_DIR"/*(DN); do
     name="${item:t}"
-    if [[ "$name" == .DS_Store || "$name" == ._* ]] || [[ "$name" == *.cuts && -f "${item%.cuts}" ]]; then
+    if [[ "$name" == .DS_Store || "$name" == ._* ]]; then
       continue
     elif [[ "$name" == .* || -L "$item" || ! -f "$item" || "$name" != (#i)*.(mov|mp4|m4v) ]]; then
       [[ -d "$item" ]] && name+=/

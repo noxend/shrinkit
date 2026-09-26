@@ -199,7 +199,7 @@ test_merge_handles_a_quote_in_the_name() {
 test_merge_re_encodes_takes_that_do_not_match() {
   local box work out
   box="$(sandbox)"
-  settings "$box"
+  settings "$box" 'codec = hevc'
   work="$(scratch)"
   recorded_copy "$FIXTURES/take-red.mov" "$work/one.mov" 2026-01-01T10:00:00
   recorded_copy "$FIXTURES/take-loud.mov" "$work/two.mov" 2026-01-01T10:05:00
@@ -207,13 +207,54 @@ test_merge_re_encodes_takes_that_do_not_match() {
 
   run_merge "$box" "$work/one.mov" "$work/two.mov"
 
-  check "says why it had to re-encode" logged "$box" 'differ in size, codec or sound'
+  check "says why it had to re-encode" logged "$box" 'differ in size, codec, encoder settings or sound'
   check "still produces one file" exists "$out"
   check "that plays" playable "$out"
   check "as long as the takes together" duration_near "$out" 4
   check "at the larger of the two sizes" test "$(height_of "$out")" = 360
   check "with the sound the other take had" has_audio "$out"
   check "and keeps the order" takes_are "$out" red grey
+  check "in h264, whatever codec settings.conf names" test "$(video_codec "$out")" = h264
+}
+
+# Two results shrinkit made at different crf: the same codec, size and pixel format, and picture
+# parameter sets that differ, which a copy would put under the first result's header.
+test_merge_re_encodes_takes_whose_parameter_sets_differ() {
+  local box work out
+  box="$(sandbox)"
+  settings "$box" 'speed = 1'
+  work="$(scratch)"
+  cp "$FIXTURES/take-red.mov" "$work/1 red.mov"
+  cp "$FIXTURES/take-blue.mov" "$work/2 blue.mov"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --crf 18 "$work/1 red.mov"
+  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --crf 32 "$work/2 blue.mov"
+  out="$work/1 red-merged.mp4"
+
+  run_merge "$box" "$work/1 red.mp4" "$work/2 blue.mp4"
+
+  check "says why it had to re-encode" logged "$box" 'differ in size, codec, encoder settings or sound'
+  check "rather than copying the streams" not_logged "$box" 'streams copied'
+  check "into one picture parameter set" test "$(pps_values "$out" | wc -l | tr -d ' ')" = 1
+  check "and keeps the order" takes_are "$out" red blue
+}
+
+test_merge_says_when_the_result_cannot_be_moved_in() {
+  local box work tmp code=0
+  box="$(sandbox)"
+  settings "$box"
+  work="$(scratch)"
+  tmp="$(scratch)"
+  recorded_copy "$FIXTURES/take-red.mov" "$work/one.mov" 2026-01-01T10:00:00
+  recorded_copy "$FIXTURES/take-blue.mov" "$work/two.mov" 2026-01-01T10:05:00
+  chmod a-w "$work"
+
+  TMPDIR="$tmp" run_merge "$box" "$work/one.mov" "$work/two.mov" 2> /dev/null || code=$?
+  chmod u+w "$work"
+
+  check "the move is what failed" logged "$box" 'could not move one-merged.mov'
+  check "says the merge failed, without blaming ffmpeg" logged "$box" \
+    'FAILED merge of 2 clips (the reason is above)$'
+  check "and exits 1" test "$code" = 1
 }
 
 test_merge_needs_at_least_two_videos() {
@@ -262,4 +303,51 @@ test_merge_does_not_overwrite_an_earlier_merge() {
   extra=("$work"/one-merged-*.mov(N))
   check "keeps the first result" exists "$work/one-merged.mov"
   check "and writes the second under a name of its own" test "${#extra}" = 1
+}
+
+# SPEC.md, At most 10 recordings: a re-encoding merge decodes every clip at once.
+test_merge_takes_at_most_ten_recordings() {
+  local box work out code=0 i
+  local -a clips made
+  box="$(sandbox)"
+  settings "$box"
+  work="$(scratch)"
+  for i in {1..11}; do
+    cp "$FIXTURES/take-red.mov" "$work/$i take.mov"
+    clips+=("$work/$i take.mov")
+  done
+
+  out="$(run_merge "$box" "${clips[@]}" 2>&1)" || code=$?
+  made=("$work"/*merged*(N))
+
+  check "refuses 11" test "$code" = 2
+  check "saying why" contains "$out" "shrinkit: merge takes up to 10 recordings at a time; 11 were selected"
+  check "and in the log" logged "$box" "shrinkit: merge takes up to 10 recordings at a time; 11 were selected"
+  check "joining nothing" test "${#made}" = 0
+  check "and writing nothing beside them" test "$(ls "$work" | wc -l | tr -d ' ')" = 11
+
+  code=0
+  run_merge "$box" "${clips[@]:0:10}" > /dev/null 2>&1 || code=$?
+  check "takes 10" test "$code" = 0
+  check "and joins them" duration_near "$work/1 take-merged.mov" 20
+}
+
+test_the_merge_entry_says_it_takes_at_most_ten_recordings() {
+  local box tools work code=0 i
+  local -a clips
+  box="$(installed_box)"
+  print -r -- 'notify_sound = Ping' >> "$box/work/settings.conf"
+  tools="$(scratch)"
+  stub_tools "$tools"
+  work="$(scratch)"
+  for i in {1..11}; do
+    cp "$FIXTURES/take-red.mov" "$work/$i take.mov"
+    clips+=("$work/$i take.mov")
+  done
+
+  run_entry "$box" "$tools" merge "${clips[@]}" 2> /dev/null || code=$?
+
+  check "in a banner, since nothing else it says is seen" test "$(< "$tools/osascript.log")" = \
+    "banner shrinkit | shrinkit: merge takes up to 10 recordings at a time; 11 were selected | Ping"
+  check "and exits 2" test "$code" = 2
 }

@@ -26,12 +26,12 @@ test_keep_flag_sorts_and_merges_its_ranges() {
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
   out="$work/clip.mp4"
 
-  # out of order, and the last two overlap into one 3-5 stretch
+  # out of order, and the last one inside the one before it
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
-    zsh "$OPTIMIZER" --keep 8-9 --keep 3-4.5 --keep 4-5 "$work/clip.mov"
+    zsh "$OPTIMIZER" --keep 8-9 --keep 3-6 --keep 4-5 "$work/clip.mov"
 
-  check "keeps the merged stretch and the separate one" duration_near "$out" 3
-  check "with the green second joined on as the tail" color_at_is 2.5 "$out" 018001
+  check "keeps the merged stretch and the separate one" duration_near "$out" 4
+  check "with the green second joined on as the tail" color_at_is 3.5 "$out" 018001
 }
 
 test_keep_flag_reaching_the_end_keeps_the_tail() {
@@ -116,21 +116,6 @@ test_keep_flag_joins_only_the_gap_that_is_too_short() {
   check "having joined only the short one" logged "$box" 'joining the keeps around 2-2.005'
 }
 
-test_keep_flag_replaces_the_sidecar() {
-  local box work out
-  box="$(sandbox)"
-  settings "$box" 'speed = 1'
-  work="$(scratch)"
-  cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  print -r -- '0-6' > "$work/clip.mov.cuts" # would leave 6s; the flag below leaves 2s
-  out="$work/clip.mp4"
-
-  SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --keep 4-6 "$work/clip.mov"
-
-  check "applies the flag's range, not the sidecar's" duration_near "$out" 2
-  check "and says the sidecar was ignored" logged "$box" 'using --keep, ignoring clip.mov.cuts'
-}
-
 # Naming both is not a preference to resolve: they describe one edit from opposite sides, and
 # picking a winner would cut exactly the footage the other flag asked to keep.
 test_keep_and_cut_together_are_refused() {
@@ -157,7 +142,6 @@ test_keep_flag_with_no_file_is_refused() {
   box="$(sandbox)"
   settings "$box" 'speed = 1' 'keep_original = false'
   cp "$FIXTURES/colored.mov" "$box/input/queued.mov"
-  print -r -- '0-6' > "$box/input/queued.mov.cuts"
 
   code=0
   msg="$(SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" --keep 3-4 2>&1 > /dev/null)" || code=$?
@@ -167,7 +151,6 @@ test_keep_flag_with_no_file_is_refused() {
   check "asking for the file it should keep from" \
     test "$msg" = "--keep needs the file to keep from, e.g. shrinkit --keep 1:00-2:00 recording.mov"
   check "leaves the queued recording alone" exists "$box/input/queued.mov"
-  check "and its sidecar with it" exists "$box/input/queued.mov.cuts"
   check "writes nothing" empty_dir "$box/output"
 }
 
@@ -186,16 +169,13 @@ test_keep_flag_with_no_range_is_refused() {
   check "naming the flag that was typed" test "$msg" = "--keep needs a range, e.g. --keep 0:32-0:35"
 
   # The empty value is the mistake that actually happens, a wrapper expanding a variable it never
-  # set. Letting it through would count as "ranges were asked for" and suppress the recording's own
-  # sidecar while adding no range to replace it.
+  # set. Letting it through would shrink the recording without the range that was meant.
   work="$(scratch)"
   cp "$FIXTURES/colored.mov" "$work/clip.mov"
-  print -r -- '3-4' > "$work/clip.mov.cuts"
   code=0
   SHRINKIT_DIR="$box" SHRINKIT_REPO="" \
     zsh "$OPTIMIZER" --keep '' "$work/clip.mov" > /dev/null 2>&1 || code=$?
 
   check "an empty range is refused too" test "$code" = 2
-  check "without touching the sidecar it would have suppressed" exists "$work/clip.mov.cuts"
   check "and without writing an output" missing "$work/clip.mp4"
 }

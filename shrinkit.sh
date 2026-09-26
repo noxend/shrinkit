@@ -123,7 +123,7 @@ registered_path() {
   print -r -- "$SELF"
 }
 
-# Where the two biggest self-contained features live: beside the script, or under
+# Where the parts sourced below live: beside the script, or under
 # ~/.local/share/shrinkit for the copy of a guarded checkout. Deliberately not data_dir(): SHRINKIT_REPO names where the
 # presets and the menu template are, which the test suite blanks on purpose, and code is not that.
 lib_dir() {
@@ -138,7 +138,7 @@ LIB_DIR="$(lib_dir)"
 
 # A missing part is a broken install, not a missing feature, so it stops here. Reported to stderr
 # and by exit code rather than to the log, which lives under a folder these parts help set up.
-for _part in merge setup doctor; do
+for _part in merge setup doctor edit screen window; do
   [[ -r "$LIB_DIR/$_part.zsh" ]] || {
     print -u2 -r -- "shrinkit is incomplete: cannot read $LIB_DIR/$_part.zsh"
     exit 1
@@ -160,9 +160,8 @@ LOCK_DIR="$BASE_DIR/.optimizer.lock"
 CONFIG="$BASE_DIR/settings.conf"
 # named variations on the config, one file each
 PRESET_DIR="$BASE_DIR/presets"
-# Presets taken out of the right-click menu with 'preset remove', one name per line. setup builds
-# an entry for every other preset; without the list it built these again on every run, which brew
-# does on every upgrade.
+# Presets 3.x's 'preset remove' took out of the right-click menu while keeping their files, one name
+# per line. setup and doctor still leave them out; preset add and preset remove take a name off it.
 MENU_OFF="$PRESET_DIR/.not-in-menu"
 
 OUT_DIR="$BASE_DIR/output"
@@ -183,21 +182,55 @@ find_tool() {
 FFMPEG="$(find_tool ffmpeg)"
 FFPROBE="$(find_tool ffprobe)"
 
+# At most this many recordings for edit and merge, and blocks in an edit file for run. Measured on
+# 2026-09-25 on 4K recordings (3456x1992, 120 fps): one encode peaks at 1.6 GB of memory, and a
+# re-encoding merge, which decodes every clip at once, at 1.8 GB for 2 clips, 2.5 GB for 10 and
+# 3.4 GB for 20. An 8 GB Mac has about 3 GB free, so 10 fit and 20 do not. An edit run encodes one
+# recording at a time, so for it the cap guards the join's fallback and a folder selected by mistake.
+MAX_RECORDINGS=10
+
+# The terminal an edit run shows its log on, as a file descriptor: a copy of its stdout taken before
+# any $(...) capture, so a line logged inside one still reaches the screen. Empty outside a run.
+SCREEN_FD=""
+
+# The one format every part of a merged edit run is encoded to, so the parts join by copying their
+# streams: codec, width, height, rate, sound (true or false), and the colour tags primaries, trc,
+# space and range. Empty outside such a run.
+typeset -A PART_FORMAT
+
+# During an edit run every line also goes on its screen (screen_log, lib/screen.zsh).
 log() {
   print -r -- "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
+  [[ -n "$SCREEN_FD" ]] && screen_log "$*"
+  return 0
 }
 
 # The part being written and the ffmpeg writing it, so an interrupted run can stop both.
 CURRENT_PART=""
 CURRENT_CHILD=""
 
+# The folder a merged edit run keeps its parts in until they are joined.
+PARTS_DIR=""
+remove_parts() {
+  [[ -n "$PARTS_DIR" ]] && rm -rf "$PARTS_DIR"
+  PARTS_DIR=""
+}
+
 # zsh runs a trap only once a foreground child exits, and launchd kills the agent five seconds after
 # asking it to stop, so ffmpeg runs in the background and is waited for: the trap then runs at once
-# and can stop it.
+# and can stop it. run_ffmpeg <word> <seconds> <ffmpeg args>: on an edit run's terminal the wait
+# draws the step under the word, measured against the seconds the result will last, from the
+# progress ffmpeg writes to a file; the seconds are empty when they are not known.
 run_ffmpeg() {
-  local rc
-  "$FFMPEG" "$@" &
+  local word="$1" length="$2" rc progress=""
+  local -a report
+  shift 2
+  if screen_draws && progress="$(mktemp "$(temp_folder)/shrinkit.$$.progress.XXXXXX")"; then
+    report=(-progress "$progress")
+  fi
+  "$FFMPEG" "${report[@]}" "$@" &
   CURRENT_CHILD=$!
+  [[ -n "$progress" ]] && screen_progress "$word" "$length" "$progress"
   wait "$CURRENT_CHILD"
   rc=$?
   CURRENT_CHILD=""
@@ -323,6 +356,16 @@ read_preset() {
     return 1
   }
   read_settings "$file"
+  preset_sets_something "$file" || {
+    log "the preset '$1' sets nothing: every line of $file is a comment, so settings.conf applies"
+    print -u2 -r -- "the preset '$1' sets nothing: take the # off the lines in $file"
+  }
+  return 0
+}
+
+# Whether a preset file has a line that is not a comment, which is what makes it change anything.
+preset_sets_something() {
+  grep -qv -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$1"
 }
 
 # Written as regexes rather than zsh's <-> globs so shell tooling can still parse this file.
@@ -338,6 +381,10 @@ is_bool() {
   [[ "$1" == true || "$1" == false ]]
 }
 
+# The highest frame rate an encode is given, so that a mistyped fps, or a recording stating an
+# absurd rate of its own, cannot hang it.
+MAX_FPS=240
+
 # One key's rule, asked about one value, with the words that describe the rule living in the same
 # arm. Written this way so "config" can check a single value before writing it and before showing
 # it, without any of these ranges being spelled out in a second or third place. Prints the reason
@@ -350,20 +397,23 @@ check_setting() {
       is_num "$value" && awk -v s="$value" 'BEGIN { exit !(s > 0) }' && return 0
       ;;
     fps)
-      # Capped, so a mistyped value cannot hang the encode. Digit count bounded first for the same
-      # reason keep_days bounds it below: zsh arithmetic truncates a long enough digit string to
-      # something negative and prints its own diagnostic doing it, so a bare comparison both passes
-      # the value and leaks "number truncated after 19 digits" to whoever ran the command.
-      reason="want 0-240"
-      [[ "$value" =~ ^[0-9]{1,4}$ ]] && ((value <= 240)) && return 0
+      # Capped at MAX_FPS. Digit count bounded first for the same reason keep_days bounds it
+      # below: zsh arithmetic truncates a long enough digit string to something negative and prints
+      # its own diagnostic doing it, so a bare comparison both passes the value and leaks "number
+      # truncated after 19 digits" to whoever ran the command.
+      reason="want 0-$MAX_FPS"
+      [[ "$value" =~ ^[0-9]{1,4}$ ]] && ((value <= MAX_FPS)) && return 0
       ;;
     crf)
       reason="want 0-51"
       [[ "$value" =~ ^[0-9]{1,4}$ ]] && ((value <= 51)) && return 0
       ;;
     max_height)
-      reason="want a whole number"
-      is_int "$value" && return 0
+      # Bounded by its digit count before any arithmetic, as fps is: zsh truncates a digit string
+      # past 19 places to a negative number, which reads as no cap, and says so on stderr. 9999 is
+      # taller than any recording.
+      reason="want 0-9999"
+      [[ "$value" =~ ^[0-9]{1,4}$ ]] && return 0
       ;;
     codec)
       reason="want h264 or hevc"
@@ -442,14 +492,15 @@ notify_start() {
   notify "$1" "${2:-Optimizing…}" none
 }
 
-# Writes to NSPasteboard directly, so this needs no permission to control other apps.
+# Writes to NSPasteboard directly, so this needs no permission to control other apps. Every path
+# given goes on as one copy, the way Finder copies a selection.
 copy_to_clipboard() {
-  osascript -l JavaScript - "$1" << 'JXA' > /dev/null 2>&1 || true
+  osascript -l JavaScript - "$@" << 'JXA' > /dev/null 2>&1 || true
 function run(argv) {
   ObjC.import('AppKit');
   const board = $.NSPasteboard.generalPasteboard;
   board.clearContents;
-  board.writeObjects($.NSArray.arrayWithObject($.NSURL.fileURLWithPath(argv[0])));
+  board.writeObjects($(argv.map(p => $.NSURL.fileURLWithPath(p))));
 }
 JXA
 }
@@ -531,37 +582,18 @@ parse_time() {
   fi
 }
 
-# A stray *.cuts-looking file next to a video whose exact sidecar name is missing is usually a typo
-# (dropped extension, Finder tacking on .txt) rather than "no cuts wanted" -- worth a banner, since
-# that mistake would otherwise ship the source unredacted with nothing to show for it. Anchored to
-# the video's own name, not a bare "starts with the same letters" prefix match: a plain prefix glob
-# also caught a second, unrelated recording sharing the first few characters of its name (Finder's
-# own "clip.mov" / "clip 2.mov" duplicate naming is the everyday way to hit that), warning about a
-# sidecar that was never meant for this video at all.
-warn_near_miss_cuts_file() {
-  # Split, not one local: zsh expands the whole line before src is local, so "${src:t}" on it would
-  # read the caller's src, silently, whenever the caller happens to have one.
-  local src="$1" stray
-  local expected="${src:t}.cuts"
-  local -a strays
-  strays=("${src:h}/${src:t:r}.cuts"(N) "${src:h}/${expected}"*(N))
-  for stray in "${strays[@]}"; do
-    [[ "${stray:t}" == "$expected" ]] && continue
-    log "found '${stray:t}' next to ${src:t}, expected '${expected}' -- no cuts applied"
-    notify "${src:t}: found '${stray:t}', expected '${expected}' -- no cuts applied"
-    return
-  done
-}
-
 # One "start-end" range to a "start end" pair in seconds, or nothing plus a log line saying why it
-# was rejected. where names the range's origin for that log line, since a range reaches here from
-# the sidecar file, from --cut or from --keep. kind is "cut" or "keep", and changes only how a
+# was rejected. where names the range's origin for that log line: the flag it came from, or
+# RANGE_ORIGIN when that is set. kind is "cut" or "keep", and changes only how a
 # rejection reads: a range is a range, and parses the same either way. duration is the source's
 # real length (video_duration()'s output), used to resolve "end" and to catch a range that starts
 # at or past it.
 parse_range() {
   local line="$1" duration="$2" where="$3" kind="$4" shown start end
   shown="${line:0:80}"
+  # TextEdit's Smart Dashes can turn the '-' typed between two times into an en dash, or into an em
+  # dash. A range holds no other dash, so either one is read as the '-'.
+  line="${${line//$'\xe2\x80\x93'/-}//$'\xe2\x80\x94'/-}"
   start="$(trim "${line%%-*}")"
   end="$(trim "${line#*-}")"
   start="$(parse_time "$start")"
@@ -573,14 +605,7 @@ parse_range() {
   # punctuation trick.
   [[ "${(L)end}" == end ]] && end="$duration" || end="$(parse_time "$end")"
   if [[ -z "$start" || -z "$end" ]] || ! awk -v a="$start" -v b="$end" 'BEGIN { exit !(b > a) }'; then
-    # TextEdit's Smart Dashes turns a typed "-" into an en dash the split above never sees, so the
-    # line reads as one blob with no separator at all -- worth naming, since it looks nothing like
-    # a formatting mistake to whoever typed it.
-    if [[ "$line" == *[–—]* && "$line" != *-* ]]; then
-      log "ignoring $kind '$shown' $where (looks like a smart dash -- turn off Smart Dashes in TextEdit's Edit > Substitutions, or retype the -)"
-    else
-      log "ignoring $kind '$shown' $where (want start-end, end after start)"
-    fi
+    log "ignoring $kind '$shown' $where (want start-end, end after start)"
     return 1
   fi
   # Under one frame interval at any fps this tool allows (fps <= 240, 1 frame = ~4ms) can match
@@ -605,22 +630,18 @@ parse_range() {
   print -r -- "$start $end"
 }
 
-# The ranges to cut, from --keep or --cut if any were named there and from <name>.cuts next to
-# <name> otherwise. Prints them as sorted, merged "start end" pairs, one per line in seconds, or
-# nothing if there is no sidecar file and neither flag, or nothing valid in any of them. A bad
-# range is skipped and logged rather than spoiling the ones around it.
+# The ranges to cut, from --keep or --cut. Prints them as sorted, merged "start end" pairs, one per
+# line in seconds, or nothing if neither was named or nothing valid was in them. A bad range is
+# skipped and logged rather than spoiling the ones around it.
 read_cuts() {
-  # cuts_file on its own line: see warn_near_miss_cuts_file() above.
-  local src="$1" duration="$2" line pair
-  local cuts_file="${src}.cuts"
+  local duration="$1" line pair
   local -a pairs
   # --keep names the footage to survive, so the ranges to cut are what it leaves out: the same
   # pairs, complemented against the real length. Everything downstream of here is the cut path
   # unchanged, since a keep is only ever a cut described from the other side.
   if ((${#KEEP_RANGES} > 0)); then
-    [[ -f "$cuts_file" ]] && log "using --keep, ignoring ${cuts_file:t}"
     for line in "${KEEP_RANGES[@]}"; do
-      pair="$(parse_range "$line" "$duration" "from --keep" keep)" && pairs+=("$pair")
+      pair="$(parse_range "$line" "$duration" "${RANGE_ORIGIN:-from --keep}" keep)" && pairs+=("$pair")
     done
     ((${#pairs} > 0)) || return 0
     local complemented
@@ -634,42 +655,16 @@ read_cuts() {
     # otherwise read the empty output as "every range was rejected" and send the user to the log.
     return 2
   fi
-  # --cut replaces the sidecar rather than adding to it, the same way every other flag beats the
-  # file it has an equivalent in. Naming ranges on the command line and silently getting the file's
-  # as well would be the worse surprise of the two, so the file is ignored out loud instead.
-  if ((${#CUT_RANGES} > 0)); then
-    [[ -f "$cuts_file" ]] && log "using --cut, ignoring ${cuts_file:t}"
-    for line in "${CUT_RANGES[@]}"; do
-      pair="$(parse_range "$line" "$duration" "from --cut" cut)" && pairs+=("$pair")
-    done
-    ((${#pairs} > 0)) && printf '%s\n' "${pairs[@]}" | sort -n -k1,1 | merge_cut_ranges
-    return 0
-  fi
-  if [[ ! -f "$cuts_file" ]]; then
-    warn_near_miss_cuts_file "$src"
-    return 0
-  fi
-  if [[ ! -r "$cuts_file" ]]; then
-    log "cannot read ${cuts_file:t} (check its permissions); no cuts applied"
-    notify "${src:t}: cannot read ${cuts_file:t} (check its permissions), no cuts applied"
-    return 1
-  fi
-  # The `|| [[ -n "$line" ]]` catches a last line with no trailing newline, which read would
-  # otherwise drop silently: a single-line .cuts file missing one would apply no cut at all.
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line="$(trim "${line%%\#*}")"
-    [[ -z "$line" ]] && continue
-    pair="$(parse_range "$line" "$duration" "in ${cuts_file:t}" cut)" && pairs+=("$pair")
-  done < "$cuts_file"
-  # Always 0 past this point, whether or not any line produced a usable range: a bad line already
-  # got its own log entry above, and cuts_note() needs a plain 0 to tell "no ranges parsed" apart
-  # from the two harder failures above that already notified on their own.
+  for line in "${CUT_RANGES[@]}"; do
+    pair="$(parse_range "$line" "$duration" "${RANGE_ORIGIN:-from --cut}" cut)" && pairs+=("$pair")
+  done
+  # 0 even when no range was usable: cuts_note() reads the flags to tell that from no cut asked.
   ((${#pairs} > 0)) && printf '%s\n' "${pairs[@]}" | sort -n -k1,1 | merge_cut_ranges
   return 0
 }
 
 # Sorted "start end" pairs in, one per line on stdin; merges any that touch or overlap so two
-# ranges from separate .cuts lines can never leave a keep-segment with a negative length.
+# ranges given separately can never leave a keep-segment with a negative length.
 merge_cut_ranges() {
   awk '
     NR == 1 { s = $1; e = $2; next }
@@ -679,21 +674,18 @@ merge_cut_ranges() {
   '
 }
 
-# ", cut applied" once at least one range took; ", cut requested but none applied" when a cut was
-# asked for, by sidecar, by --cut or by --keep, and every range in it was rejected -- empty
-# otherwise (nothing asked for a cut, or read_cuts already notified directly about a harder
-# failure, like a sidecar it could not read at all).
+# ", cut applied" once at least one range took; ", cut requested but none applied" when --cut or
+# --keep named ranges and every one of them was rejected; empty when no cut was asked for.
 cuts_note() {
-  local src="$1" cuts="$2" rc="$3" asked=cut
+  local cuts="$1" rc="$2" asked=cut
   # 2 is read_cuts() saying every --keep range was good and together they cover the whole clip.
   # Nothing is left to cut, and nothing went wrong, so it must not read like a rejected range.
   [[ "$rc" -eq 2 ]] && {
     print -r -- ", kept the whole clip, nothing to cut"
     return 0
   }
-  [[ "$rc" -eq 0 ]] || return 0
   ((${#KEEP_RANGES} > 0)) && asked=keep
-  [[ -f "${src}.cuts" ]] || ((${#CUT_RANGES} > 0)) || ((${#KEEP_RANGES} > 0)) || return 0
+  ((${#CUT_RANGES} > 0)) || ((${#KEEP_RANGES} > 0)) || return 0
   [[ -n "$cuts" ]] && print -r -- ", cut applied" || print -r -- ", $asked requested but none applied -- see the log"
 }
 
@@ -761,7 +753,7 @@ cut_filter_graph() {
   # it in full, pushing the real cut point out by however long that held frame was. Resampling to a
   # steady rate before any trim runs bounds that to a single frame, the same margin read_cuts()
   # already assumes elsewhere.
-  local cutfps=$((CFG[fps] > 0 ? CFG[fps] : 30))
+  local cutfps=${PART_FORMAT[rate]:-$((CFG[fps] > 0 ? CFG[fps] : 30))}
 
   # A plain shared [vnorm] read by more than one filter looked fine but was not: ffmpeg only ever
   # handed the fps-normalized stream to the FIRST filter that read the label, silently handing every
@@ -783,32 +775,53 @@ cut_filter_graph() {
     fi
   done
 
-  local -a vtail
-  ((CFG[max_height] > 0 && height > CFG[max_height])) && vtail+=("scale=-2:${CFG[max_height]}")
-  vtail+=("setpts=PTS/${CFG[speed]}")
-  # Speeding up after the trims changes the real frame density (2x speed roughly doubles it), so the
-  # configured cap has to be re-applied here too, the same as video_filters() already does for a run
-  # with no cuts at all -- otherwise "fps" stops being a cap the moment a .cuts file is involved.
-  ((CFG[fps] > 0)) && vtail+=("fps=${CFG[fps]}")
-
   local vlabels="" alabels=""
   for ((i = 0; i < n; i++)); do
     vlabels="${vlabels}[v$i]"
     alabels="${alabels}[a$i]"
   done
 
-  local graph="${pre}${(j:;:)vchains};${vlabels}concat=n=${n}:v=1:a=0[vcut];[vcut]${(j:,:)vtail}[vout]"
+  # Speeding up after the trims changes the real frame density (2x speed roughly doubles it), so the
+  # joined stretches end in the same filters as a run with no cuts, the fps cap among them. Without
+  # it "fps" would stop being a cap the moment a cut is involved.
+  local graph="${pre}${(j:;:)vchains};${vlabels}concat=n=${n}:v=1:a=0[vcut];[vcut]$(video_filters "$height")[vout]"
   [[ "$keep_audio" == true ]] \
-    && graph="${graph};${(j:;:)achains};${alabels}concat=n=${n}:v=0:a=1[acut];[acut]$(atempo_chain "${CFG[speed]}")[aout]"
+    && graph="${graph};${(j:;:)achains};${alabels}concat=n=${n}:v=0:a=1[acut];[acut]$(audio_filters)[aout]"
   print -r -- "$graph"
 }
 
-# No cuts: the plain per-file filters, unchanged by anything above.
+# Scaled to fit a width x height frame and padded out to it, keeping the picture's shape.
+fit_frame() {
+  print -r -- "scale=$1:$2:force_original_aspect_ratio=decrease,pad=$1:$2:(ow-iw)/2:(oh-ih)/2,setsar=1"
+}
+
+# The size, the speed and the frame rate, with or without cuts before them. In a merged edit run
+# every recording is fitted into the set's frame, brought to its rate and tagged with its primaries
+# and transfer: ffmpeg gives the encoder the frames' own whatever -color_primaries and -color_trc
+# say (measured on 9.0.2), and setparams only renames them, converting nothing.
 video_filters() {
   local height="$1" chain=""
-  ((CFG[max_height] > 0 && height > CFG[max_height])) && chain="scale=-2:${CFG[max_height]},"
+  if ((${#PART_FORMAT})); then
+    chain="$(fit_frame "${PART_FORMAT[width]}" "${PART_FORMAT[height]}"),"
+  elif ((CFG[max_height] > 0 && height > CFG[max_height])); then
+    chain="scale=-2:${CFG[max_height]},"
+  fi
   chain="${chain}setpts=PTS/${CFG[speed]}"
-  ((CFG[fps] > 0)) && chain="$chain,fps=${CFG[fps]}"
+  if ((${#PART_FORMAT})); then
+    chain="$chain,fps=${PART_FORMAT[rate]}"
+    chain="$chain,setparams=color_primaries=${PART_FORMAT[primaries]}:color_trc=${PART_FORMAT[trc]}"
+  elif ((CFG[fps] > 0)); then
+    chain="$chain,fps=${CFG[fps]}"
+  fi
+  print -r -- "$chain"
+}
+
+# The sound sped up with the picture. In a merged edit run it also takes the set's one layout,
+# 48 kHz stereo, which every part's track has.
+audio_filters() {
+  local chain
+  chain="$(atempo_chain "${CFG[speed]}")"
+  ((${#PART_FORMAT})) && chain="$chain,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo"
   print -r -- "$chain"
 }
 
@@ -821,13 +834,30 @@ atempo_chain() {
   }'
 }
 
+# How many seconds encoding src with cuts gives: the stretches the cuts keep, over the speed.
+# Nothing when the recording does not say how long it is.
+encode_length() {
+  local dur start end
+  local -F kept=0
+  dur="$(clip_duration "$1")"
+  [[ -n "$dur" ]] || return 0
+  if [[ -n "$2" ]]; then
+    while IFS=' ' read -r start end; do
+      [[ -n "$start" ]] && kept=$((kept + end - start))
+    done <<< "$(complement_ranges "$dur" <<< "$2")"
+  else
+    kept=$dur
+  fi
+  print -r -- $((kept / CFG[speed]))
+}
+
 # Non-zero means ffmpeg failed and nothing was written to $out. cuts is read_cuts()'s output,
 # passed in rather than read here so a caller can also use it to decide what to tell the user.
 encode() {
   local src="$1" out="$2" cuts="$3" height keep_audio=false
   height="$(video_height "$src")"
 
-  local -a audio codec filter_args
+  local -a audio codec filter_args silence
   if [[ "${CFG[remove_audio]}" == true ]] || ! has_audio "$src"; then
     audio=(-an)
   else
@@ -836,12 +866,23 @@ encode() {
 
   if [[ "${CFG[codec]}" == hevc ]]; then
     codec=(-c:v libx265 -tag:v hvc1)
+    # x265 writes its settings, crf among them, into the header of the stream unless info=0.
+    ((${#PART_FORMAT})) && codec+=(-x265-params info=0)
   else
     codec=(-c:v libx264)
+    # x264 fits its picture parameter set to the crf unless the encode is stitchable.
+    ((${#PART_FORMAT})) && codec+=(-x264-params stitchable=1)
   fi
   codec+=(-crf "${CFG[crf]}" -preset veryfast)
+  # The set's matrix and range, which ffmpeg converts each recording to before the encoder.
+  ((${#PART_FORMAT})) && codec+=(-colorspace "${PART_FORMAT[space]}" -color_range "${PART_FORMAT[range]}")
 
-  local label="${height}p, ${CFG[speed]}x, ${CFG[fps]}fps, ${CFG[codec]} crf${CFG[crf]}"
+  local frame="${height}p" rate="${CFG[fps]}"
+  if ((${#PART_FORMAT})); then
+    frame="${PART_FORMAT[width]}x${PART_FORMAT[height]}"
+    rate="${PART_FORMAT[rate]}"
+  fi
+  local label="$frame, ${CFG[speed]}x, ${rate}fps, ${CFG[codec]} crf${CFG[crf]}"
   [[ -n "$cuts" ]] && label="$label, cut"
 
   if [[ -n "$cuts" ]]; then
@@ -864,16 +905,25 @@ encode() {
     fi
   else
     filter_args=(-filter:v "$(video_filters "$height")")
-    [[ "$keep_audio" == true ]] && audio=(-c:a aac -b:a 128k -filter:a "$(atempo_chain "${CFG[speed]}")" -shortest)
+    [[ "$keep_audio" == true ]] && audio=(-c:a aac -b:a 128k -filter:a "$(audio_filters)" -shortest)
+  fi
+
+  # A merged set with sound gives every part a track, a silent one where the recording keeps none.
+  if [[ "$keep_audio" == false && "${PART_FORMAT[sound]-}" == true ]]; then
+    silence=(-f lavfi -i anullsrc=r=48000:cl=stereo)
+    # Once one stream is mapped every stream has to be, and the cut graph maps its own video.
+    [[ -n "$cuts" ]] || filter_args+=(-map 0:v:0)
+    audio=(-map 1:a -c:a aac -b:a 128k -shortest)
   fi
 
   # Written to a temp file first, so two runs on one name can never collide mid-write.
-  local part
+  local part length=""
   part="$(temp_part "${out:h}" "${out:t:r}" mp4)"
   CURRENT_PART="$part"
+  screen_draws && length="$(encode_length "$src" "$cuts")"
 
   log "encode ${src:t} ($label)"
-  run_ffmpeg -nostdin -y -i "$src" "${filter_args[@]}" \
+  run_ffmpeg encoding "$length" -nostdin -y -i "$src" "${silence[@]}" "${filter_args[@]}" \
     "${audio[@]}" "${codec[@]}" -pix_fmt yuv420p -movflags +faststart \
     "$part" >> "$LOG" 2>&1 || {
     rm -f "$part"
@@ -911,10 +961,15 @@ shrink() {
   local src="$1" out="$2" archive="$3" before after cuts rc note
   before="$(human_size "$src")"
   notify_start "${src:t:r}"
+  # A .cuts file is not read since 4.0, and a cut written in one would ship uncut: said until 5.0.
+  [[ -f "${src}.cuts" ]] && {
+    log "${src:t}.cuts is no longer read; cut with shrinkit: edit or --cut"
+    notify "${src:t}.cuts is no longer read; cut with shrinkit: edit or --cut"
+  }
 
-  cuts="$(read_cuts "$src" "$(video_duration "$src")")"
+  cuts="$(read_cuts "$(video_duration "$src")")"
   rc=$?
-  note="$(cuts_note "$src" "$cuts" "$rc")"
+  note="$(cuts_note "$cuts" "$rc")"
 
   encode "$src" "$out" "$cuts" || {
     # A watched file is always in input/; a right-clicked one can be anywhere, so name the path.
@@ -929,20 +984,17 @@ shrink() {
 
   if [[ "$archive" == true ]]; then
     if [[ "${CFG[keep_original]}" == true ]]; then
-      # touch: mv keeps the file's own mtime, but keep_days counts from when it was archived. The
-      # sidecar move is gated on the first mv succeeding, so a locked or permission-denied source
-      # cannot leave its .cuts sidecar archived while the video itself stays stuck in input/.
+      # touch: mv keeps the file's own mtime, but keep_days counts from when it was archived.
       # Under a free name, so a second recording with the same name does not replace the first.
       local kept
       kept="$(free_name "$DONE_DIR/${src:t}")"
       if mv "$src" "$kept" 2>> "$LOG"; then
         touch "$kept"
-        [[ -f "${src}.cuts" ]] && mv "${src}.cuts" "${kept}.cuts" && touch "${kept}.cuts"
       else
         mark_stuck "$src"
         log "kept   ${src:t} in input/: it could not be moved to .processed/ (the reason is above)"
       fi
-    elif ! rm -f "$src" "${src}.cuts" 2>> "$LOG"; then
+    elif ! rm -f "$src" 2>> "$LOG"; then
       mark_stuck "$src"
       log "kept   ${src:t} in input/: it could not be deleted (the reason is above)"
     fi
@@ -960,9 +1012,9 @@ optimize_files() {
       print -u2 -r -- "'$src' is not a file or a command (see --help)"
       continue
     }
-    # The right-click menu only offers video files, but a .cuts sidecar sits right next to its
-    # recording and is easy to select along with it -- without this, encode() would be handed a
-    # text file and fail with a "could not shrink" notification naming the sidecar, not the video.
+    # The right-click menu only offers video files, but a text file beside a recording is easy to
+    # select along with it. Without this, encode() would be handed it and fail with a "could not
+    # shrink" banner naming that file, not the video.
     [[ "$src" == (#i)*.(mov|mp4|m4v) ]] || {
       log "skip   ${src:t} (not a video)"
       print -u2 -r -- "${src:t} is not a video (.mov, .mp4 or .m4v)"
@@ -1122,11 +1174,8 @@ config_set() {
 }
 
 config_edit() {
-  local -a editor
-  # zsh does not split an expansion into words on its own, hence the =
-  editor=(${=EDITOR:-open -t})
   [[ -f "$CONFIG" ]] || : > "$CONFIG"
-  "${editor[@]}" "$CONFIG"
+  open_in_editor "$CONFIG"
 }
 
 # Moving the working folder means a new watch path for the agent, new menu entries and a new
@@ -1209,11 +1258,13 @@ quick_action_template() {
 }
 
 # One entry in the right-click menu: the template copied into ~/Library/Services, with the command
-# it runs and the name it shows replaced. Every entry differs only in those two. The folder, the
+# it runs, the name it shows and the file type Finder offers it for (movies unless another is named)
+# replaced. Every entry differs only in those three. The workflow itself takes any file or folder
+# (com.apple.Automator.fileSystemObject), so the type is named in Info.plist alone. The folder, the
 # program and the preset go into that command single-quoted, since zsh runs it: inside double
 # quotes a $ or a backtick in a folder or preset name ran as code on every right-click.
 install_quick_action() {
-  local name="$1" command="$2" template action
+  local name="$1" command="$2" type="${3:-public.movie}" template action
   template="$(quick_action_template)" || {
     print -u2 -r -- "cannot find a Quick Action to copy (looked in ${REPO_DIR:-<unset>}/quick-action)"
     return 1
@@ -1229,26 +1280,60 @@ install_quick_action() {
   plutil -replace CFBundleName -string "shrinkit: $name" "$action/Contents/Info.plist"
   plutil -replace NSServices.0.NSMenuItem.default -string "shrinkit: $name" \
     "$action/Contents/Info.plist"
+  plutil -replace NSServices.0.NSSendFileTypes -json "[\"$type\"]" "$action/Contents/Info.plist"
   "$PBS" -update 2> /dev/null || true
 
   print -r -- "right-click a video > shrinkit: $name"
 }
 
+# The name of each preset in presets/, one per line.
+preset_names() {
+  local file
+  for file in "$PRESET_DIR"/*.conf(N); do print -r -- "${file:t:r}"; done
+}
+
+# That there is no preset of that name, and which there are.
+no_such_preset() {
+  local -a names
+  print -u2 -r -- "no preset called '$1' (looked in $PRESET_DIR)"
+  names=(${(f)"$(preset_names)"})
+  ((${#names})) && print -u2 -r -- "the presets there are: ${(j:, :)names}"
+  return 0
+}
+
 install_preset_action() {
   local name="$1"
   [[ -f "$(preset_file "$name")" ]] || {
-    print -u2 -r -- "no preset called '$name' (looked in $PRESET_DIR)"
+    no_such_preset "$name"
     return 1
   }
   install_quick_action "$name" \
     "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} --preset ${(qq)name} \"\$@\""
 }
 
+# A preset goes whole: its file into the Trash, where it can be taken back from, then its
+# right-click entry, so a file that cannot be moved keeps its entry. A name that is neither a preset
+# nor an entry is said to be none.
 remove_preset_action() {
-  rm -rf "$SERVICES_DIR/shrinkit: $1.workflow"
-  in_menu "$1" && print -r -- "$1" >> "$MENU_OFF"
+  local name="$1" file trash n=1
+  preset_name_ok "$name" || return 2
+  file="$(preset_file "$name")"
+  [[ -d "$SERVICES_DIR/shrinkit: $name.workflow" || -f "$file" ]] || {
+    no_such_preset "$name"
+    return 2
+  }
+  if [[ -f "$file" ]]; then
+    trash="$HOME/.Trash/${file:t}"
+    while [[ -e "$trash" ]]; do trash="$HOME/.Trash/$name $((++n)).conf"; done
+    mkdir -p "$HOME/.Trash" && mv -n "$file" "$trash" && [[ ! -e "$file" ]] || {
+      print -u2 -r -- "could not move $file to the Trash; the preset stays"
+      return 1
+    }
+  fi
+  rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
+  back_in_menu "$name"
   "$PBS" -update 2> /dev/null || true
-  print -r -- "removed the Quick Action for '$1'"
+  print -r -- "removed the preset '$name'${trash:+; its file is in the Trash}"
 }
 
 in_menu() {
@@ -1267,77 +1352,149 @@ back_in_menu() {
   fi
 }
 
+# The settings a preset is usually made of, named in the note of a new one.
+PRESET_KEYS=(speed fps crf codec remove_audio max_height)
+
+# Whether a name can be a preset: a file in presets/, and not one of the entries shrinkit builds on
+# its own. Says why not.
+preset_name_ok() {
+  if [[ -z "$1" || "$1" == */* || "$1" == .* ]]; then
+    print -u2 -r -- "a preset name cannot be empty, hold a /, or start with a dot"
+    return 1
+  fi
+  if [[ "$1" == (edit|run|merge) ]]; then
+    print -u2 -r -- "'$1' is shrinkit's own right-click entry, so no preset can have that name"
+    return 1
+  fi
+  return 0
+}
+
+# A preset, made if there is none: its file, a note naming what it can set and space to write it,
+# and its right-click entry, then the file opened to edit, the way config edit opens settings.conf.
+preset_add() {
+  local name="$1" file key
+  preset_name_ok "$name" || return 2
+  file="$(preset_file "$name")"
+  if [[ -e "$file" ]]; then
+    print -r -- "the preset '$name' is there already: $file"
+  else
+    read_config
+    {
+      print -r -- "# shrinkit preset '$name'. Write the settings it changes under this note, one per line,"
+      print -r -- "# for example:"
+      print -r -- "#     max_height = 720"
+      print -r -- "#     speed = 3"
+      print -r -- "# It can set ${(j:, :)PRESET_KEYS}. Whatever it does not set comes"
+      print -r -- "# from settings.conf, which has now: $(for key in "${PRESET_KEYS[@]}"; do print -rn -- "$key ${CFG[$key]}, "; done | sed 's/, $//')."
+      print
+    } > "$file" || return 1
+    print -r -- "created $file"
+  fi
+  install_preset_action "$name" && back_in_menu "$name" || return 1
+  open_in_editor "$file"
+}
+
+# The right-click menu made to match presets/, for files put there or deleted by hand: an entry for
+# each preset in it, none for a preset that is gone, and edit, run and merge left as they are. The
+# names 3.x's remove wrote down go too: every preset in the folder is in the menu. What changed is
+# said, and then what the menu holds.
+preset_sync() {
+  local entry name file
+  local -a had gone added now
+  mkdir -p "$SERVICES_DIR"
+  for entry in "$SERVICES_DIR"/shrinkit:*.workflow(N); do
+    name="${${entry:t:r}#shrinkit: }"
+    [[ "$name" == (edit|run|merge) ]] || had+=("$name")
+  done
+  for name in "${had[@]}"; do
+    [[ -f "$(preset_file "$name")" ]] && continue
+    rm -rf "$SERVICES_DIR/shrinkit: $name.workflow"
+    gone+=("$name")
+  done
+  rm -f "$MENU_OFF"
+  for file in "$PRESET_DIR"/*.conf(N.); do
+    name="${file:t:r}"
+    [[ "$name" == (edit|run|merge) ]] && {
+      print -u2 -r -- "left out $file: '$name' is shrinkit's own right-click entry; rename the file"
+      continue
+    }
+    install_preset_action "$name" > /dev/null || continue
+    now+=("$name")
+    ((${had[(Ie)$name]})) || added+=("$name")
+  done
+  "$PBS" -update 2> /dev/null || true
+  ((${#added})) && print -r -- "added to the menu: ${(j:, :)added}"
+  ((${#gone})) && print -r -- "taken out of the menu: ${(j:, :)gone}"
+  ((${#added} + ${#gone})) || print -r -- "the menu already matched presets/"
+  print -r -- "in the menu: ${(j:, :)now:-none}"
+}
+
+preset_edit() {
+  preset_name_ok "$1" || return 2
+  [[ -f "$(preset_file "$1")" ]] || {
+    no_such_preset "$1"
+    return 2
+  }
+  open_in_editor "$(preset_file "$1")"
+}
+
+open_in_editor() {
+  local -a editor
+  # zsh does not split an expansion into words on its own, hence the =
+  editor=(${=EDITOR:-open -t})
+  "${editor[@]}" "$1"
+}
+
+# shrinkit preset: the presets there are. add, edit and remove take a name, sync takes none; install, from 3.x,
+# gives a preset back its entry and is left out of the usage text.
 preset_command() {
   mkdir -p "$PRESET_DIR"
   case "${1-}" in
+    '')
+      local -a names
+      names=(${(f)"$(preset_names)"})
+      if ((${#names})); then print -rl -- "${names[@]}"; else print -r -- "no presets in $PRESET_DIR"; fi
+      ;;
+    add | edit | remove)
+      [[ -n "${2-}" ]] || {
+        print -u2 -r -- "usage: preset $1 <name>"
+        return 2
+      }
+      case "$1" in
+        add) preset_add "$2" ;;
+        edit) preset_edit "$2" ;;
+        remove) remove_preset_action "$2" ;;
+      esac
+      ;;
+    sync)
+      preset_sync
+      ;;
     install)
       [[ -n "${2-}" ]] || {
-        print -u2 -r -- "usage: preset install <name>"
+        print -u2 -r -- "usage: preset add <name>"
         return 2
       }
       install_preset_action "$2" && back_in_menu "$2" || return 2
       ;;
-    remove)
-      [[ -n "${2-}" ]] || {
-        print -u2 -r -- "usage: preset remove <name>"
-        return 2
-      }
-      remove_preset_action "$2"
-      ;;
     *)
-      print -u2 -r -- "usage: preset [install <name>|remove <name>]"
+      print -u2 -r -- "usage: preset [add <name> | edit <name> | remove <name> | sync]"
       return 2
       ;;
   esac
 }
 
-# A fixed Quick Action, not tied to any preset: it doesn't shrink anything, only opens the sidecar
-# (creating it first if needed) so a cut can be marked before a normal preset runs on the file.
-install_cuts_action() {
-  install_quick_action "mark cuts" \
-    "SHRINKIT_DIR=${(qq)BASE_DIR} ${(qq)$(registered_path)} mark-cuts \"\$@\""
-}
-
-# Seeds a .cuts sidecar with a header comment and the recording's own length, if one is not there
-# yet; leaves an existing sidecar's content untouched so a second range can be added to it.
-seed_cuts_sidecar() {
-  # sidecar on its own line: see warn_near_miss_cuts_file() above.
-  local file="$1" dur mins secs
-  local sidecar="${file}.cuts"
-  [[ -f "$sidecar" ]] && return 0
-  dur="$("$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$file" 2> /dev/null)"
-  {
-    print -r -- "# ${file:t}.cuts -- one range per line, e.g. 0:32-0:35 or plain seconds"
-    print -r -- "# 0-0:20 cuts the first 20s, 2:30-end cuts from 2:30 to the end"
-    if is_num "$dur"; then
-      mins=$((${dur%.*} / 60))
-      secs=$((${dur%.*} % 60))
-      print -r -- "# ${file:t} is ${mins}:$(printf '%02d' "$secs") long"
-    fi
-  } > "$sidecar"
-}
-
-# Finder entry point for authoring a .cuts sidecar: seeds it, then opens both the recording and the
-# sidecar so timestamps can be read straight off the player while typing them in.
-mark_cuts_command() {
-  [[ "${1-}" == --install ]] && {
-    install_cuts_action
-    return
-  }
-  (($# > 0)) || {
-    print -u2 -r -- "usage: mark-cuts <file>..."
-    return 2
-  }
-  local file
-  for file in "$@"; do
-    [[ -f "$file" ]] || continue
-    seed_cuts_sidecar "$file"
-    # Player first, sidecar second: the last one opened comes up in front, and the sidecar is the
-    # window being typed into. Opened the other way round it hides behind the video and reads as
-    # nothing having happened.
-    open -- "$file"
-    open -e "${file}.cuts"
-  done
+# mark-cuts went in 4.0, replaced by edit. An entry an older setup built runs it until setup runs
+# again, and parse_args would take the word for a file name and shrink the selected recordings.
+# A banner as well as stderr, since nothing a Quick Action prints is ever seen. Kept for 4.x.
+answer_mark_cuts() {
+  local answer="mark-cuts was replaced by edit in shrinkit 4: shrinkit edit <file>... Run 'shrinkit setup' to update the right-click menu."
+  mkdir -p "$LOG_DIR"
+  read_config
+  validate_config
+  print -u2 -r -- "$answer"
+  log "$answer"
+  notify "$answer"
+  return 2
 }
 
 # --------------------------------------------------------------------- run
@@ -1345,8 +1502,9 @@ mark_cuts_command() {
 usage() {
   print -r -- "usage: ${ZSH_ARGZERO:t} [--setting value ...] [file ...]
        ${ZSH_ARGZERO:t} config [show | edit | folder [<path>] | <setting> <value>]
-       ${ZSH_ARGZERO:t} preset [install <name> | remove <name>]
-       ${ZSH_ARGZERO:t} mark-cuts <file>...
+       ${ZSH_ARGZERO:t} preset [add <name> | edit <name> | remove <name> | sync]
+       ${ZSH_ARGZERO:t} edit <file>...
+       ${ZSH_ARGZERO:t} run <file>
        ${ZSH_ARGZERO:t} merge <file>...
        ${ZSH_ARGZERO:t} setup | teardown
        ${ZSH_ARGZERO:t} doctor
@@ -1361,19 +1519,31 @@ it on, --no-remove-audio turns it off.
 --cut takes one range, and repeats for more: --cut 0:32-0:35 --cut 2:30-end.
 --keep is the same edit from the other side: it names the footage to survive
 and cuts everything else, so --keep 1:00-2:00 leaves exactly that minute.
-Use one or the other, not both. Either replaces the .cuts sidecar for that
-run rather than adding to it, and either needs the file named, since a
+Use one or the other, not both. Either needs the file named, since a
 timestamp only means something in one recording.
 
-A preset is a file of the same settings in $PRESET_DIR.
-Use one for a run with --preset <name>, or turn it into its own right-click
-entry with 'preset install <name>'.
+A preset is a file of the same settings in $PRESET_DIR, with
+its own right-click entry. Use one for a run with --preset <name>. 'preset'
+lists them, 'preset add <name>' makes one (or gives it back its entry) and opens
+it, 'preset edit <name>' opens it, 'preset remove <name>' deletes it and its
+entry, the file going to the Trash. After putting files into presets/ or
+deleting them by hand, 'preset sync' makes the menu match.
 
-mark-cuts opens (creating first, if needed) the .cuts sidecar for each file
-alongside the recording itself, ready to mark a range to cut. Same as the
-right-click 'shrinkit: mark cuts' entry.
+edit writes one file for up to 10 recordings, with a block for each, and opens
+it in \$VISUAL or \$EDITOR, or vi when neither is set. Under a recording's name
+go its own preset, cut, keep and settings, and merge = true at the top joins the
+results in the order of the blocks. The file runs when the editor closes; delete
+every block to cancel. The right-click 'shrinkit: edit' entry writes the same
+file and opens it in TextEdit; 'shrinkit: run' on the saved file runs it in a
+Terminal window, which closes itself when everything went through.
 
-merge joins several recordings into one, in the order they were recorded, or by
+run runs an edit file again, here in the terminal. The file stays beside the
+first recording as shrinkit-<code>.edit.txt, the code made from the recordings'
+paths, so an edit of the same recordings opens it again as it was left. Delete
+it to start over. On a terminal each step shows in colour, with a bar while
+ffmpeg works on it; with NO_COLOR set the words come plain.
+
+merge joins up to 10 recordings into one, in the order they were recorded, or by
 a number at the start of the file name (1 intro.mov, 2 bug.mov) for any that
 carry one. The result lands beside the first clip and the originals stay where
 they are. It does not shrink: run a preset on the result afterwards. Same as the
@@ -1401,6 +1571,8 @@ typeset -A OVERRIDES
 typeset -a FILES
 typeset -a CUT_RANGES
 typeset -a KEEP_RANGES
+# Where the ranges came from, for the log line of one that is rejected; empty means the flags.
+RANGE_ORIGIN=""
 PRESET=""
 
 # 1 means there is nothing left to do (--help), 2 means the command line was wrong.
@@ -1421,18 +1593,16 @@ parse_args() {
         }
         PRESET="$1"
         ;;
-      # Both repeatable, one range each, so several ranges read the same on the command line as
-      # they do in a sidecar: one range per flag, one range per line. --keep is the same argument
-      # seen from the other side, so it is parsed the same way and told apart only at the end.
+      # Both repeatable, one range each. --keep is the same argument seen from the other side, so
+      # it is parsed the same way and told apart only at the end.
       --cut | --keep)
         flag="$arg"
         shift
-        # An empty value is refused rather than skipped: it still counts as "ranges were asked
-        # for", so letting it through would suppress the recording's own sidecar and then
-        # contribute no range to replace it. A wrapper expanding an unset variable is the way this
-        # actually happens. Command-line syntax is checked strictly here; the
-        # never-abort-on-one-bad-value convention covers settings and sidecar lines, not a
-        # malformed invocation.
+        # An empty value is refused rather than skipped: a wrapper expanding a variable it never
+        # set is how it happens, and shrinking without the range it meant would keep the footage
+        # it was meant to cut. Command-line syntax is checked strictly here; the
+        # never-abort-on-one-bad-value convention covers settings lines, not a malformed
+        # invocation.
         [[ -n "${1-}" ]] || {
           print -u2 -r -- "$flag needs a range, e.g. $flag 0:32-0:35"
           return 2
@@ -1501,13 +1671,22 @@ main() {
       return
       ;;
     mark-cuts)
-      shift
-      mark_cuts_command "$@"
+      answer_mark_cuts
       return
       ;;
     merge)
       shift
       merge_command "$@"
+      return
+      ;;
+    edit)
+      shift
+      edit_command "$@"
+      return
+      ;;
+    run)
+      shift
+      run_command "$@"
       return
       ;;
     setup)
@@ -1543,8 +1722,8 @@ main() {
   # A timestamp only means anything against one particular recording, so --cut or --keep with no
   # file named is a forgotten argument rather than a queue-wide instruction. Left to fall through it
   # would take the watch folder's whole backlog, cut the same seconds out of files that never asked
-  # for it, ignore any sidecar those files carried, and with keep_original = false delete every
-  # source and sidecar it just overrode. Every other flag is safe to apply queue-wide; these are not.
+  # for it, and with keep_original = false delete every source it had just cut. Every other flag is
+  # safe to apply queue-wide; these are not.
   if ((${#CUT_RANGES} + ${#KEEP_RANGES} > 0 && ${#FILES} == 0)); then
     if ((${#KEEP_RANGES} > 0)); then
       print -u2 -r -- "--keep needs the file to keep from, e.g. shrinkit --keep 1:00-2:00 recording.mov"
@@ -1557,6 +1736,10 @@ main() {
   mkdir -p "$IN_DIR" "$OUT_DIR" "$DONE_DIR" "$LOG_DIR" "$PRESET_DIR"
   read_config
   [[ -n "$PRESET" ]] && { read_preset "$PRESET" || return 2; }
+  # A right-click run shows nothing but a banner, and this one would otherwise look like it did
+  # nothing.
+  [[ -n "$PRESET" ]] && ! preset_sets_something "$(preset_file "$PRESET")" \
+    && notify "The preset '$PRESET' sets nothing: every line is a comment. Take the # off a line in presets/$PRESET.conf."
   apply_overrides
   validate_config
   [[ -x "$FFMPEG" ]] || {
@@ -1580,15 +1763,17 @@ main() {
 }
 
 # Set at the top level: in zsh, a trap set inside a function fires when that function returns.
-# INT and TERM end the run there and then, with the half-written file removed, rather than
-# releasing the lock and going on to the next recording.
+# INT, TERM and HUP end the run there and then, with the half-written file removed, rather than
+# releasing the lock and going on to the next recording. HUP is what closing the Terminal window of
+# an edit run sends. The exit runs the EXIT trap, which shows the cursor again after a bar, removes
+# a merged edit run's parts and releases the lock.
 stop_run() {
   [[ -n "$CURRENT_CHILD" ]] && kill "$CURRENT_CHILD" 2> /dev/null && wait "$CURRENT_CHILD" 2> /dev/null
   [[ -n "$CURRENT_PART" ]] && rm -f "$CURRENT_PART"
-  release_lock
   exit "$1"
 }
-trap release_lock EXIT
+trap 'screen_stop; remove_parts; release_lock' EXIT
+trap 'stop_run 129' HUP
 trap 'stop_run 130' INT
 trap 'stop_run 143' TERM
 main "$@"

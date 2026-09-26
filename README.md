@@ -12,8 +12,8 @@ deals with both at once.
 
 The encoding is ffmpeg. A launchd agent watches the folder for you, so the whole thing runs without
 an app to open. Every part of it is configurable. It can cut a stretch out of the middle, to
-shorten a recording or redact something in it, and it can join several takes into one before any
-of that.
+shorten a recording or redact something in it, and it can join several takes into one, each with
+its own cuts and settings.
 
 ## Demo
 
@@ -44,6 +44,10 @@ in `output/`, and the original is kept in the hidden `.processed/` folder.
 or `shrinkit: tiny`. The result lands beside it as `clip-2x.mp4`, `clip-sharp.mp4` or
 `clip-tiny.mp4`, and the recording stays where it was. Select several to do them together.
 
+**Right-click several recordings**, up to 10, and pick `shrinkit: edit` to give each its own preset
+and cuts in one text file, and join them if you want. Then right-click that file and pick
+`shrinkit: run`. See [Editing several recordings](#editing-several-recordings).
+
 **From the terminal**, name the file. Any setting works as a one-off flag:
 
 ```bash
@@ -63,46 +67,97 @@ says what is wrong and what to run to fix it; its output can go into an issue as
 | `sharp` | Sharper and bigger, for a pull request |
 | `tiny` | As small as it gets, at most 1080p |
 
-A preset is a small file in `~/Movies/shrinkit/presets/` holding only the settings it changes. Copy
-one to make your own, then give it a right-click entry:
+A preset is a small file in `~/Movies/shrinkit/presets/` holding only the settings it changes, with
+its own right-click entry.
 
 ```bash
-shrinkit preset install mine     # adds "shrinkit: mine" to the menu
-shrinkit preset remove mine      # takes it out, keeps the file
+shrinkit preset                  # the presets there are
+shrinkit preset add mine         # makes mine.conf, adds "shrinkit: mine" to the menu, opens the file
+shrinkit preset edit mine        # opens it
+shrinkit preset remove mine      # deletes it and its menu entry; the file goes to the Trash
+shrinkit preset sync             # after adding or deleting files in presets/ by hand
 ```
 
 Flags beat a preset, and a preset beats `settings.conf`.
+
+## Editing several recordings
+
+Select up to 10 recordings in Finder, right-click, and pick `shrinkit: edit`. TextEdit opens one
+file with a block per recording:
+
+```
+merge = false
+
+[1 intro.mov]
+# 1 intro.mov is 2:14 long
+preset = 2x
+cut = 0:32-0:35
+
+[2 bug.mov]
+# 2 bug.mov is 0:48 long
+preset = sharp
+keep = 0:10-0:40
+```
+
+Under a recording's name goes one setting per line: `preset`, `cut`, `keep`, or `speed`, `fps`,
+`crf`, `codec`, `remove_audio` and `max_height` as in `settings.conf`. Delete a block to leave that
+recording out. Open a recording in QuickTime to read the times off it.
+
+Save the file, then right-click it in Finder (which may show it as `shrinkit-3f9a2c.edit`) and pick
+`shrinkit: run`. A Terminal window opens and runs the blocks in order, with the log in that window.
+Before it encodes anything, shrinkit names each line it cannot use, and skips it. Each step goes
+under a word in colour: `encoding` with a bar that fills as ffmpeg works and the time left, then
+`done`, `joined` or `failed` in its place, and `skipped` for a line, a range or a recording left
+out. With `NO_COLOR` set, the words come without colour or bar. When everything went through, the
+window closes itself 3 seconds later; otherwise it stays open with the log and the command that runs
+the file again. Pick `shrinkit: run` on several edit files and one window runs them one after
+another, so only one recording is encoded at a time.
+
+With `merge = false`, each result lands beside its recording, named after its preset the way a
+right-click names it (`clip-sharp.mp4`), or `clip.mp4` without one. With `merge = true`, the results
+are joined in the order of the blocks into one file beside the edit file and named after it:
+`shrinkit-3f9a2c-merged.mp4`, or `demo-merged.mp4` for a file you renamed `demo.edit.txt`. The first
+block's `codec`, `fps` and `max_height` apply to all of them.
+
+The file stays beside the first recording as `shrinkit-<code>.edit.txt`, the code made from the
+paths of the recordings. Pick `shrinkit: edit` on the same recordings again and it opens that file
+as you left it; delete the file to start over. To run the same edit again, pick `shrinkit: run` on
+it, or type `shrinkit run shrinkit-3f9a2c.edit.txt` in a terminal. The terminal has
+`shrinkit edit '1 intro.mov' '2 bug.mov'` too: it writes the same file, or opens it when it is
+there, in `$EDITOR`, and runs it when the editor closes. Delete every block to cancel.
 
 ## Cutting a stretch out
 
 Handy for shortening a recording, or for removing a password or a private chat that got captured.
 
-Right-click the recording and pick `shrinkit: mark cuts`. It opens the video and a
-`<recording>.cuts` file next to it. Write one range to remove per line, save, then shrink it as
-usual:
+In an edit file, put a `cut` line under the recording for each stretch to remove, or `keep` lines
+for what stays instead:
 
 ```
-0-0:20        the first 20 seconds
-0:32-0:35
-2:30-end      from 2:30 to the end
+cut = 0-0:20       # the first 20 seconds
+cut = 0:32-0:35
+cut = 2:30-end     # from 2:30 to the end
 ```
 
-Or in one go from the terminal: `shrinkit --cut 0:32-0:35 recording.mov`, or `--keep 1:00-2:00`
-to name what stays instead.
+From the terminal: `shrinkit --cut 0:32-0:35 recording.mov`, or `--keep 1:00-2:00`.
 
 - Times are `M:SS`, `M:SS.f` or plain seconds. `0` is the start and `end` is the real end.
-- `#` starts a comment. A line that does not make sense is skipped and written to the log.
-- Edited in TextEdit, save as plain text with Smart Dashes off (Edit > Substitutions), or a range
-  like `0–0:04` is skipped. The log says so.
+- A recording takes `cut` or `keep`, not both. A range that makes no sense is skipped, and the log
+  says so.
+- shrinkit 4 no longer reads the `.cuts` files `mark cuts` wrote. Move their ranges into an edit
+  file, or pass them with `--cut`.
 
 ## Joining recordings
 
-Select several recordings, right-click, pick `shrinkit: merge`. They are joined into
+Select up to 10 recordings, right-click, pick `shrinkit: merge`. They are joined into
 `<first>-merged.mov` beside the first one, in the order they were recorded. To choose the order,
 start the names with a number and a space: `1 intro.mov`, `2 bug.mov`.
 
 Merging does not shrink, so run a preset on the result afterwards. Recordings of the same size and
 format are joined as they are, which is quick; mixed ones are re-encoded to match into an `.mp4`.
+That decodes all of them at once, which is why ten is the most at a time: ten 4K recordings fit in
+the memory an 8 GB Mac usually has free, twenty do not. To shrink each one with its own settings and
+join them in one go, use `shrinkit: edit` with `merge = true`.
 
 ## Settings
 
@@ -120,7 +175,7 @@ shrinkit config folder ~/Movies/clips    # move the working folder
 | `crf` | Quality against size, the main knob. Lower is sharper and bigger, higher is smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
 | `codec` | `h264` plays everywhere, `hevc` is about 30% smaller and less compatible | `h264` |
 | `remove_audio` | `true` drops the sound, `false` keeps it and speeds it up to match | `true` |
-| `max_height` | Downscale tall videos to this height; `0` keeps the original | `0` |
+| `max_height` | Downscale tall videos to this height, up to 9999; `0` keeps the original | `0` |
 | `keep_original` | `true` files the original in `.processed/`, `false` deletes it | `true` |
 | `keep_days` | Delete originals from `.processed/` once this many days old, up to 3650; `0` keeps them forever | `0` |
 | `notify` | Post a macOS banner when a file is done | `true` |
@@ -148,6 +203,7 @@ is named after the working folder:
 launchctl bootout "gui/$(id -u)/com.shrinkit"
 rm -f ~/Library/LaunchAgents/com.shrinkit.plist
 rm -rf ~/Library/Services/shrinkit:*.workflow
+rm -rf ~/"Library/Application Support/shrinkit/shrinkit edit.command" ~/"Library/Application Support/shrinkit/edit-queue"
 /System/Library/CoreServices/pbs -update
 ```
 
