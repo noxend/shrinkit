@@ -1,8 +1,15 @@
 name: tests
 
+# A change to the docs site alone runs none of the script, so it takes no macOS runner.
 on:
   push:
+    paths-ignore:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
 
 jobs:
   tests:
