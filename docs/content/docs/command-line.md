@@ -25,7 +25,7 @@ file is skipped. `shrinkit` with no files shrinks what waits in `input/`, as the
 
 | Flag | What it does |
 | --- | --- |
-| `--<setting> <value>` | A setting for this run, `_` written as `-`: `--crf 24`, `--max-height 720`. |
+| `--<setting> <value>` | Any setting for this run: `--crf 24`, `--max-height 720`. A `-` in the name stands for `_`. |
 | `--<setting>`, `--no-<setting>` | A true/false setting on or off, with no value: `--remove-audio`, `--no-notify`. |
 | `--preset <name>` | A preset from `presets/`. |
 | `--cut <range>` | A stretch to cut out. Repeat for more. |
