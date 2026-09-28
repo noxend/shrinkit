@@ -3,21 +3,10 @@
 [![tests](https://github.com/noxend/shrinkit/actions/workflows/tests.yml/badge.svg)](https://github.com/noxend/shrinkit/actions/workflows/tests.yml)
 
 shrinkit compresses macOS screen recordings and speeds them up. Drop a `.mov` into a folder, or
-right-click it in Finder, and a much smaller `.mp4` comes back. A QuickTime capture that started at
-a few hundred megabytes usually ends up in single digits.
+right-click it in Finder, and a smaller `.mp4` comes back. It can also cut stretches out of a
+recording and join several recordings into one. The encoding is ffmpeg.
 
-A raw screen capture is almost always too big to attach to a pull request, a Jira ticket or a Slack
-message, and too slow to sit through. Playing it back at 2x and re-encoding it at a fixed quality
-deals with both at once.
-
-The encoding is ffmpeg. A launchd agent watches the folder for you, so the whole thing runs without
-an app to open. Every part of it is configurable. It can cut a stretch out of the middle, to
-shorten a recording or redact something in it, and it can join several takes into one, each with
-its own cuts and settings.
-
-## Demo
-
-https://github.com/user-attachments/assets/651900d7-0171-4793-b6fd-5d1d5097ee98
+**Documentation: [noxend.github.io/shrinkit](https://noxend.github.io/shrinkit/)**
 
 ## Install
 
@@ -28,163 +17,24 @@ brew tap noxend/shrinkit https://github.com/noxend/shrinkit
 brew install --cask noxend/shrinkit/shrnkit
 ```
 
-shrinkit is not in Homebrew's official catalog. The first command adds this repository as a tap,
-and Homebrew installs and updates shrinkit from there. The package is `shrnkit` because Homebrew
-already has a different app named `shrinkit`. The command it installs is still `shrinkit`.
-
-That sets everything up: a working folder at `~/Movies/shrinkit`, a watcher on its `input/`, the
-right-click entries in Finder, a `shrinkit` shortcut on your Desktop and a `shrinkit` command.
+The first command adds this repository as a tap, and Homebrew installs and updates shrinkit from
+there. The command it installs is `shrinkit`.
 
 ## Use
 
-**Drop a recording** into `input/` (open the Desktop shortcut). A few seconds later the result is
-in `output/`, and the original is kept in the hidden `.processed/` folder.
+- **Right-click a recording** in Finder and pick `shrinkit: 2x`, `shrinkit: sharp` or
+  `shrinkit: tiny`. The result lands beside it.
+  [More](https://noxend.github.io/shrinkit/docs/right-click/)
+- **Drop a recording** into `input/` through the shortcut on your Desktop. The result is in
+  `output/`. [More](https://noxend.github.io/shrinkit/docs/watch-folder/)
+- **From a terminal**, name the file. Any setting works as a one-off flag:
+  `shrinkit --speed 4 recording.mov`. [More](https://noxend.github.io/shrinkit/docs/command-line/)
+- **Cut a stretch out, or edit several recordings at once**, each with its own preset and cuts,
+  joined if you want: `shrinkit --cut 0:32-0:35 recording.mov`, or right-click the recordings and
+  pick `shrinkit: edit`. [More](https://noxend.github.io/shrinkit/docs/edit/)
 
-**Right-click a recording** in Finder, wherever it is, and pick `shrinkit: 2x`, `shrinkit: sharp`
-or `shrinkit: tiny`. The result lands beside it as `clip-2x.mp4`, `clip-sharp.mp4` or
-`clip-tiny.mp4`, and the recording stays where it was. Select several to do them together.
-
-**Right-click several recordings**, up to 10, and pick `shrinkit: edit` to give each its own preset
-and cuts in one text file, and join them if you want. Then right-click that file and pick
-`shrinkit: run`. See [Editing several recordings](#editing-several-recordings).
-
-**From the terminal**, name the file. Any setting works as a one-off flag:
-
-```bash
-shrinkit recording.mov
-shrinkit --speed 4 --crf 32 recording.mov
-shrinkit --preset tiny recording.mov
-```
-
-**If nothing happens**, run `shrinkit doctor`. It checks the install without changing anything and
-says what is wrong and what to run to fix it; its output can go into an issue as it is.
-
-## Presets
-
-| Preset | What it is |
-| --- | --- |
-| `2x` | The everyday one, twice as fast |
-| `sharp` | Sharper and bigger, for a pull request |
-| `tiny` | As small as it gets, at most 1080p |
-
-A preset is a small file in `~/Movies/shrinkit/presets/` holding only the settings it changes, with
-its own right-click entry.
-
-```bash
-shrinkit preset                  # the presets there are
-shrinkit preset add mine         # makes mine.conf, adds "shrinkit: mine" to the menu, opens the file
-shrinkit preset edit mine        # opens it
-shrinkit preset remove mine      # deletes it and its menu entry; the file goes to the Trash
-shrinkit preset sync             # after adding or deleting files in presets/ by hand
-```
-
-Flags beat a preset, and a preset beats `settings.conf`.
-
-## Editing several recordings
-
-Select up to 10 recordings in Finder, right-click, and pick `shrinkit: edit`. TextEdit opens one
-file with a block per recording:
-
-```
-merge = false
-
-[1 intro.mov]
-# 1 intro.mov is 2:14 long
-preset = 2x
-cut = 0:32-0:35
-
-[2 bug.mov]
-# 2 bug.mov is 0:48 long
-preset = sharp
-keep = 0:10-0:40
-```
-
-Under a recording's name goes one setting per line: `preset`, `cut`, `keep`, or `speed`, `fps`,
-`crf`, `codec`, `remove_audio` and `max_height` as in `settings.conf`. Delete a block to leave that
-recording out. Open a recording in QuickTime to read the times off it.
-
-Save the file, then right-click it in Finder (which may show it as `shrinkit-3f9a2c.edit`) and pick
-`shrinkit: run`. A Terminal window opens and runs the blocks in order, with the log in that window.
-Before it encodes anything, shrinkit names each line it cannot use, and skips it. Each step goes
-under a word in colour: `encoding` with a bar that fills as ffmpeg works and the time left, then
-`done`, `joined` or `failed` in its place, and `skipped` for a line, a range or a recording left
-out. With `NO_COLOR` set, the words come without colour or bar. When everything went through, the
-window closes itself 3 seconds later; otherwise it stays open with the log and the command that runs
-the file again. Pick `shrinkit: run` on several edit files and one window runs them one after
-another, so only one recording is encoded at a time.
-
-With `merge = false`, each result lands beside its recording, named after its preset the way a
-right-click names it (`clip-sharp.mp4`), or `clip.mp4` without one. With `merge = true`, the results
-are joined in the order of the blocks into one file beside the edit file and named after it:
-`shrinkit-3f9a2c-merged.mp4`, or `demo-merged.mp4` for a file you renamed `demo.edit.txt`. The first
-block's `codec`, `fps` and `max_height` apply to all of them.
-
-The file stays beside the first recording as `shrinkit-<code>.edit.txt`, the code made from the
-paths of the recordings. Pick `shrinkit: edit` on the same recordings again and it opens that file
-as you left it; delete the file to start over. To run the same edit again, pick `shrinkit: run` on
-it, or type `shrinkit run shrinkit-3f9a2c.edit.txt` in a terminal. The terminal has
-`shrinkit edit '1 intro.mov' '2 bug.mov'` too: it writes the same file, or opens it when it is
-there, in `$VISUAL` or `$EDITOR`, and runs it when the editor closes. Delete every block to cancel.
-An editor that returns at once needs its wait flag there: `code --wait`, `subl -w`.
-
-## Cutting a stretch out
-
-Handy for shortening a recording, or for removing a password or a private chat that got captured.
-
-In an edit file, put a `cut` line under the recording for each stretch to remove, or `keep` lines
-for what stays instead:
-
-```
-cut = 0-0:20       # the first 20 seconds
-cut = 0:32-0:35
-cut = 2:30-end     # from 2:30 to the end
-```
-
-From the terminal: `shrinkit --cut 0:32-0:35 recording.mov`, or `--keep 1:00-2:00`.
-
-- Times are `M:SS`, `M:SS.f` or plain seconds. `0` is the start and `end` is the real end.
-- A recording takes `cut` or `keep`, not both. A range that makes no sense is skipped, and the log
-  says so.
-- shrinkit 4 no longer reads the `.cuts` files `mark cuts` wrote. Move their ranges into an edit
-  file, or pass them with `--cut`.
-
-## Joining recordings
-
-Select up to 10 recordings, right-click, pick `shrinkit: merge`. They are joined into
-`<first>-merged.mov` beside the first one, in the order they were recorded. To choose the order,
-start the names with a number and a space: `1 intro.mov`, `2 bug.mov`.
-
-Merging does not shrink, so run a preset on the result afterwards. Recordings of the same size and
-format are joined as they are, which is quick; mixed ones are re-encoded to match into an `.mp4`.
-That decodes all of them at once, which is why ten is the most at a time: ten 4K recordings fit in
-the memory an 8 GB Mac usually has free, twenty do not. To shrink each one with its own settings and
-join them in one go, use `shrinkit: edit` with `merge = true`.
-
-## Settings
-
-```bash
-shrinkit config                          # what is in effect right now
-shrinkit config crf 32                   # change one
-shrinkit config edit                     # open settings.conf
-shrinkit config folder ~/Movies/clips    # move the working folder
-```
-
-| Setting | What it does | Default |
-| --- | --- | --- |
-| `speed` | Speed multiplier. `2` is twice as fast, `1` leaves it alone | `2` |
-| `fps` | Cap the frame rate, up to 240; `0` keeps the original | `30` |
-| `crf` | Quality against size, the main knob. Lower is sharper and bigger, higher is smaller (18 high, 23 good, 28 small, 32 tiny) | `28` |
-| `codec` | `h264` plays everywhere, `hevc` is about 30% smaller and less compatible | `h264` |
-| `remove_audio` | `true` drops the sound, `false` keeps it and speeds it up to match | `true` |
-| `max_height` | Downscale tall videos to this height, up to 9999; `0` keeps the original | `0` |
-| `keep_original` | `true` files the original in `.processed/`, `false` deletes it | `true` |
-| `keep_days` | Delete originals from `.processed/` once this many days old, up to 3650; `0` keeps them forever | `0` |
-| `notify` | Post a macOS banner when a file is done | `true` |
-| `notify_sound` | `Glass`, `Ping`, `Pop`, `Hero` and the rest, or `none` | `Glass` |
-| `notify_start` | Also post a quiet banner when a file starts | `true` |
-| `copy_to_clipboard` | Put the finished file on the clipboard, ready to paste | `false` |
-
-A value that does not fit is replaced by its default, and the log in `.logs/` says so.
+If something does not work, run `shrinkit doctor`. It checks the install without changing anything,
+says what is wrong, and what to run where there is a fix. [More](https://noxend.github.io/shrinkit/docs/troubleshooting/)
 
 ## Update and uninstall
 
@@ -193,27 +43,10 @@ brew upgrade --cask shrnkit
 brew uninstall --cask shrnkit
 ```
 
-Uninstalling removes the watcher, the right-click entries, the Desktop shortcut and the command.
 Your recordings, results, settings and presets stay in the working folder.
-`brew uninstall --zap --cask shrnkit` also forgets which working folder you chose.
+[More](https://noxend.github.io/shrinkit/docs/install/#uninstalling)
 
-If brew can no longer run it, the same by hand, then delete the shortcut on your Desktop, which
-is named after the working folder:
-
-```bash
-launchctl bootout "gui/$(id -u)/com.shrinkit"
-rm -f ~/Library/LaunchAgents/com.shrinkit.plist
-rm -rf ~/Library/Services/shrinkit:*.workflow
-rm -rf ~/"Library/Application Support/shrinkit/shrinkit edit.command" ~/"Library/Application Support/shrinkit/edit-queue"
-/System/Library/CoreServices/pbs -update
-```
-
-An install from a clone also left `~/.local/bin/shrinkit` and `~/.local/share/shrinkit`; remove
-them too if they are shrinkit's.
-
-## Running from a clone
-
-For working on shrinkit itself:
+## Working on shrinkit
 
 ```bash
 git clone https://github.com/noxend/shrinkit.git
@@ -225,6 +58,9 @@ cd shrinkit
 
 A clone in `~/Desktop`, `~/Documents` or `~/Downloads` is copied to `~/.local` on setup, because
 macOS does not let the watcher read those folders, so run `setup` again after a `git pull` there.
+
+The documentation site is in [`docs/`](docs/): one Markdown file per page in `docs/content/docs/`.
+It is published with each release.
 
 ## License
 
