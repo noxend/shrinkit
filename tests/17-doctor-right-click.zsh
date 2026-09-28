@@ -33,7 +33,7 @@ test_doctor_warns_about_entries_that_are_missing() {
   check "and exits 0" test "$code" = 0
 }
 
-# git pull without setup leaves 3.x's mark cuts entry in the menu, running a subcommand that only
+# git pull without setup leaves 3.1's mark cuts entry in the menu, running a subcommand that only
 # answers now.
 test_doctor_warns_about_an_entry_an_older_shrinkit_left() {
   local box out entry code=0

@@ -13,7 +13,7 @@ test_doctor_counts_what_is_waiting_and_ignores_what_finder_leaves() {
     test "$(doctor_line "$out" input)" = "ok    input          1 waiting: clip.mov"
 }
 
-# Not read since 4.0, a .cuts file beside a waiting recording is a leftover, not part of it.
+# Not read since 3.2, a .cuts file beside a waiting recording is a leftover, not part of it.
 test_doctor_lists_a_leftover_cuts_file_as_never_picked_up() {
   local box out
   box="$(installed_box)"

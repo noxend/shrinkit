@@ -203,7 +203,7 @@ test_cuts_note_warns_when_every_range_was_rejected() {
     logged "$box" 'done   clip.mp4.*, cut requested but none applied'
 }
 
-# The sidecar went in 4.0, the edit file holds cuts now. One left on disk is neither read nor moved.
+# The sidecar went in 3.2, the edit file holds cuts now. One left on disk is neither read nor moved.
 test_a_cuts_file_beside_a_recording_is_not_read() {
   local box work out
   box="$(sandbox)"

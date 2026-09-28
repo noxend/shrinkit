@@ -160,7 +160,7 @@ LOCK_DIR="$BASE_DIR/.optimizer.lock"
 CONFIG="$BASE_DIR/settings.conf"
 # named variations on the config, one file each
 PRESET_DIR="$BASE_DIR/presets"
-# Presets 3.x's 'preset remove' took out of the right-click menu while keeping their files, one name
+# Presets 3.1's 'preset remove' took out of the right-click menu while keeping their files, one name
 # per line. setup and doctor still leave them out; preset add and preset remove take a name off it.
 MENU_OFF="$PRESET_DIR/.not-in-menu"
 
@@ -1036,7 +1036,7 @@ shrink() {
   local src="$1" out="$2" archive="$3" before after cuts rc note
   before="$(human_size "$src")"
   notify_start "${src:t:r}"
-  # A .cuts file is not read since 4.0, and a cut written in one would ship uncut: said until 5.0.
+  # A .cuts file is not read since 3.2, and a cut written in one would ship uncut: said until 4.0.
   [[ -f "${src}.cuts" ]] && {
     log "${src:t}.cuts is no longer read; cut with shrinkit: edit or --cut"
     notify "${src:t}.cuts is no longer read; cut with shrinkit: edit or --cut"
@@ -1480,7 +1480,7 @@ preset_add() {
 
 # The right-click menu made to match presets/, for files put there or deleted by hand: an entry for
 # each preset in it, none for a preset that is gone, and edit, run and merge left as they are. The
-# names 3.x's remove wrote down go too: every preset in the folder is in the menu. What changed is
+# names 3.1's remove wrote down go too: every preset in the folder is in the menu. What changed is
 # said, and then what the menu holds.
 preset_sync() {
   local entry name file
@@ -1536,7 +1536,7 @@ open_in_editor() {
   "${editor[@]}" "$1"
 }
 
-# shrinkit preset: the presets there are. add, edit and remove take a name, sync takes none; install, from 3.x,
+# shrinkit preset: the presets there are. add, edit and remove take a name, sync takes none; install, from 3.1,
 # gives a preset back its entry and is left out of the usage text.
 preset_command() {
   mkdir -p "$PRESET_DIR" "$LOG_DIR"
@@ -1574,11 +1574,11 @@ preset_command() {
   esac
 }
 
-# mark-cuts went in 4.0, replaced by edit. An entry an older setup built runs it until setup runs
+# mark-cuts went in 3.2, replaced by edit. An entry an older setup built runs it until setup runs
 # again, and parse_args would take the word for a file name and shrink the selected recordings.
-# A banner as well as stderr, since nothing a Quick Action prints is ever seen. Kept for 4.x.
+# A banner as well as stderr, since nothing a Quick Action prints is ever seen. Kept until 4.0.
 answer_mark_cuts() {
-  local answer="mark-cuts was replaced by edit in shrinkit 4: shrinkit edit <file>... Run 'shrinkit setup' to update the right-click menu."
+  local answer="mark-cuts was replaced by edit in shrinkit 3.2: shrinkit edit <file>... Run 'shrinkit setup' to update the right-click menu."
   mkdir -p "$LOG_DIR"
   read_config
   validate_config
@@ -1643,9 +1643,10 @@ entries and the Desktop shortcut follow, and so do settings.conf and the presets
 Recordings and results already in the old folder stay there.
 
 setup creates the folders, registers the launchd agent that watches input/,
-builds the right-click entries and puts shrinkit on your PATH. teardown undoes
-all of it and leaves your recordings and settings alone. Homebrew runs both on
-install, upgrade and uninstall; run them yourself only from a clone.
+builds the right-click entries and, from a clone, puts the command in
+~/.local/bin. teardown undoes all of it and leaves your recordings and settings
+alone. Homebrew runs both on install, upgrade and uninstall; doctor says when to
+run setup yourself.
 
 doctor looks the install over and says what is wrong with it and what to run
 to fix it. It only reads: it changes nothing.

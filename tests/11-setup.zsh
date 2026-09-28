@@ -98,7 +98,7 @@ test_a_removed_preset_stays_gone_after_setup() {
   check "into the Trash" exists "$box/home/.Trash/2x.conf"
 }
 
-# 3.x's preset remove kept the file and wrote the name down; such a preset stays out of the menu.
+# 3.1's preset remove kept the file and wrote the name down; such a preset stays out of the menu.
 test_a_preset_3x_took_out_of_the_menu_stays_out_in_a_new_folder() {
   local box
   box="$(scratch)"
@@ -211,7 +211,7 @@ test_an_entry_copied_from_the_run_entry_is_offered_for_recordings() {
     test "$(entry_types "$services/shrinkit: 2x.workflow")" = '["public.movie"]'
 }
 
-# A clone upgraded with git pull and setup, no teardown: the mark cuts entry 3.x built goes with
+# A clone upgraded with git pull and setup, no teardown: the mark cuts entry 3.1 built goes with
 # the sweep and is not built again.
 test_setup_run_again_removes_the_mark_cuts_entry_an_older_version_built() {
   local box services entry
@@ -767,7 +767,7 @@ test_preset_sync_makes_the_menu_match_the_presets_folder() {
   print -r -- 'max_height = 320' > "$box/work/presets/320p.conf"
   print -r -- 'speed = 4' > "$box/work/presets/fast one.conf"
   rm "$box/work/presets/tiny.conf"
-  # One 3.x's preset remove took out of the menu, keeping its file.
+  # One 3.1's preset remove took out of the menu, keeping its file.
   rm -rf "$services/shrinkit: 2x.workflow"
   print -r -- 2x > "$box/work/presets/.not-in-menu"
 
@@ -813,7 +813,7 @@ test_preset_commands_leave_shrinkits_own_entries_alone_in_any_case() {
   done
 }
 
-# The 3.x install that stays: it checks a name as add does, and still gives an entry back.
+# The 3.1 install that stays: it checks a name as add does, and still gives an entry back.
 test_preset_install_checks_the_name_and_gives_an_entry_back() {
   local box services out code before
   box="$(scratch)"

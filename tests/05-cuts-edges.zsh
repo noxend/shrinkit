@@ -116,7 +116,7 @@ test_mark_cuts_is_answered_with_what_replaced_it() {
   settings "$box" 'speed = 2' 'notify = true' 'notify_start = false'
   work="$(scratch)"
   cp "$FIXTURES/silent.mov" "$work/clip.mov"
-  # Banners go through osascript, which writes them down here instead. open is stubbed too: 3.x's
+  # Banners go through osascript, which writes them down here instead. open is stubbed too: 3.1's
   # mark-cuts opened the recording, and a return of that must not open it on this Mac.
   fakebin="$(scratch)"
   print -rl -- '#!/bin/zsh' "print -r -- \"\$*\" >> ${(qq)fakebin}/banners" > "$fakebin/osascript"
@@ -127,9 +127,9 @@ test_mark_cuts_is_answered_with_what_replaced_it() {
     zsh "$OPTIMIZER" mark-cuts "$work/clip.mov" 2>&1 > /dev/null)" || code=$?
 
   check "says what replaced it" test "$msg" = \
-    "mark-cuts was replaced by edit in shrinkit 4: shrinkit edit <file>... Run 'shrinkit setup' to update the right-click menu."
-  check "in the log too" logged "$box" 'mark-cuts was replaced by edit in shrinkit 4'
-  check "and in a banner" grep -q 'mark-cuts was replaced by edit in shrinkit 4' "$fakebin/banners"
+    "mark-cuts was replaced by edit in shrinkit 3.2: shrinkit edit <file>... Run 'shrinkit setup' to update the right-click menu."
+  check "in the log too" logged "$box" 'mark-cuts was replaced by edit in shrinkit 3.2'
+  check "and in a banner" grep -q 'mark-cuts was replaced by edit in shrinkit 3.2' "$fakebin/banners"
   check "exits 2" test "$code" = 2
   check "and shrinks nothing" test "$(ls "$work")" = clip.mov
 }

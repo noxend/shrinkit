@@ -247,7 +247,7 @@ doctor_check_right_click() {
   expected+=("${OWN_ENTRIES[@]}")
   for entry in ${(f)"$(our_entries)"}; do
     read_entry "$entry" || continue
-    # Anything else was built by an older shrinkit, such as 3.x's mark cuts; setup sweeps it away.
+    # Anything else was built by an older shrinkit, such as 3.1's mark cuts; setup sweeps it away.
     [[ "$ENTRY_COMMAND" == --preset ]] || own_entry "$ENTRY_COMMAND" || {
       doctor_found warn "right-click $ENTRY_NAME is left from an older shrinkit" \
         "Build the entries again with:" \

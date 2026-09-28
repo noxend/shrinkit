@@ -709,7 +709,7 @@ test_run_posts_one_banner_at_the_end() {
   cp "$FIXTURES/take-red.mov" "$work/1 a.mov"
   cp "$FIXTURES/take-blue.mov" "$work/2 b.mov"
   cp "$FIXTURES/take-green.mov" "$work/3 c.mov"
-  # A sidecar left from 3.x, which a one-shot run names in a banner of its own.
+  # A sidecar left from 3.1, which a one-shot run names in a banner of its own.
   print -r -- '0-1' > "$work/2 b.mov.cuts"
   file="$(make_edit "$box" "$tools" "$work/1 a.mov" "$work/2 b.mov" "$work/3 c.mov")"
   rm "$work/3 c.mov"
