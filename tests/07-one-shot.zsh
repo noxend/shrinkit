@@ -202,6 +202,7 @@ wait_for_part() {
 
 test_an_interrupted_run_stops_and_cleans_up() {
   local box tmp pid code=0 asked took
+  zmodload zsh/datetime
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   tmp="$(scratch)"
@@ -211,15 +212,15 @@ test_an_interrupted_run_stops_and_cleans_up() {
   TMPDIR="$tmp" SHRINKIT_DIR="$box" SHRINKIT_REPO="" zsh "$OPTIMIZER" > /dev/null 2>&1 &
   pid=$!
   wait_for_part "$tmp"
-  asked=$SECONDS
+  asked=$EPOCHREALTIME
   kill -TERM "$pid"
   wait "$pid" || code=$?
-  took=$((SECONDS - asked))
+  took=$((EPOCHREALTIME - asked))
 
   # What brew's teardown does to a running agent. launchd kills it five seconds after asking, so it
   # has to stop well inside that, not when the encode of a 45-second 4K clip is done.
   check "stops with the signal's status" test "$code" = 143
-  check "within a couple of seconds" test "$took" -le 2
+  check "within half a second" under "$took" 0.5
   check "does not go on to the next file" exists "$box/input/b.mov"
   check "and leaves nothing half-made behind" test -z "$(ls -A "$tmp")"
   check "nor its lock" missing "$box/.optimizer.lock"
@@ -227,6 +228,7 @@ test_an_interrupted_run_stops_and_cleans_up() {
 
 test_an_interrupted_merge_leaves_nothing_behind() {
   local box work tmp pid code=0 asked took
+  zmodload zsh/datetime
   box="$(sandbox)"
   settings "$box" 'speed = 2'
   work="$(scratch)"
@@ -239,14 +241,14 @@ test_an_interrupted_merge_leaves_nothing_behind() {
     > /dev/null 2>&1 &
   pid=$!
   wait_for_part "$tmp"
-  asked=$SECONDS
+  asked=$EPOCHREALTIME
   kill -TERM "$pid"
   wait "$pid" || code=$?
-  took=$((SECONDS - asked))
+  took=$((EPOCHREALTIME - asked))
   sleep 3 # anything still running would have moved a result in by now
 
   check "stops with the signal's status" test "$code" = 143
-  check "within a couple of seconds" test "$took" -le 2
+  check "within half a second" under "$took" 0.5
   check "leaves no half-joined file in the temporary folder" test -z "$(ls -A "$tmp")"
   check "and puts no result in place afterwards" test "$(ls "$work" | grep -c merged)" = 0
 }

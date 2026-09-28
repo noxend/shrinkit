@@ -442,6 +442,7 @@ test_run_merge_with_one_recording_left_shrinks_it_alone() {
 # closing the Terminal window the run is in sends.
 test_an_interrupted_edit_merge_leaves_nothing_behind() {
   local box tools work file tmp pid code asked took pair signal _
+  zmodload zsh/datetime
   for pair in TERM:143 HUP:129; do
     signal="${pair%:*}"
     box="$(sandbox)"
@@ -463,16 +464,16 @@ test_an_interrupted_edit_merge_leaves_nothing_behind() {
       sleep 0.05
     done
     wait_for_part "$tmp"
-    asked=$SECONDS
+    asked=$EPOCHREALTIME
     code=0
     kill -"$signal" "$pid"
     wait "$pid" || code=$?
-    took=$((SECONDS - asked))
+    took=$((EPOCHREALTIME - asked))
     sleep 3 # anything still running would have moved a result in by now
 
     check "$signal: the first part was made before it" logged "$box" 'done   1 short'
     check "$signal: stops with its status" test "$code" = "${pair#*:}"
-    check "$signal: within a couple of seconds" test "$took" -le 2
+    check "$signal: within half a second" under "$took" 0.5
     check "$signal: leaves no part in the temporary folder" empty_dir "$tmp"
     check "$signal: and nothing beside the recordings but the edit file" \
       test "$(ls "$work" | wc -l | tr -d ' ')" = 3

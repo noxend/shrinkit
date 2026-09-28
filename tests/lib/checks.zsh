@@ -34,6 +34,10 @@ contains() {
 lacks() {
   [[ "$1" != *"$2"* ]]
 }
+# under <seconds> <limit>: for fractions, which test -le cannot compare.
+under() {
+  (($1 < $2))
+}
 logged() {
   grep -q -- "$2" "$1/.logs/optimizer.log"
 }

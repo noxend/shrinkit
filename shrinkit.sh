@@ -1858,8 +1858,10 @@ main() {
 # releasing the lock and going on to the next recording. HUP is what closing the Terminal window of
 # an edit run sends. The exit runs the EXIT trap, which shows the cursor again after a bar, removes
 # a merged edit run's parts and releases the lock.
+# ffmpeg is killed outright: asked to stop, it first encodes the frames the encoder still holds,
+# seconds on a busy Mac, into a file that is removed anyway.
 stop_run() {
-  [[ -n "$CURRENT_CHILD" ]] && kill "$CURRENT_CHILD" 2> /dev/null && wait "$CURRENT_CHILD" 2> /dev/null
+  [[ -n "$CURRENT_CHILD" ]] && kill -KILL "$CURRENT_CHILD" 2> /dev/null && wait "$CURRENT_CHILD" 2> /dev/null
   [[ -n "$CURRENT_PART" ]] && rm -f "$CURRENT_PART"
   exit "$1"
 }
