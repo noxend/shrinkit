@@ -14,9 +14,10 @@ on:
 permissions:
   contents: read
 
+# A pull request's build gives way to its next push; deploys share one group and run one at a time.
 concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('docs-{0}', github.ref) || 'docs-deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
