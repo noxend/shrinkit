@@ -1,0 +1,53 @@
+---
+title: Presets
+description: Named sets of settings, each with its own right-click entry.
+---
+
+A preset is a file `presets/<name>.conf` in the working folder. It holds only the settings it
+changes, in the same `key = value` lines as [`settings.conf`](/docs/settings/), and has its own
+right-click entry, `shrinkit: <name>`.
+
+<video src="/shrinkit/videos/presets.mp4" controls muted playsInline preload="metadata" style={{ width: '100%', borderRadius: '0.5rem' }}></video>
+
+| Preset | What it sets |
+| --- | --- |
+| `2x` | `speed = 2` |
+| `sharp` | `crf = 18` |
+| `tiny` | `crf = 32`, `max_height = 1080` |
+
+`shrinkit setup` copies these three when the working folder has no presets and no `settings.conf`
+yet.
+
+`2x` sets `speed = 2`, which is also the default in `settings.conf`. With the default settings, its
+entry encodes the same as `settings.conf` alone, and names the result `clip-2x.mp4`.
+
+## Layering
+
+A run starts from `settings.conf`. The preset goes on top of it, and the flags go on top of the
+preset. In this example, `tiny` sets `crf` and `max_height`, and the flag sets the speed:
+
+```bash
+shrinkit --preset tiny --speed 3 recording.mov
+```
+
+In an [edit file](/docs/edit/), a block starts from `settings.conf`, then its preset, then its own
+lines, which take the place of the flags.
+
+## Managing presets
+
+```bash
+shrinkit preset                  # list them
+shrinkit preset add mine         # make mine.conf and its entry, then open it
+shrinkit preset edit mine        # open it
+shrinkit preset remove mine      # move the file to the Trash and remove its entry
+shrinkit preset sync             # after adding or deleting files in presets/ by hand
+```
+
+`shrinkit preset add` starts the file with a note naming the settings a preset usually changes. On a
+preset that is already there, it gives the preset back its entry. Files open in
+[your editor](/docs/command-line/#editors).
+
+A preset name cannot be empty, hold a `/` or start with a dot. It cannot be `edit`, `run` or
+`merge` in any case, since those are shrinkit's own right-click entries.
+
+A preset whose every line is a comment sets nothing, and shrinkit says so each time it is used.
