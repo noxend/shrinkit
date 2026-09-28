@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "overview",
+    "install",
+    "right-click",
+    "presets",
+    "watch-folder",
+    "settings",
+    "edit",
+    "merge",
+    "command-line",
+    "troubleshooting"
+  ]
+}

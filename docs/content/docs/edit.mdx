@@ -1,0 +1,102 @@
+---
+title: Cut and edit
+description: Cut stretches out of a recording, and give several recordings their own settings in one file.
+---
+
+To cut a stretch out of one recording from a terminal, name the range and the file:
+`shrinkit --cut 0:32-0:35 clip.mov`. From Finder, right-click the recording and pick
+`shrinkit: edit`, which writes an [edit file](#the-edit-file) for it.
+
+<video src="/shrinkit/videos/edit.mp4" controls muted playsInline preload="metadata" style={{ width: '100%', borderRadius: '0.5rem' }}></video>
+
+## Cut and keep
+
+`--cut` names a stretch to remove, and repeats for more. `--keep` names what stays instead, and the
+rest is cut. A recording takes one or the other. In an edit file the same ranges go on `cut` and
+`keep` lines, one per line:
+
+```ini
+cut = 0-0:20       # the first 20 seconds
+cut = 2:30-end     # from 2:30 to the end
+```
+
+- Times are `M:SS`, `M:SS.f` or seconds, in the recording before it is sped up. `end` is its real
+  end.
+- Ranges that overlap are joined.
+- A range is skipped, and the log says why, when its end is not after its start, it is shorter than
+  0.1 seconds, or it starts at or past the end of the recording.
+- A cut that leaves nothing fails.
+
+## Several recordings
+
+1. Select up to 10 recordings in Finder, right-click, and pick `shrinkit: edit`. shrinkit writes an
+   edit file with a block per recording and opens it in TextEdit. Edit it and save it.
+2. Right-click the edit file and pick `shrinkit: run`. A Terminal window runs the blocks in order.
+
+Pick `shrinkit: run` on several edit files and one window runs them one after another. When every
+recording went through, the window closes itself, unless Terminal opened it as a tab beside
+others. When it stays open, it says how to run a file again.
+
+From a terminal, `shrinkit edit '1 intro.mov' '2 bug.mov'` writes or opens the same file in
+[your editor](/docs/command-line/#editors), and runs it when the editor exits. It runs nothing when
+the editor exits with an error, or returns within 2 seconds with the file unchanged. Such an editor
+needs its wait flag, for example `VISUAL='code --wait'`. `shrinkit run <file>` runs an edit file in
+the terminal you are in.
+
+With more than 10 recordings, `shrinkit edit` and `shrinkit: edit` write nothing and say they take
+up to 10. `shrinkit run` refuses a file with more than 10 blocks.
+
+## The edit file
+
+An edit file is plain text named `shrinkit-<code>.edit.txt`, beside the first recording. An edit of
+the same recordings opens it again as you left it. Delete it to start over.
+
+```ini
+merge = false
+
+[1 intro.mov]
+# 1 intro.mov is 2:14 long
+preset = 2x
+cut = 0:32-0:35
+
+[2 bug.mov]
+# 2 bug.mov is 0:48 long
+preset = sharp
+keep = 0:10-0:40
+```
+
+- Above the first block goes only `merge = true` or `merge = false`.
+- A block starts with `[name]` alone on its line: the recording's name when it is beside the edit
+  file, its full path otherwise.
+- Under it, one per line: `preset`, `cut`, `keep`, or `speed`, `fps`, `crf`, `codec`,
+  `remove_audio` and `max_height` as in [`settings.conf`](/docs/settings/). How they combine is
+  under [Layering](/docs/presets/#layering).
+- A line starting with `#` is a comment. Keys are read in any case, with `-` for `_`.
+- Delete a block to leave that recording out, or every block to cancel.
+
+You can also write an edit file by hand. `shrinkit run` in a terminal takes any file name;
+`shrinkit: run` in Finder takes only names ending in `.edit.txt`.
+
+Lines a run cannot read are listed under `skipped` before anything is encoded. A bad `cut` or
+`keep` range is skipped when its block runs. With `merge = true`, a block that cannot run stops the
+whole run.
+
+## Where results go
+
+With `merge = false`, each result lands beside its recording, under the
+[result name](/docs/right-click/#result-names) rule.
+
+With `merge = true` and two blocks or more, the results are joined in block order into one file
+beside the edit file, named after it: `shrinkit-3f9a2c-merged.mp4`, or `demo-merged.mp4` for
+`demo.edit.txt`. With one block, `merge = true` shrinks that recording on its own, as
+`merge = false` would.
+
+- The first block's `codec`, `fps` and `max_height` apply to every recording.
+- Every recording is fitted into one frame: the largest width and height among them, scaled down to
+  the first block's `max_height` when that is lower.
+- The run joins every recording or none. A failed encode stops it there.
+
+A run that reaches its recordings posts one banner at the end when `notify = true`, and with
+`copy_to_clipboard = true` copies every result.
+
+Ctrl-C, or closing the window, stops a run and deletes the half-written file.

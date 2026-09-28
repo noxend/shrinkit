@@ -1,0 +1,50 @@
+---
+title: Watch folder
+description: Drop a recording into input/ and pick the result up from output/.
+---
+
+The working folder is `~/Movies/shrinkit` unless you [moved it](/docs/settings/). The link on your
+Desktop opens it.
+
+<video src="/shrinkit/videos/watch-folder.mp4" controls muted playsInline preload="metadata" style={{ width: '100%', borderRadius: '0.5rem' }}></video>
+
+| Folder | What it holds |
+| --- | --- |
+| `input/` | Recordings to shrink. The watcher runs shrinkit when it changes. |
+| `output/` | The results. |
+| `.processed/` | Hidden. Originals after a good encode. |
+| `.logs/` | Hidden. The log, `optimizer.log`. |
+
+## What happens to a recording
+
+The watcher is a launchd agent that runs shrinkit when `input/` changes and at login. A run takes
+the `.mov`, `.mp4` and `.m4v` files straight inside `input/`, and skips hidden files and folders.
+For each one:
+
+1. An empty file is skipped. A file whose size changes over two seconds is still being written, so
+   it is skipped too. A later run takes it: the next drop into `input/`, or `shrinkit` with no file
+   names.
+2. It is encoded with [`settings.conf`](/docs/settings/) into `output/`, under the
+   [result name](/docs/right-click/#result-names) rule: `clip.mov` gives `output/clip.mp4`.
+3. With `keep_original = true`, the default, the original moves to `.processed/`. With `false` it
+   is deleted.
+
+Each file posts the same [banners](/docs/settings/#banners) as a right-click run.
+
+`shrinkit` with no file names does the same as the watcher, and takes the setting flags:
+`shrinkit --crf 32`. `--cut` and `--keep` need a file name.
+
+## Originals
+
+To keep an original, move it out of `.processed/`. A file put back into `input/` is shrunk again.
+[`keep_days`](/docs/settings/) deletes originals from `.processed/` after a number of days.
+
+## When a recording fails
+
+A recording that cannot be shrunk stays in `input/` and is tried again on every later run. A banner
+says `Could not shrink`, and `.logs/optimizer.log` has ffmpeg's output.
+
+A recording that was shrunk but could not be moved or deleted also stays in `input/`. Its result is
+in `output/`, and later runs skip it.
+
+[`shrinkit doctor`](/docs/troubleshooting/) names both kinds.

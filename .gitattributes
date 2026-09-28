@@ -1,0 +1,3 @@
+# The archive Homebrew installs from is git archive of a tag: the docs site is not part of it.
+docs export-ignore
+docs/** export-ignore

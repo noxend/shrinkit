@@ -1,0 +1,62 @@
+---
+title: Install
+description: Install, upgrade and uninstall with Homebrew.
+---
+
+Needs macOS and [Homebrew](https://brew.sh).
+
+<video src="/shrinkit/videos/install.mp4" controls muted playsInline preload="metadata" style={{ width: '100%', borderRadius: '0.5rem' }}></video>
+
+```bash
+brew tap noxend/shrinkit https://github.com/noxend/shrinkit
+brew install --cask noxend/shrinkit/shrnkit
+```
+
+The cask is `shrnkit`; the command is `shrinkit`. Homebrew installs `ffmpeg` with it.
+
+## Next
+
+Open the `shrinkit` link on your Desktop and drop a recording into `input/`, as the
+[watch folder](/docs/watch-folder/) page describes. Or right-click a recording in Finder and pick
+`shrinkit: 2x`, as [Right-click in Finder](/docs/right-click/) describes.
+
+## What setup creates
+
+The cask runs `shrinkit setup`, which creates:
+
+- the working folder `~/Movies/shrinkit`, with `input/`, `output/`, `presets/` and
+  `settings.conf`, and a link to it on your Desktop
+- the right-click entries in Finder
+- the watcher: a launchd agent that runs shrinkit when `input/` changes and at login
+
+An existing `settings.conf` is kept.
+
+## Upgrading
+
+```bash
+brew upgrade --cask shrnkit
+```
+
+Homebrew runs `shrinkit teardown` and then `shrinkit setup` again. The working folder,
+`settings.conf` and the presets stay as they are.
+
+## Uninstalling
+
+```bash
+brew uninstall --cask shrnkit
+```
+
+This runs `shrinkit teardown`, which removes the watcher, the right-click entries and the Desktop
+link. The working folder stays, with your recordings, results, settings and presets.
+`brew uninstall --zap --cask shrnkit` also moves `~/Library/Application Support/shrinkit` to the
+Trash, so the chosen working folder is forgotten.
+
+If `brew uninstall` cannot run it, do the same by hand, then delete the link on your Desktop:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.shrinkit"
+rm -f ~/Library/LaunchAgents/com.shrinkit.plist
+rm -rf ~/Library/Services/shrinkit:*.workflow
+rm -rf ~/"Library/Application Support/shrinkit/shrinkit edit.command" ~/"Library/Application Support/shrinkit/edit-queue"
+/System/Library/CoreServices/pbs -update
+```
