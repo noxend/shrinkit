@@ -374,3 +374,42 @@ test_a_run_stopped_on_a_terminal_shows_the_cursor_again() {
   check "makes nothing" missing "$work/clip.mp4"
   check "and leaves nothing in the temporary folder" empty_dir "$tmp"
 }
+
+# The progress file exists from the moment mktemp makes it, before SCREEN_PROGRESS names it. mktemp
+# here takes a second over it, and the run is stopped inside that second. The stop waits for ffmpeg
+# to start, and has to kill it: ffmpeg here ignores the hangup that closing the terminal sends.
+test_a_run_stopped_while_making_its_progress_file_leaves_nothing_behind() {
+  local box tools work file tmp runner pid code=0 _
+  box="$(sandbox)"
+  settings "$box" 'speed = 2'
+  tools="$(scratch)"
+  stub_tools "$tools"
+  stub_editor "$tools" editor
+  print -rl -- '#!/bin/zsh' 'made="$(/usr/bin/mktemp "$@")" || exit 1' \
+    "[[ \"\$made\" == *.progress.* ]] && : > ${(qq)tools}/making && sleep 1" 'print -r -- "$made"' \
+    > "$tools/mktemp"
+  print -rl -- '#!/bin/zsh' "trap '' HUP" "exec ${(qq)FFMPEG} \"\$@\"" > "$tools/ffmpeg"
+  chmod +x "$tools/mktemp" "$tools/ffmpeg"
+  work="$(scratch)"
+  tmp="$(scratch)"
+  cp "$FIXTURES/big.mov" "$work/clip.mov"
+  file="$(make_edit "$box" "$tools" "$work/clip.mov")"
+
+  in_terminal "$tools" env -u NO_COLOR TMPDIR="$tmp" PATH="$tools:$PATH" SHRINKIT_DIR="$box" \
+    SHRINKIT_REPO= zsh -c 'print $$ > "$1"; shift; exec "$@"' zsh "$tools/pid" \
+    zsh "$OPTIMIZER" run "$file" &
+  runner=$!
+  for _ in {1..400}; do
+    [[ -e "$tools/making" ]] && break
+    sleep 0.05
+  done
+  pid="$(< "$tools/pid")"
+  kill -TERM "$pid"
+  wait "$runner" || code=$?
+
+  check "was stopped while the progress file was being made" exists "$tools/making"
+  check "exits as TERM asks" test "$code" = 143
+  check "makes nothing" missing "$work/clip.mp4"
+  check "leaves no ffmpeg running" test -z "$(pgrep -f "$work/clip.mov")"
+  check "and nothing in the temporary folder" empty_dir "$tmp"
+}

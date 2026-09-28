@@ -253,6 +253,11 @@ log() {
 # The part being written and the ffmpeg writing it, so an interrupted run can stop both.
 CURRENT_PART=""
 CURRENT_CHILD=""
+# zsh cannot block a signal, so from before run_ffmpeg makes the progress file until ffmpeg is in
+# CURRENT_CHILD a stop is held: stop_run keeps the first status in STOP_PENDING, and run_ffmpeg stops
+# the run once ffmpeg is recorded.
+STOP_HELD=""
+STOP_PENDING=""
 
 # The folder a merged edit run keeps its parts in until they are joined.
 PARTS_DIR=""
@@ -270,11 +275,15 @@ run_ffmpeg() {
   local word="$1" length="$2" rc progress=""
   local -a report
   shift 2
+  STOP_HELD=1
   if screen_draws && progress="$(mktemp "$(temp_folder)/shrinkit.$$.progress.XXXXXX")"; then
+    SCREEN_PROGRESS="$progress"
     report=(-progress "$progress")
   fi
   "$FFMPEG" "${report[@]}" "$@" &
   CURRENT_CHILD=$!
+  STOP_HELD=""
+  [[ -n "$STOP_PENDING" ]] && stop_run "$STOP_PENDING"
   [[ -n "$progress" ]] && screen_progress "$word" "$length" "$progress"
   wait "$CURRENT_CHILD"
   rc=$?
@@ -1861,6 +1870,10 @@ main() {
 # ffmpeg is killed outright: asked to stop, it first encodes the frames the encoder still holds,
 # seconds on a busy Mac, into a file that is removed anyway.
 stop_run() {
+  [[ -n "$STOP_HELD" ]] && {
+    STOP_PENDING="${STOP_PENDING:-$1}"
+    return
+  }
   [[ -n "$CURRENT_CHILD" ]] && kill -KILL "$CURRENT_CHILD" 2> /dev/null && wait "$CURRENT_CHILD" 2> /dev/null
   [[ -n "$CURRENT_PART" ]] && rm -f "$CURRENT_PART"
   exit "$1"
