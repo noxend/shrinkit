@@ -1,11 +1,11 @@
 cask "shrnkit" do
-  version "3.1.0"
-  sha256 "e4a73819a40a22f484a119ebc3e02e4992c3610a86f9442de561f841cce94d27"
+  version "3.2.0"
+  sha256 "bbc3df18deba9b0f680a3416a5920ecfdf5cdd8c285e1f4d10ff4870ef00f2c4"
 
   url "https://github.com/noxend/shrinkit/archive/refs/tags/v#{version}.tar.gz"
   name "shrinkit"
   desc "Compresses and speeds up screen recordings"
-  homepage "https://github.com/noxend/shrinkit"
+  homepage "https://noxend.github.io/shrinkit/"
 
   depends_on formula: "ffmpeg"
 
