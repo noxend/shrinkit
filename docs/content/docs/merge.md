@@ -31,4 +31,4 @@ copy fails or comes out the wrong length. Otherwise they are re-encoded to `.mp4
 Merging does not shrink. Run a [preset](/docs/presets/) on the result, or use `merge = true` in an
 edit file to shrink and join in one go.
 
-A merge takes at least 2 recordings and at most 10. It posts [banners](/docs/settings/#banners).
+It posts [banners](/docs/settings/#banners).

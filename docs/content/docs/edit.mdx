@@ -16,14 +16,16 @@ rest is cut. A recording takes one or the other. In an edit file the same ranges
 `keep` lines, one per line:
 
 ```ini
-cut = 0-0:20       # the first 20 seconds
-cut = 2:30-end     # from 2:30 to the end
+cut = 0-0:20
+cut = 2:30-end
 ```
+
+`0-0:20` is the first 20 seconds, `2:30-end` everything from 2:30.
 
 - Times are `M:SS`, `M:SS.f` or seconds, in the recording before it is sped up. `end` is its real
   end.
 - Ranges that overlap are joined.
-- A range is skipped, and the log says why, when its end is not after its start, it is shorter than
+- A range is skipped, and the log says why, when it cannot be read, its end is not after its start, it is shorter than
   0.1 seconds, or it starts at or past the end of the recording.
 - A cut that leaves nothing fails.
 
@@ -39,8 +41,8 @@ others. When it stays open, it says how to run a file again.
 
 From a terminal, `shrinkit edit '1 intro.mov' '2 bug.mov'` writes or opens the same file in
 [your editor](/docs/command-line/#editors), and runs it when the editor exits. It runs nothing when
-the editor exits with an error, or returns within 2 seconds with the file unchanged. Such an editor
-needs its wait flag, for example `VISUAL='code --wait'`. `shrinkit run <file>` runs an edit file in
+the editor exits with an error, or returns within 2 seconds with the file unchanged. An editor that
+returns at once needs its wait flag, for example `VISUAL='code --wait'`. `shrinkit run <file>` runs an edit file in
 the terminal you are in.
 
 With more than 10 recordings, `shrinkit edit` and `shrinkit: edit` write nothing and say they take

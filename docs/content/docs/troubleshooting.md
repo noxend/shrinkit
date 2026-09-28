@@ -21,7 +21,7 @@ not `ok`, and a fix where there is one. It exits non-zero when a check fails.
   reason is in `.logs/optimizer.log`. Move it out of `input/`.
 - **The result has no sound.** `remove_audio = true` is the default. Run
   `shrinkit config remove_audio false`, or pass `--no-remove-audio` for one run.
-- **No banners.** Check `notify` and `notify_start` with `shrinkit config`; see
+- **No banners.** Check that `notify = true` with `shrinkit config`; see
   [Banners](/docs/settings/#banners).
 
 ## Messages
@@ -32,7 +32,7 @@ not `ok`, and a fix where there is one. It exits non-zero when a check fails.
 | `Cannot create or write to the working folder` | Connect the drive it is on and run `shrinkit setup`, or pick another with `shrinkit config folder <path>`. |
 | `macOS refused to start the watcher` | Read launchctl's reason above it. If shrinkit is switched off in System Settings > General > Login Items & Extensions, switch it on, then run `shrinkit setup`. |
 | `ONE-TIME STEP: ... privacy-protected location` | Follow the steps it prints to grant Full Disk Access. |
-| `'shrinkit' on your PATH is ...` | Two installs are in play. Run `shrinkit setup` from the one to keep. |
+| `'shrinkit' on your PATH is ...` | Two installs are in play. Run `setup` by the full path of the one to keep, as the message names it. |
 | `the preset '...' sets nothing` | Take the `#` off the lines that should count. |
 | `... returned at once with the file as it was` | Put the editor's wait flag in `VISUAL` or `EDITOR`, such as `code --wait`. |
 | `... was saved as rich text` | In TextEdit, Format > Make Plain Text, save, and run it again. |
