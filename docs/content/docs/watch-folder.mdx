@@ -10,7 +10,7 @@ Desktop opens it.
 
 | Folder | What it holds |
 | --- | --- |
-| `input/` | Recordings to shrink. The watcher runs shrinkit when it changes. |
+| `input/` | Recordings to shrink. |
 | `output/` | The results. |
 | `.processed/` | Hidden. Originals after a good encode. |
 | `.logs/` | Hidden. The log, `optimizer.log`. |
@@ -36,8 +36,8 @@ Each file posts the same [banners](/docs/settings/#banners) as a right-click run
 
 ## Originals
 
-To keep an original, move it out of `.processed/`. A file put back into `input/` is shrunk again.
-[`keep_days`](/docs/settings/) deletes originals from `.processed/` after a number of days.
+[`keep_days`](/docs/settings/) deletes originals from `.processed/` after a number of days; by
+default they stay. A file put back into `input/` is shrunk again.
 
 ## When a recording fails
 

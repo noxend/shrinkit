@@ -11,7 +11,7 @@ shrinkit config                          # the values in effect
 shrinkit config crf 32                   # change one
 shrinkit config edit                     # open settings.conf
 shrinkit config folder                   # print the working folder
-shrinkit config folder ~/Movies/clips    # move it
+shrinkit config folder ~/Movies/clips    # use another folder
 ```
 
 `shrinkit config <setting> <value>` refuses a value that does not fit, and keeps the file's
@@ -49,7 +49,7 @@ ignored; `.logs/optimizer.log` says so either way. Every setting is also a
 
 ## Banners
 
-Right-click runs report through macOS notifications, and so do the watcher's runs:
+Every run reports through macOS notifications:
 
 - when a file starts: `Optimizing…` and its name
 - when it is done: its name and the size before and after
@@ -59,4 +59,4 @@ Right-click runs report through macOS notifications, and so do the watcher's run
 A [merge](/docs/merge/) posts `Merging…` when it starts, a banner when it is done, and one titled
 `Could not merge` when the join fails. An [edit run](/docs/edit/) posts one banner at the end.
 
-`notify = false` turns all of them off. `notify_start = false` turns off the one when a file starts.
+`notify = false` turns all of them off. `notify_start = false` turns off the ones posted when a file or a merge starts.

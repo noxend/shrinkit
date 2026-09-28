@@ -32,7 +32,7 @@ file is skipped. `shrinkit` with no files shrinks what waits in `input/`, as the
 | `--keep <range>` | A stretch to keep, the rest cut. Repeat for more. |
 
 How flags combine with a preset and `settings.conf` is under [Layering](/docs/presets/#layering). A
-flag value that does not fit is replaced by the default, and the log says so. An unknown flag, or
+flag value that does not fit is replaced by the built-in default, not the value in `settings.conf`, and the log says so. An unknown flag, or
 one missing its value, stops the run. `--cut` and `--keep` need a file named, and not both at once;
 see [Cut and keep](/docs/edit/#cut-and-keep).
 
@@ -42,7 +42,7 @@ see [Cut and keep](/docs/edit/#cut-and-keep).
 | --- | --- |
 | `config` | Shows and changes [settings](/docs/settings/), and moves the working folder. `shrinkit config show` is the same as `shrinkit config`. |
 | `preset` | Lists, adds, edits, removes and syncs [presets](/docs/presets/). |
-| `edit <file>...` | Writes or opens an [edit file](/docs/edit/) for up to 10 recordings, and runs it when the editor exits cleanly after the file was edited (see [Cut and edit](/docs/edit/)). |
+| `edit <file>...` | Writes or opens an [edit file](/docs/edit/) for up to 10 recordings, and runs it when the editor exits without an error (see [Cut and edit](/docs/edit/#several-recordings)). |
 | `run <file>` | Runs an edit file in this terminal. |
 | `merge <file>...` | [Joins](/docs/merge/) 2 to 10 recordings without shrinking them. |
 | `setup` | Creates the folders, the watcher and the right-click entries. Homebrew runs it on install and upgrade. |
